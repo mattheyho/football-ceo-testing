@@ -785,6 +785,11 @@ function renderDashboard(){
     </div>`;
   }).join("");
 
+  if(q("leaguePositionMetric")){
+    const pos=clubLeaguePosition(state.club);
+    q("leaguePositionMetric").textContent=ordinal(pos);
+  }
+
   const pl=q("seasonPL");
   pl.textContent=money(state.seasonPL);
   pl.className="v "+(state.seasonPL>0?"good":state.seasonPL<0?"bad":"");

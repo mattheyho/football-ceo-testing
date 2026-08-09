@@ -16,6 +16,7 @@ function ensureContractState(){
   if(!state.playerContracts) state.playerContracts={};
   if(!state.playerListStatus) state.playerListStatus={};
   if(!state.managerRequests) state.managerRequests=[];
+  if(!state.managerRequestCooldowns) state.managerRequestCooldowns={};
   squad(state.club).forEach(p=>{
     if(!state.playerContracts[p.id]){
       state.playerContracts[p.id]={
@@ -159,42 +160,104 @@ function maybeGenerateManagerSquadRequest(){
   const sq=squad(state.club);
   const options=[];
 
-  // Signing requests are driven by actual squad weaknesses. They are much more
-  // likely around the summer/start of season and January review than randomly.
-  const reviewWeek = state.week===0 || state.week===18;
-  const signingChance = reviewWeek ? 0.72 : 0.08;
-  if(Math.random()<signingChance){
-    const needs=evaluateSquadNeeds(state.club).filter(x=>x.score>=54);
-    if(needs.length){
-      const need=needs[0];
+  // WEEKLY SQUAD REVIEW
+  // The manager reassesses the squad every week. Genuine positional shortages
+  // create requests much more reliably than the old random-review model.
+  const needs=evaluateSquadNeeds(state.club);
+
+  needs.forEach(need=>{
+    // Severe shortages (e.g. selling the starting GK and leaving weak/no cover)
+    // should generate an immediate signing request.
+    if(need.score>=72){
       const targets=findTransferTargets(state.club,need.position,6);
       if(targets.length){
         const preferred=[...targets].sort((a,b)=>managerInterestScore(b.player)-managerInterestScore(a.player))[0];
-        options.push({type:"sign",position:need.position,playerId:preferred.player.id,priority:reviewWeek?6:3,alternatives:targets.slice(0,4).map(x=>x.player.id)});
+        options.push({
+          type:"sign",
+          position:need.position,
+          playerId:preferred.player.id,
+          priority:10,
+          alternatives:targets.slice(0,4).map(x=>x.player.id),
+          urgency:"critical"
+        });
+      }
+    }else if(need.score>=56){
+      // Meaningful but non-critical weakness: still reviewed weekly, but less likely
+      // to dominate over contract/listing requests.
+      const targets=findTransferTargets(state.club,need.position,6);
+      if(targets.length){
+        const preferred=[...targets].sort((a,b)=>managerInterestScore(b.player)-managerInterestScore(a.player))[0];
+        options.push({
+          type:"sign",
+          position:need.position,
+          playerId:preferred.player.id,
+          priority:5,
+          alternatives:targets.slice(0,4).map(x=>x.player.id),
+          urgency:"important"
+        });
       }
     }
-  }
-
-  // Existing squad-management requests remain part of the manager relationship.
-  sq.forEach(p=>{
-    const c=state.playerContracts[p.id];
-    if(c && c.endYear<=2026 && p.overall>=78) options.push({type:"renew",playerId:p.id,priority:3});
-    if(p.age>=29 && p.overall<=74) options.push({type:"transfer",playerId:p.id,priority:2});
-    if(p.age<=21 && p.overall<=72) options.push({type:"loan",playerId:p.id,priority:2});
   });
 
-  if(!options.length || (!reviewWeek && Math.random()>0.28)) return;
-  const weighted=[];
-  options.forEach(o=>{for(let i=0;i<o.priority;i++) weighted.push(o)});
-  const pick=weighted[Math.floor(Math.random()*weighted.length)];
+  // Existing squad-management requests.
+  sq.forEach(p=>{
+    const c=state.playerContracts[p.id];
+    if(c && c.endYear<=2026 && p.overall>=78){
+      options.push({type:"renew",playerId:p.id,priority:3});
+    }
+    if(p.age>=29 && p.overall<=74){
+      options.push({type:"transfer",playerId:p.id,priority:2});
+    }
+    if(p.age<=21 && p.overall<=72){
+      options.push({type:"loan",playerId:p.id,priority:2});
+    }
+  });
+
+  if(!options.length) return;
+
+  // If there is a critical squad shortage, always pick from critical signing needs.
+  const critical=options.filter(o=>o.type==="sign" && o.urgency==="critical");
+  let pick;
+  if(critical.length){
+    pick=critical.sort((a,b)=>{
+      const na=needs.find(n=>n.position===a.position)?.score||0;
+      const nb=needs.find(n=>n.position===b.position)?.score||0;
+      return nb-na;
+    })[0];
+  }else{
+    // Otherwise use weighted choice so the manager doesn't spam the same category
+    // every single week, while still reviewing weekly.
+    const weighted=[];
+    options.forEach(o=>{for(let i=0;i<o.priority;i++) weighted.push(o)});
+    pick=weighted[Math.floor(Math.random()*weighted.length)];
+  }
+
   const p=DB.players.find(x=>String(x.id)===String(pick.playerId));
   if(!p) return;
+
+  // Avoid repeating the exact same signing request every week after it has just
+  // been rejected. A short cooldown keeps it natural while still re-reviewing.
+  if(!state.managerRequestCooldowns) state.managerRequestCooldowns={};
+  const cooldownKey=pick.type==="sign" ? `sign-${pick.position}` : `${pick.type}-${p.id}`;
+  const lastWeek=state.managerRequestCooldowns[cooldownKey];
+  if(lastWeek!=null && state.week-lastWeek<2) return;
+  state.managerRequestCooldowns[cooldownKey]=state.week;
+
   const id="mr"+Date.now()+Math.floor(Math.random()*1000);
-  const req={id,type:pick.type,playerId:p.id,position:pick.position||null,alternatives:pick.alternatives||[],resolved:false,manager:manager.name};
+  const req={
+    id,
+    type:pick.type,
+    playerId:p.id,
+    position:pick.position||null,
+    alternatives:pick.alternatives||[],
+    urgency:pick.urgency||null,
+    resolved:false,
+    manager:manager.name
+  };
   state.managerRequests.push(req);
 
   const wording = pick.type==="sign"
-    ? `${manager.name} wants the club to sign a new ${positionLabel(pick.position)} and recommends ${p.name} as the preferred target.`
+    ? `${manager.name} has reviewed the squad and wants a new ${positionLabel(pick.position)}${pick.urgency==="critical"?" urgently":""}. ${p.name} is the preferred target.`
     : pick.type==="renew"
       ? `${manager.name} wants the club to open contract talks with ${p.name}.`
       : pick.type==="transfer"
