@@ -1085,6 +1085,21 @@ function closeTransferPlayerFile(){
   q("transferPlayerModal")?.classList.add("hide");
 }
 
+
+function transferSellerReservationPrice(n){
+  // The DoF should help, but not magically turn a £130m player into a £95m sale.
+  // Translate the existing DoF modifier into a capped 0–8% negotiating advantage.
+  const rawModifier=dofNegotiationModifier();
+  const dofAdvantage=clamp((1-rawModifier)*0.40,-0.04,0.08);
+  return Math.round((n.askingPrice*(0.97-dofAdvantage))/250000)*250000;
+}
+
+function initialSellerCounter(n){
+  const reservation=transferSellerReservationPrice(n);
+  const opening=Math.round((n.askingPrice*(1.00+stablePlayerTrait({id:n.playerId},"seller-counter")*0.035))/250000)*250000;
+  return Math.max(reservation,opening);
+}
+
 function beginTransferApproach(id,context={}){
   ensureContractState();
   if(blockClosedWindow("authorise an approach")) return;
@@ -1093,10 +1108,14 @@ function beginTransferApproach(id,context={}){
   if(!state.transferNegotiations[p.id]){
     const asking=estimatedAskingPrice(p,state.club);
     const suggested=Math.round((asking*.82)/250000)*250000;
-    state.transferNegotiations[p.id]={
+    const negotiation={
       playerId:p.id,sellingClub:p.club,buyingClub:state.club,askingPrice:asking,
-      latestOffer:suggested,round:0,status:"negotiating",managerRequestId:context.managerRequestId||null
+      latestOffer:suggested,round:0,status:"negotiating",managerRequestId:context.managerRequestId||null,
+      previousUserOffer:0,lastCounter:null,stagnantRounds:0
     };
+    negotiation.reservationPrice=transferSellerReservationPrice(negotiation);
+    negotiation.lastCounter=initialSellerCounter(negotiation);
+    state.transferNegotiations[p.id]=negotiation;
   }
   renderTransferNegotiation(p.id);
 }
@@ -1130,6 +1149,7 @@ function renderTransferNegotiation(id){
     <b>Club negotiation — ${n.sellingClub}</b><br>
     <span class="muted small">Recruitment estimates the player may cost around ${money(Math.round(n.askingPrice*.92/250000)*250000)}–${money(Math.round(n.askingPrice*1.08/250000)*250000)}.</span>
     ${n.message?`<div style="margin-top:8px">${n.message}</div>`:""}
+    ${n.lastCounter?`<div class="muted small" style="margin-top:6px">Current counter: ${money(n.lastCounter)} • Match this amount to accept.</div>`:""}
     <div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:10px;align-items:center">
       <label>Transfer fee <input id="transferFeeOffer" type="number" step="250000" value="${n.latestOffer}"></label>
       <button class="btn primary" id="submitTransferBid">Submit bid</button>
@@ -1142,38 +1162,134 @@ function renderTransferNegotiation(id){
 
 function submitTransferBid(id,fee){
   if(blockClosedWindow("submit a transfer bid")) return;
+
   const p=DB.players.find(x=>String(x.id)===String(id));
   const n=state.transferNegotiations?.[id];
   if(!p||!n||fee<=0) return;
+
+  const offer=Math.round(fee/250000)*250000;
+
+  // Migrate older/in-progress negotiations safely.
+  if(n.reservationPrice==null) n.reservationPrice=transferSellerReservationPrice(n);
+  if(n.lastCounter==null) n.lastCounter=initialSellerCounter(n);
+  if(n.previousUserOffer==null) n.previousUserOffer=0;
+  if(n.stagnantRounds==null) n.stagnantRounds=0;
+
+  const reservation=n.reservationPrice;
+  const sellerCounter=n.lastCounter;
+  const previousOffer=n.previousUserOffer;
+
   n.round=(n.round||0)+1;
-  n.latestOffer=Math.round(fee/250000)*250000;
 
-  // A stronger DOF effectively lowers the price at which the selling club can be
-  // persuaded to close. This reuses the existing staff mechanic rather than
-  // creating a disconnected transfer-only rating.
-  const effectiveAsk=n.askingPrice*dofNegotiationModifier();
-  const ratio=n.latestOffer/effectiveAsk;
-
-  if(ratio>=0.985){
+  // ABSOLUTE RULE:
+  // If the buyer meets or exceeds the seller's current counter, the deal is accepted.
+  if(offer>=sellerCounter){
     n.status="clubAccepted";
-    n.agreedFee=n.latestOffer;
-    n.message=`${n.sellingClub} accepted your offer.`;
-    addNews(`${n.sellingClub} have accepted ${state.club}'s ${money(n.agreedFee)} offer for ${p.name}.`);
-  }else if(ratio>=0.84){
-    const counter=Math.round((effectiveAsk*(0.985-(n.round-1)*0.018))/250000)*250000;
-    n.message=`${n.sellingClub} rejected the bid and countered at ${money(counter)}.`;
-    n.latestOffer=Math.max(n.latestOffer,counter);
-    if(n.round>=4 && ratio<0.92){
+    n.agreedFee=offer;
+    n.latestOffer=offer;
+    n.previousUserOffer=offer;
+    n.message=`${n.sellingClub} accepted your offer of ${money(offer)}.`;
+    addNews(`${n.sellingClub} have accepted ${state.club}'s ${money(offer)} offer for ${p.name}.`);
+    saveGame(false);
+    renderTransferNegotiation(p.id);
+    return;
+  }
+
+  // Also accept if the bid reaches the seller's internal minimum.
+  if(offer>=reservation){
+    n.status="clubAccepted";
+    n.agreedFee=offer;
+    n.latestOffer=offer;
+    n.previousUserOffer=offer;
+    n.message=`${n.sellingClub} accepted your offer of ${money(offer)}.`;
+    addNews(`${n.sellingClub} have accepted ${state.club}'s ${money(offer)} offer for ${p.name}.`);
+    saveGame(false);
+    renderTransferNegotiation(p.id);
+    return;
+  }
+
+  const improvement=offer-previousOffer;
+
+  // Same/lower bid: seller does not move at all.
+  if(previousOffer>0 && improvement<=0){
+    n.stagnantRounds+=1;
+    n.previousUserOffer=offer;
+    n.latestOffer=sellerCounter;
+
+    if(n.stagnantRounds>=2 || n.round>=6){
       n.status="rejected";
-      n.message=`${n.sellingClub} have ended negotiations after repeated bids below their valuation.`;
+      n.message=`${n.sellingClub} ended negotiations after you failed to improve your offer.`;
+    }else{
+      n.message=`${n.sellingClub} rejected the bid. Their counter remains ${money(sellerCounter)}.`;
     }
-  }else{
-    n.message=`${n.sellingClub} rejected the bid as well below their valuation.`;
+
+    saveGame(false);
+    renderTransferNegotiation(p.id);
+    return;
+  }
+
+  n.stagnantRounds=0;
+
+  // Very low bids do not earn any seller concession.
+  if(offer<reservation*0.82){
+    n.previousUserOffer=offer;
+    n.latestOffer=sellerCounter;
+    n.message=`${n.sellingClub} rejected the bid as well below their valuation. Their counter remains ${money(sellerCounter)}.`;
+
     if(n.round>=3){
       n.status="rejected";
-      n.message=`${n.sellingClub} have ended negotiations.`;
+      n.message=`${n.sellingClub} have ended negotiations after repeated low offers.`;
+    }
+
+    saveGame(false);
+    renderTransferNegotiation(p.id);
+    return;
+  }
+
+  // Improved bids can earn a SMALL seller concession.
+  // The seller never counters below:
+  // 1) their reservation price
+  // 2) the buyer's submitted offer + £250k
+  // This prevents impossible "we counter below your offer but still reject it" states.
+  const concession=Math.max(
+    0,
+    Math.min(
+      sellerCounter-reservation,
+      Math.round((Math.max(250000,improvement)*0.35)/250000)*250000
+    )
+  );
+
+  let newCounter=Math.max(
+    reservation,
+    sellerCounter-concession,
+    offer+250000
+  );
+
+  // Round safely
+  newCounter=Math.round(newCounter/250000)*250000;
+
+  // Defensive guarantee: if rounding somehow takes the counter to/below the offer,
+  // accept the user's offer rather than creating a contradictory state.
+  if(newCounter<=offer){
+    n.status="clubAccepted";
+    n.agreedFee=offer;
+    n.latestOffer=offer;
+    n.previousUserOffer=offer;
+    n.lastCounter=offer;
+    n.message=`${n.sellingClub} accepted your offer of ${money(offer)}.`;
+    addNews(`${n.sellingClub} have accepted ${state.club}'s ${money(offer)} offer for ${p.name}.`);
+  }else{
+    n.previousUserOffer=offer;
+    n.lastCounter=newCounter;
+    n.latestOffer=newCounter;
+    n.message=`${n.sellingClub} rejected the bid and countered at ${money(newCounter)}.`;
+
+    if(n.round>=6 && offer<reservation*0.94){
+      n.status="rejected";
+      n.message=`${n.sellingClub} have ended negotiations because your offers remained below their valuation.`;
     }
   }
+
   saveGame(false);
   renderTransferNegotiation(p.id);
 }
