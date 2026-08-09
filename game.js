@@ -273,23 +273,36 @@ function injuryBaseDuration(){
 
 function processInjuries(){
   ensureStaffState();
+
+  const medical=typeof facilityRating==="function" ? facilityRating("medical") : 70;
+  const medicalModifier=clamp(1-(medical-50)*0.006,0.65,1.18);
+
   // Existing injuries recover by one week.
   Object.keys(state.injuries).forEach(pid=>{
-    state.injuries[pid].weeksLeft-=1;
-    if(state.injuries[pid].weeksLeft<=0){
+    const injury=state.injuries[pid];
+    injury.weeksLeft-=1;
+
+    // Elite medical facilities occasionally accelerate recovery.
+    if(medical>=85 && injury.weeksLeft>1 && Math.random()<0.20){
+      injury.weeksLeft-=1;
+    }
+
+    if(injury.weeksLeft<=0){
       const p=DB.players.find(x=>String(x.id)===String(pid));
       if(p) addNews(`${p.name} has returned to full training.`);
       delete state.injuries[pid];
     }
   });
 
-  // New injuries. Approx base weekly probability per player ~0.55%.
+  // New injuries. Head Physio and medical facilities both reduce risk.
   const healthy=squad(state.club).filter(p=>!state.injuries[p.id]);
-  const chance=0.0055*physioInjuryChanceModifier();
+  const chance=0.0055*physioInjuryChanceModifier()*medicalModifier;
+
   healthy.forEach(p=>{
-    if(Math.random()<chance*medicalModifier){
+    if(Math.random()<chance){
       const raw=injuryBaseDuration();
-      const weeks=Math.max(1,Math.round(raw*physioRecoveryModifier()));
+      const facilityRecovery=clamp(1-(medical-70)*0.004,0.86,1.08);
+      const weeks=Math.max(1,Math.round(raw*physioRecoveryModifier()*facilityRecovery));
       state.injuries[p.id]={weeksLeft:weeks,totalWeeks:weeks};
       addNews(`${p.name} has suffered an injury and is expected to miss around ${weeks} week${weeks===1?"":"s"}.`);
     }
@@ -439,9 +452,9 @@ function updateStakeholderDrivers(){
   else if(managerChanges===1) players.push({label:"Recent manager change",value:-2});
   else players.push({label:"Managerial instability",value:-5});
 
-  const facilityRating=state.trainingFacilities?.rating ?? Math.round(byClub(state.club).reputation-4);
+  const trainingRating=typeof facilityRating==="function" ? facilityRating("training") : Math.round(byClub(state.club).reputation-4);
   const squadStandard=Math.round(strength(state.club));
-  const facilityGap=facilityRating-squadStandard;
+  const facilityGap=trainingRating-squadStandard;
   if(facilityGap>=3) players.push({label:"Excellent training facilities",value:2});
   else if(facilityGap<=-8) players.push({label:"Training facilities below squad standard",value:-4});
   else if(facilityGap<=-4) players.push({label:"Training facilities need improvement",value:-2});
@@ -1280,6 +1293,15 @@ const FACILITY_TYPES={
 };
 
 function facilityRating(type){
+  if(!state.facilities){
+    const rep=byClub(state.club)?.reputation||72;
+    state.facilities={
+      training:clamp(Math.round(rep-3),55,94),
+      medical:clamp(Math.round(rep-5),52,92),
+      academy:clamp(Math.round(rep-7),48,93),
+      recruitment:clamp(Math.round(rep-4),52,94)
+    };
+  }
   return clamp(Number(state.facilities?.[type]??50),0,100);
 }
 
@@ -1478,7 +1500,7 @@ function advanceMatchweek(){
   state.monthlyFinance.staffWages+=staffWeekly;
   state.monthlyFinance.operatingCosts+=operatingCosts.total;
 
-  state.seasonPL += homeIncome + commercialIncome + sponsorIncome - weeklyWages - staffWeekly - operatingCosts.total;
+  state.seasonPL += homeIncome + commercialIncome + sponsorIncome - weeklyWages - operatingCosts.total;
 
   applyStakeholderHappiness();
   updateIndividualMorale();
@@ -2023,7 +2045,17 @@ function init(){
       renderSquad();
     });
   });
-  q("advanceBtn")?.addEventListener("click",advanceMatchweek);
+  q("advanceBtn")?.addEventListener("click",()=>{
+    try{
+      advanceMatchweek();
+    }catch(err){
+      console.error("Advance Matchweek failed:",err);
+      addNews(`A simulation error prevented the matchweek from advancing: ${err?.message||"Unknown error"}.`);
+      saveGame(false);
+      renderDashboard();
+      renderInbox();
+    }
+  });
   q("continueBtn")?.addEventListener("click",loadGame);
   document.querySelectorAll("#matchday .step-btn").forEach(btn=>{
     btn.addEventListener("click",()=>updatePrice(btn.dataset.price,Number(btn.dataset.step)));
