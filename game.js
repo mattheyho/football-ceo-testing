@@ -637,6 +637,7 @@ function createCareer(club){
     trainingFacilities:{rating:clamp(Math.round(c.reputation-4),65,92)},
     transferSentiment:{fans:[],owners:[],players:[],manager:[]},
     transferFinance:{spent:0,received:0},
+    aiClubFinances:{},
     happinessDrivers:{fans:[],owners:[],players:[],manager:[]},
     seasonPL:0,
     pricing:defaultPricing(club),
@@ -670,6 +671,8 @@ function enterGame(){
   if(!state.trainingFacilities) state.trainingFacilities={rating:clamp(Math.round(byClub(state.club).reputation-4),65,92)};
   if(!state.transferSentiment) state.transferSentiment={fans:[],owners:[],players:[],manager:[]};
   if(!state.transferFinance) state.transferFinance={spent:0,received:0};
+  if(!state.aiClubFinances) state.aiClubFinances={};
+  if(typeof ensureAIClubFinances==="function") ensureAIClubFinances();
   if(!state.happinessDrivers) state.happinessDrivers={fans:[],owners:[],players:[],manager:[]};
   if(!state.pricing) state.pricing=defaultPricing(state.club);
   if(state.seasonTicketDiscount==null) state.seasonTicketDiscount=15;
@@ -868,6 +871,25 @@ function renderInbox(){
   renderDashboardInboxPreview();
 }
 
+
+const SQUAD_POSITION_ORDER=["GK","RB","CB","LB","RM","CDM","CM","LM","CAM","RW","ST","LW"];
+
+function primarySquadPosition(p){
+  const tokens=String(p?.positions||"")
+    .toUpperCase()
+    .split(/[^A-Z]+/)
+    .filter(Boolean);
+
+  if(tokens.length && SQUAD_POSITION_ORDER.includes(tokens[0])) return tokens[0];
+  return SQUAD_POSITION_ORDER.find(pos=>tokens.includes(pos)) || "OTHER";
+}
+
+function squadPositionRank(p){
+  const pos=primarySquadPosition(p);
+  const i=SQUAD_POSITION_ORDER.indexOf(pos);
+  return i===-1 ? SQUAD_POSITION_ORDER.length : i;
+}
+
 function renderSquad(){
   ensurePlayerState();
   const search=q("squadSearch");
@@ -875,7 +897,13 @@ function renderSquad(){
   const fullSquad=squad(state.club);
   const arr=fullSquad
     .filter(p=>(p.name+" "+p.positions+" "+p.nationality).toLowerCase().includes(query))
-    .sort((a,b)=>b.overall-a.overall);
+    .sort((a,b)=>{
+      const posDiff=squadPositionRank(a)-squadPositionRank(b);
+      if(posDiff!==0) return posDiff;
+      const ratingDiff=(b.overall||0)-(a.overall||0);
+      if(ratingDiff!==0) return ratingDiff;
+      return String(a.name).localeCompare(String(b.name));
+    });
 
   if(q("squadTitle")) q("squadTitle").textContent=state.club+" squad";
   if(q("squadCount")) q("squadCount").textContent=fullSquad.length+" players";
@@ -909,7 +937,7 @@ function renderSquad(){
       if(squadView==="stats"){
         return `<tr>
           ${playerCell}
-          <td>${p.positions}</td>
+          <td>${primarySquadPosition(p)==="OTHER"?p.positions:primarySquadPosition(p)}</td>
           <td><span class="rating">${p.overall}</span></td>
           <td class="${playerMoraleClass(state.playerMorale[p.id])}">${state.playerMorale[p.id]}</td>
           <td class="num">${state.playerStats[p.id]?.appearances||0}</td>

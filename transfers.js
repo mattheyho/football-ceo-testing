@@ -159,63 +159,40 @@ function maybeGenerateManagerSquadRequest(){
   const manager=state.staff.manager;
   const sq=squad(state.club);
   const options=[];
-
-  // WEEKLY SQUAD REVIEW
-  // The manager reassesses the squad every week. Genuine positional shortages
-  // create requests much more reliably than the old random-review model.
   const needs=evaluateSquadNeeds(state.club);
 
+  // Weekly review: major holes generate reliable recruitment requests.
   needs.forEach(need=>{
-    // Severe shortages (e.g. selling the starting GK and leaving weak/no cover)
-    // should generate an immediate signing request.
     if(need.score>=72){
       const targets=findTransferTargets(state.club,need.position,6);
       if(targets.length){
         const preferred=[...targets].sort((a,b)=>managerInterestScore(b.player)-managerInterestScore(a.player))[0];
         options.push({
-          type:"sign",
-          position:need.position,
-          playerId:preferred.player.id,
-          priority:10,
-          alternatives:targets.slice(0,4).map(x=>x.player.id),
-          urgency:"critical"
+          type:"sign",position:need.position,playerId:preferred.player.id,priority:10,
+          alternatives:targets.slice(0,4).map(x=>x.player.id),urgency:"critical"
         });
       }
     }else if(need.score>=56){
-      // Meaningful but non-critical weakness: still reviewed weekly, but less likely
-      // to dominate over contract/listing requests.
       const targets=findTransferTargets(state.club,need.position,6);
       if(targets.length){
         const preferred=[...targets].sort((a,b)=>managerInterestScore(b.player)-managerInterestScore(a.player))[0];
         options.push({
-          type:"sign",
-          position:need.position,
-          playerId:preferred.player.id,
-          priority:5,
-          alternatives:targets.slice(0,4).map(x=>x.player.id),
-          urgency:"important"
+          type:"sign",position:need.position,playerId:preferred.player.id,priority:5,
+          alternatives:targets.slice(0,4).map(x=>x.player.id),urgency:"important"
         });
       }
     }
   });
 
-  // Existing squad-management requests.
   sq.forEach(p=>{
     const c=state.playerContracts[p.id];
-    if(c && c.endYear<=2026 && p.overall>=78){
-      options.push({type:"renew",playerId:p.id,priority:3});
-    }
-    if(p.age>=29 && p.overall<=74){
-      options.push({type:"transfer",playerId:p.id,priority:2});
-    }
-    if(p.age<=21 && p.overall<=72){
-      options.push({type:"loan",playerId:p.id,priority:2});
-    }
+    if(c && c.endYear<=2026 && p.overall>=78) options.push({type:"renew",playerId:p.id,priority:3});
+    if(p.age>=29 && p.overall<=74) options.push({type:"transfer",playerId:p.id,priority:2});
+    if(p.age<=21 && p.overall<=72) options.push({type:"loan",playerId:p.id,priority:2});
   });
 
   if(!options.length) return;
 
-  // If there is a critical squad shortage, always pick from critical signing needs.
   const critical=options.filter(o=>o.type==="sign" && o.urgency==="critical");
   let pick;
   if(critical.length){
@@ -225,8 +202,6 @@ function maybeGenerateManagerSquadRequest(){
       return nb-na;
     })[0];
   }else{
-    // Otherwise use weighted choice so the manager doesn't spam the same category
-    // every single week, while still reviewing weekly.
     const weighted=[];
     options.forEach(o=>{for(let i=0;i<o.priority;i++) weighted.push(o)});
     pick=weighted[Math.floor(Math.random()*weighted.length)];
@@ -235,8 +210,6 @@ function maybeGenerateManagerSquadRequest(){
   const p=DB.players.find(x=>String(x.id)===String(pick.playerId));
   if(!p) return;
 
-  // Avoid repeating the exact same signing request every week after it has just
-  // been rejected. A short cooldown keeps it natural while still re-reviewing.
   if(!state.managerRequestCooldowns) state.managerRequestCooldowns={};
   const cooldownKey=pick.type==="sign" ? `sign-${pick.position}` : `${pick.type}-${p.id}`;
   const lastWeek=state.managerRequestCooldowns[cooldownKey];
@@ -245,14 +218,9 @@ function maybeGenerateManagerSquadRequest(){
 
   const id="mr"+Date.now()+Math.floor(Math.random()*1000);
   const req={
-    id,
-    type:pick.type,
-    playerId:p.id,
-    position:pick.position||null,
-    alternatives:pick.alternatives||[],
-    urgency:pick.urgency||null,
-    resolved:false,
-    manager:manager.name
+    id,type:pick.type,playerId:p.id,position:pick.position||null,
+    alternatives:pick.alternatives||[],urgency:pick.urgency||null,
+    resolved:false,manager:manager.name
   };
   state.managerRequests.push(req);
 
@@ -381,6 +349,212 @@ function toggleLoanList(id){
 
 
 
+
+/* --------------------------------------------------------------------------
+   AI club finance engine — v0.14
+   -------------------------------------------------------------------------- */
+
+function deterministicClubNumber(club,salt="finance"){
+  const str=String(club)+salt;
+  let h=2166136261;
+  for(let i=0;i<str.length;i++) h=Math.imul(h^str.charCodeAt(i),16777619);
+  return ((h>>>0)%10000)/9999;
+}
+
+function estimateClubFootballRevenue(club){
+  const c=byClub(club);
+  const rep=c?.reputation||70;
+  const ratings=DB.players.filter(p=>p.club===club).map(p=>p.overall).sort((a,b)=>b-a).slice(0,16);
+  const squadStrength=ratings.length?ratings.reduce((x,y)=>x+y,0)/ratings.length:70;
+  const variance=0.92+deterministicClubNumber(club,"revenue")*0.16;
+  const base=55_000_000;
+  const reputationValue=Math.max(0,rep-65)*8_250_000;
+  const strengthValue=Math.max(0,squadStrength-70)*3_000_000;
+  return Math.round((base+reputationValue+strengthValue)*variance/1_000_000)*1_000_000;
+}
+
+function currentClubWeeklyPlayerWages(club){
+  return DB.players.filter(p=>p.club===club).reduce((sum,p)=>{
+    if(club===state.club) return sum+(state.playerContracts?.[p.id]?.wage??p.wage??0);
+    return sum+(p.wage||0);
+  },0);
+}
+
+function aiOwnerProfile(club){
+  const roll=deterministicClubNumber(club,"owner");
+  const rep=byClub(club)?.reputation||70;
+  if(roll>0.82) return {type:"Ambitious",reinvestment:0.95,budgetAggression:1.15,scrComfort:0.97};
+  if(roll<0.18) return {type:"Conservative",reinvestment:0.70,budgetAggression:0.82,scrComfort:0.86};
+  if(rep>=88) return {type:"Elite",reinvestment:0.90,budgetAggression:1.08,scrComfort:0.94};
+  return {type:"Balanced",reinvestment:0.82,budgetAggression:1.00,scrComfort:0.90};
+}
+
+function initialAITransferBudget(club,revenue){
+  const c=byClub(club);
+  const owner=aiOwnerProfile(club);
+  const configured=c?.transferBudget||0;
+  const revenueFloor=revenue*(0.10+Math.max(0,(c?.reputation||70)-70)*0.0025);
+  return Math.round(Math.max(configured,revenueFloor)*owner.budgetAggression/250000)*250000;
+}
+
+function initialAIWageBudget(club,revenue){
+  const c=byClub(club);
+  if(c?.wageBudget) return c.wageBudget;
+  return Math.round((revenue*0.48/52)/1000)*1000;
+}
+
+function ensureAIClubFinances(){
+  if(!state) return;
+  if(!state.aiClubFinances) state.aiClubFinances={};
+
+  DB.clubs.forEach(c=>{
+    if(c.name===state.club) return;
+
+    if(!state.aiClubFinances[c.name]){
+      const revenue=estimateClubFootballRevenue(c.name);
+      const liveWages=currentClubWeeklyPlayerWages(c.name);
+      const owner=aiOwnerProfile(c.name);
+
+      state.aiClubFinances[c.name]={
+        club:c.name,
+        footballRevenue:revenue,
+        transferBudget:initialAITransferBudget(c.name,revenue),
+        wageBudget:Math.max(initialAIWageBudget(c.name,revenue),Math.round(liveWages*1.08/1000)*1000),
+        weeklyWages:liveWages,
+        transferSpent:0,
+        transferReceived:0,
+        ownerType:owner.type,
+        reinvestmentRate:owner.reinvestment,
+        scrComfort:owner.scrComfort
+      };
+    }else{
+      state.aiClubFinances[c.name].weeklyWages=currentClubWeeklyPlayerWages(c.name);
+    }
+  });
+}
+
+function aiFinance(club){
+  ensureAIClubFinances();
+  return state.aiClubFinances?.[club]||null;
+}
+
+function aiNetTransferSpend(club){
+  const f=aiFinance(club);
+  return f?(f.transferSpent||0)-(f.transferReceived||0):0;
+}
+
+function aiProjectedSquadCost(club,extraFee=0,extraWeeklyWage=0){
+  const f=aiFinance(club);
+  if(!f) return Infinity;
+
+  const annualWages=(f.weeklyWages+extraWeeklyWage)*52;
+
+  // Casual-player abstraction of transfer cost for SCR.
+  // No amortisation/book-value concepts are exposed in the game.
+  const positiveNetSpend=Math.max(0,aiNetTransferSpend(club)+extraFee);
+  const transferCommitment=positiveNetSpend*0.20;
+
+  return annualWages+transferCommitment;
+}
+
+function aiSCRRatio(club,extraFee=0,extraWeeklyWage=0){
+  const f=aiFinance(club);
+  if(!f || !f.footballRevenue) return 9.99;
+  return aiProjectedSquadCost(club,extraFee,extraWeeklyWage)/f.footballRevenue;
+}
+
+function aiSCRStatus(club,extraFee=0,extraWeeklyWage=0){
+  const ratio=aiSCRRatio(club,extraFee,extraWeeklyWage);
+  if(ratio<=0.85) return "Green";
+  if(ratio<=1.15) return "Amber";
+  return "Red";
+}
+
+function aiSCRHeadroom(club){
+  const f=aiFinance(club);
+  if(!f) return 0;
+  return Math.max(0,f.footballRevenue*0.85-aiProjectedSquadCost(club));
+}
+
+function aiCanAffordTransfer(club,fee,weeklyWage){
+  const f=aiFinance(club);
+  if(!f) return {ok:false,reason:"No finance data"};
+
+  if(f.transferBudget<fee) return {ok:false,reason:"Transfer budget"};
+  if(f.weeklyWages+weeklyWage>f.wageBudget) return {ok:false,reason:"Wage budget"};
+
+  const projectedRatio=aiSCRRatio(club,fee,weeklyWage);
+  if(projectedRatio>1.15) return {ok:false,reason:"SCR red zone"};
+  if(projectedRatio>f.scrComfort) return {ok:false,reason:"Owner SCR tolerance"};
+
+  return {ok:true,reason:"Affordable",projectedSCR:projectedRatio};
+}
+
+function aiFinancialPressure(club){
+  const f=aiFinance(club);
+  if(!f) return "Unknown";
+
+  const scr=aiSCRRatio(club);
+  const wageUse=f.weeklyWages/Math.max(1,f.wageBudget);
+  const startingBudget=Math.max(1,initialAITransferBudget(club,f.footballRevenue));
+  const budgetLeft=f.transferBudget/startingBudget;
+
+  if(scr>1.05 || wageUse>1.00) return "Critical";
+  if(scr>0.92 || wageUse>0.95 || budgetLeft<0.10) return "Pressure";
+  if(scr>0.82 || wageUse>0.88 || budgetLeft<0.25) return "Watch";
+  return "Comfortable";
+}
+
+function aiSaleWillingnessModifier(club){
+  const pressure=aiFinancialPressure(club);
+  if(pressure==="Critical") return 0.90;
+  if(pressure==="Pressure") return 0.95;
+  if(pressure==="Watch") return 0.99;
+  return 1.04;
+}
+
+function applyAITransferPurchase(club,fee,weeklyWage){
+  const f=aiFinance(club);
+  if(!f) return;
+  f.transferBudget=Math.max(0,f.transferBudget-fee);
+  f.transferSpent+=fee;
+  f.weeklyWages+=weeklyWage;
+}
+
+function applyAITransferSale(club,fee,weeklyWageSaved=0){
+  const f=aiFinance(club);
+  if(!f) return;
+  f.transferReceived+=fee;
+  f.transferBudget+=fee*f.reinvestmentRate;
+  f.weeklyWages=Math.max(0,f.weeklyWages-weeklyWageSaved);
+}
+
+function refreshAIClubFinance(club){
+  const f=aiFinance(club);
+  if(f) f.weeklyWages=currentClubWeeklyPlayerWages(club);
+}
+
+function aiFinanceSnapshot(club){
+  const f=aiFinance(club);
+  if(!f) return null;
+  return {
+    club,
+    revenue:f.footballRevenue,
+    transferBudget:f.transferBudget,
+    wageBudget:f.wageBudget,
+    weeklyWages:f.weeklyWages,
+    transferSpent:f.transferSpent,
+    transferReceived:f.transferReceived,
+    netSpend:aiNetTransferSpend(club),
+    scrRatio:aiSCRRatio(club),
+    scrStatus:aiSCRStatus(club),
+    scrHeadroom:aiSCRHeadroom(club),
+    pressure:aiFinancialPressure(club),
+    ownerType:f.ownerType
+  };
+}
+
+
 /* --------------------------------------------------------------------------
    Transfer market engine
    -------------------------------------------------------------------------- */
@@ -435,23 +609,17 @@ const TRANSFER_POSITION_GROUPS={
 
 function ensureTransferMarketState(){
   if(!state) return;
-  if(!state.playerClubOverrides) state.playerClubOverrides={}; // legacy saves
-  if(!state.playerWorldOverrides) state.playerWorldOverrides={};
-  if(!state.transferFinance) state.transferFinance={spent:0,received:0};
+  if(!state.playerClubOverrides) state.playerClubOverrides={};
   if(!state.transferLedger) state.transferLedger=[];
   if(!state.transferNegotiations) state.transferNegotiations={};
   if(!state.incomingTransferOffers) state.incomingTransferOffers=[];
   if(!state.aiTransferPlans) state.aiTransferPlans={};
   if(!state.transferReviewsRun) state.transferReviewsRun={};
 
-  // Re-apply only this career's saved world changes to the pristine base database.
-  // playerClubOverrides is retained for backward compatibility with older saves.
+  // Re-apply saved transfers to the in-memory database after loading a career.
   Object.entries(state.playerClubOverrides).forEach(([pid,club])=>{
-    if(!state.playerWorldOverrides[pid]) state.playerWorldOverrides[pid]={club};
-  });
-  Object.entries(state.playerWorldOverrides).forEach(([pid,changes])=>{
     const p=DB.players.find(x=>String(x.id)===String(pid));
-    if(p) Object.assign(p,changes);
+    if(p) p.club=club;
   });
 }
 
@@ -597,6 +765,9 @@ function estimatedAskingPrice(p,buyingClub=state.club){
   if(buyerRep>sellerRep+8) mult+=0.05;
   // Deterministic club-specific variance avoids every deal being value × same number.
   mult+=((stablePlayerTrait(p,"ask")-0.5)*0.12);
+  if(p.club!==state.club && state.aiClubFinances?.[p.club]){
+    mult*=aiSaleWillingnessModifier(p.club);
+  }
   return Math.max(value,Math.round((value*mult)/250000)*250000);
 }
 
@@ -612,7 +783,9 @@ function expectedTransferWage(p,buyingClub=state.club){
 
 function findTransferTargets(club,position,limit=6){
   const rep=byClub(club)?.reputation||70;
-  const budget=club===state.club?(state.budget||0):Math.max(15_000_000,(rep-65)*4_000_000);
+  const budget=club===state.club
+    ? (state.budget||0)
+    : (aiFinance(club)?.transferBudget||Math.max(15_000_000,(rep-65)*4_000_000));
   const currentStrength=club===state.club?strength(club):(()=>{
     const arr=clubSquadPlayers(club).map(p=>p.overall).sort((a,b)=>b-a).slice(0,16);
     return arr.length?arr.reduce((a,b)=>a+b,0)/arr.length:70;
@@ -634,36 +807,14 @@ function findTransferTargets(club,position,limit=6){
     .slice(0,limit);
 }
 
-
-function currentGameMonthYear(){
-  // Current simulation starts on 11 August 2025 and advances in weekly steps.
-  const start=new Date(Date.UTC(2025,7,11));
-  start.setUTCDate(start.getUTCDate()+(state?.week||0)*7);
-  return start.toLocaleDateString("en-GB",{month:"short",year:"numeric",timeZone:"UTC"});
-}
-
 function transferPlayerToClub(p,newClub,fee,fromClub=p.club,details={}){
   ensureTransferMarketState();
   const oldClub=fromClub;
-  const joined=currentGameMonthYear();
-
-  // Save-specific world state: never rely on mutated global DB as the source of truth.
-  state.playerWorldOverrides[p.id]={
-    ...(state.playerWorldOverrides[p.id]||{}),
-    club:newClub,
-    joined
-  };
-
-  // Legacy compatibility for existing saves.
   state.playerClubOverrides[p.id]=newClub;
-
-  // Update this session's in-memory player object immediately.
   p.club=newClub;
-  p.joined=joined;
-
   state.transferLedger.push({
     id:"tx"+Date.now()+Math.floor(Math.random()*1000),week:state.week,playerId:p.id,playerName:p.name,
-    fromClub:oldClub,toClub:newClub,fee,kind:details.kind||"permanent",joined
+    fromClub:oldClub,toClub:newClub,fee,kind:details.kind||"permanent"
   });
   state.transferLedger=state.transferLedger.slice(-120);
 }
@@ -878,8 +1029,12 @@ function submitNewSigningTerms(id){
   }
 
   const oldClub=p.club;
+  const oldAIWage=p.wage||0;
   state.budget-=n.agreedFee;
-  state.transferFinance.spent+=n.agreedFee;
+  if(state.transferFinance) state.transferFinance.spent=(state.transferFinance.spent||0)+n.agreedFee;
+  if(oldClub!==state.club && aiFinance(oldClub)){
+    applyAITransferSale(oldClub,n.agreedFee,oldAIWage);
+  }
   transferPlayerToClub(p,state.club,n.agreedFee,oldClub);
   state.playerContracts[p.id]={wage,endYear:2025+years};
   p.wage=wage;
@@ -925,11 +1080,19 @@ function generateIncomingOffer(){
     return needs.some(n=>playsPositionGroup(p,n.position));
   });
   if(!interestedClubs.length) return;
-  const buyer=interestedClubs[Math.floor(Math.random()*interestedClubs.length)];
   const fair=incomingOfferFairValue(p);
+  const affordableBuyers=interestedClubs.filter(c=>{
+    const expectedWage=expectedTransferWage(p,c.name);
+    return aiCanAffordTransfer(c.name,fair*.85,expectedWage).ok;
+  });
+  if(!affordableBuyers.length) return;
+
+  const buyer=affordableBuyers[Math.floor(Math.random()*affordableBuyers.length)];
   const listed=state.playerListStatus?.[p.id]==="Transfer";
   const fee=Math.round((fair*(listed?0.82+Math.random()*.16:0.88+Math.random()*.22))/250000)*250000;
-  const offer={id:"io"+Date.now()+Math.floor(Math.random()*1000),playerId:p.id,buyingClub:buyer.name,fee,status:"pending",round:1};
+  const wage=expectedTransferWage(p,buyer.name);
+  if(!aiCanAffordTransfer(buyer.name,fee,wage).ok) return;
+  const offer={id:"io"+Date.now()+Math.floor(Math.random()*1000),playerId:p.id,buyingClub:buyer.name,fee,status:"pending",round:1,expectedWage:wage};
   state.incomingTransferOffers.push(offer);
   state.news.unshift({week:state.week,text:`${buyer.name} have submitted a ${money(fee)} offer for ${p.name}.`,incomingOfferId:offer.id});
 }
@@ -1014,8 +1177,21 @@ function resolveIncomingTransferOffer(id,action,counter=0){
       return Math.max(0,2025-joined);
     })();
     recordStarSale(p,offer.fee,oldValue,yearsAtClub);
+    const buyerWage=offer.expectedWage||expectedTransferWage(p,buyer);
+    const affordability=aiCanAffordTransfer(buyer,offer.fee,buyerWage);
+    if(!affordability.ok){
+      offer.status="rejected";
+      addNews(`${buyer} withdrew their offer for ${p.name} because they could no longer complete the deal within their financial limits.`);
+      closeTransferPlayerFile();
+      saveGame(false);
+      renderAll();
+      return;
+    }
+
     state.budget+=offer.fee;
-    state.transferFinance.received+=offer.fee;
+    if(state.transferFinance) state.transferFinance.received=(state.transferFinance.received||0)+offer.fee;
+    applyAITransferPurchase(buyer,offer.fee,buyerWage);
+    p.wage=buyerWage;
     transferPlayerToClub(p,buyer,offer.fee,oldClub);
     offer.status="accepted";
     delete state.playerContracts[p.id];
@@ -1038,32 +1214,62 @@ function runAITransferReview(){
   state.transferReviewsRun[key]=true;
 
   DB.clubs.filter(c=>c.name!==state.club).forEach(c=>{
-    state.aiTransferPlans[c.name]=evaluateSquadNeeds(c.name).slice(0,3);
+    const pressure=aiFinancialPressure(c.name);
+    state.aiTransferPlans[c.name]=evaluateSquadNeeds(c.name).slice(0,3).map(n=>({...n,financialPressure:pressure}));
   });
 }
 
 function simulateOneAITransfer(){
   ensureTransferMarketState();
+  ensureAIClubFinances();
   if(!isTransferWindowOpen()) return;
+
   const clubs=DB.clubs.filter(c=>c.name!==state.club);
-  if(clubs.length<2) return;
-  const buyer=clubs[Math.floor(Math.random()*clubs.length)];
+  const buyerPool=clubs.filter(c=>{
+    const pressure=aiFinancialPressure(c.name);
+    return pressure==="Comfortable" || pressure==="Watch";
+  });
+  if(!buyerPool.length) return;
+
+  const buyer=buyerPool[Math.floor(Math.random()*buyerPool.length)];
   const needs=state.aiTransferPlans[buyer.name]||evaluateSquadNeeds(buyer.name).slice(0,3);
   const need=needs.find(n=>n.score>=48);
   if(!need) return;
-  const targets=findTransferTargets(buyer.name,need.position,8).filter(x=>x.player.club!==state.club);
+
+  const targets=findTransferTargets(buyer.name,need.position,10)
+    .filter(x=>x.player.club!==state.club)
+    .filter(x=>{
+      const wage=expectedTransferWage(x.player,buyer.name);
+      return aiCanAffordTransfer(buyer.name,x.asking,wage).ok;
+    });
+
   if(!targets.length) return;
+
   const target=targets[Math.floor(Math.random()*Math.min(3,targets.length))];
   const p=target.player;
   const seller=p.club;
+  const sellerOldWage=p.wage||0;
+  const newWage=expectedTransferWage(p,buyer.name);
   const fee=Math.round((target.asking*(0.91+Math.random()*.11))/250000)*250000;
+
+  if(!aiCanAffordTransfer(buyer.name,fee,newWage).ok) return;
+
+  applyAITransferPurchase(buyer.name,fee,newWage);
+  if(aiFinance(seller)) applyAITransferSale(seller,fee,sellerOldWage);
+
+  p.wage=newWage;
   transferPlayerToClub(p,buyer.name,fee,seller,{kind:"ai"});
-  // Avoid flooding the inbox: only higher-profile AI deals become news.
-  if((p.overall||0)>=80 || fee>=35_000_000) addNews(`${buyer.name} have signed ${p.name} from ${seller} for ${money(fee)}.`);
+  refreshAIClubFinance(buyer.name);
+  if(aiFinance(seller)) refreshAIClubFinance(seller);
+
+  if((p.overall||0)>=80 || fee>=35_000_000){
+    addNews(`${buyer.name} have signed ${p.name} from ${seller} for ${money(fee)}.`);
+  }
 }
 
 function processTransferWeek(){
   ensureContractState();
+  ensureAIClubFinances();
   runAITransferReview();
 
   // Buying and selling only happens while the 2025/26 PL window is open.
@@ -1087,3 +1293,13 @@ function attachTransferDatabaseDelegation(){
 }
 
 document.addEventListener("DOMContentLoaded",attachTransferDatabaseDelegation);
+
+
+function allAIClubFinanceSnapshots(){
+  ensureAIClubFinances();
+  return DB.clubs
+    .filter(c=>c.name!==state.club)
+    .map(c=>aiFinanceSnapshot(c.name))
+    .filter(Boolean)
+    .sort((a,b)=>b.scrRatio-a.scrRatio);
+}
