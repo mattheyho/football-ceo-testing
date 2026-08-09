@@ -342,58 +342,126 @@
 </section>
 
 <section id="game" class="hide">
-<div class="header">
- <div><div id="clubTitle" class="clubname"></div><div id="subTitle" class="muted small"></div></div>
- <div style="display:flex;gap:7px"><button class="btn secondary" onclick="saveGame()">Save</button><button class="btn danger" onclick="newCareer()">New career</button></div>
+
+<div class="game-topbar">
+  <button class="icon-btn home-dashboard-btn" type="button" aria-label="Dashboard">⌂</button>
+  <div class="game-brand">FOOTBALL <span>CEO</span></div>
+  <div class="game-top-actions">
+    <button class="icon-btn" type="button" onclick="saveGame()" aria-label="Save career">✓</button>
+    <button class="icon-btn danger-icon" type="button" onclick="newCareer()" aria-label="Start new career">↺</button>
+  </div>
 </div>
-<div class="tabs" id="tabs">
-<button class="active" data-tab="dashboard">Dashboard</button><button data-tab="squad">Squad</button><button data-tab="database">Player Database</button><button data-tab="fixtures">Fixtures</button><button data-tab="table">League Table</button><button data-tab="finances">Finances</button><button data-tab="matchday">Matchday & Pricing</button><button data-tab="staff">Staff</button>
+
+<div class="club-masthead">
+  <div class="club-ribbon">
+    <div id="clubTitle" class="clubname"></div>
+  </div>
+  <div id="subTitle" class="club-subtitle"></div>
+</div>
+
+<div class="tabs compact-tabs" id="tabs" aria-label="Game navigation">
+  <button class="active" data-tab="dashboard">Dashboard</button>
+  <button data-tab="squad">Squad</button>
+  <button data-tab="database">Player Database</button>
+  <button data-tab="fixtures">Fixtures</button>
+  <button data-tab="table">League Table</button>
+  <button data-tab="finances">Finances</button>
+  <button data-tab="matchday">Matchday & Pricing</button>
+  <button data-tab="staff">Staff</button>
 </div>
 
 <div id="dashboard" class="tab">
-  <div class="grid2">
-    <div class="panel pad">
-      <div class="sectiontitle"><h2>CEO Dashboard</h2><span class="pill" id="dashboardWeek">Pre-season</span></div>
+  <div class="dashboard-shell">
 
-      <div class="grid2" style="grid-template-columns:1fr 1fr;margin-top:0">
-        <div>
-          <h3 style="font-size:14px;margin:0 0 10px">Stakeholder happiness</h3>
-          <div id="happinessCards" class="grid2" style="grid-template-columns:1fr 1fr;margin-top:0"></div>
+    <div class="dashboard-status-grid">
+      <button class="dash-stat-card nav-card" data-go-tab="table" type="button">
+        <span class="dash-stat-label">League</span>
+        <strong id="leaguePositionMetric">—</strong>
+        <small id="dashboardWeek">Pre-season</small>
+      </button>
+      <button class="dash-stat-card nav-card" data-go-tab="finances" type="button">
+        <span class="dash-stat-label">Season P/L</span>
+        <strong id="seasonPL">£0</strong>
+        <small>Club finances</small>
+      </button>
+    </div>
+
+    <div class="dashboard-nav-grid" aria-label="Club management">
+      <button class="dashboard-tile" data-go-tab="squad" type="button">
+        <span class="tile-icon">♟</span>
+        <span class="tile-label">Squad</span>
+        <span class="tile-note">Players & contracts</span>
+      </button>
+      <button class="dashboard-tile" data-go-tab="database" type="button">
+        <span class="tile-icon">⌕</span>
+        <span class="tile-label">Player Database</span>
+        <span class="tile-note">Recruitment market</span>
+      </button>
+      <button class="dashboard-tile" data-go-tab="staff" type="button">
+        <span class="tile-icon">♜</span>
+        <span class="tile-label">Staff</span>
+        <span class="tile-note">Manager & executives</span>
+      </button>
+      <button class="dashboard-tile" data-go-tab="finances" type="button">
+        <span class="tile-icon">£</span>
+        <span class="tile-label">Finances</span>
+        <span class="tile-note">Budgets & wages</span>
+      </button>
+      <button class="dashboard-tile" data-go-tab="matchday" type="button">
+        <span class="tile-icon">⌂</span>
+        <span class="tile-label">Matchday</span>
+        <span class="tile-note">Pricing & commercial</span>
+      </button>
+      <button class="dashboard-tile" data-go-tab="table" type="button">
+        <span class="tile-icon">≡</span>
+        <span class="tile-label">League</span>
+        <span class="tile-note">Premier League table</span>
+      </button>
+      <button class="dashboard-tile dashboard-tile-wide" data-go-tab="fixtures" type="button">
+        <span class="tile-icon">▦</span>
+        <span class="tile-label">Fixtures</span>
+        <span class="tile-note">Results & schedule</span>
+      </button>
+    </div>
+
+    <div class="stakeholder-strip">
+      <div class="dashboard-section-heading">
+        <span>Boardroom temperature</span>
+        <small>Stakeholder happiness</small>
+      </div>
+      <div id="happinessCards" class="dashboard-happiness-grid"></div>
+    </div>
+
+    <div class="dashboard-two-col">
+      <div class="dashboard-card">
+        <div class="dashboard-card-title">
+          <span>Next fixture</span>
+          <button class="text-link" data-go-tab="fixtures" type="button">View all</button>
         </div>
-        <div>
-          <h3 style="font-size:14px;margin:0 0 10px">Season overview</h3>
-          <div class="grid2" style="grid-template-columns:1fr 1fr;margin-top:0">
-            <div class="metric">
-              <div class="k">League position</div>
-              <div class="v" id="leaguePositionMetric">—</div>
-            </div>
-            <div class="metric">
-              <div class="k">Profit / loss</div>
-              <div class="v" id="seasonPL">£0</div>
-            </div>
-          </div>
-          <div class="notice small muted" style="margin-top:10px">This is the club's running operating result for the season so far, including simulated matchday/commercial income and weekly wage costs.</div>
-        </div>
+        <div id="dashboardNextFixture"></div>
       </div>
 
-      <div style="height:18px"></div>
-      <div class="grid2" style="grid-template-columns:1fr 1fr;margin-top:0">
-        <div>
-          <h3 style="font-size:14px;margin:0 0 10px">Next fixture</h3>
-          <div id="dashboardNextFixture"></div>
-        </div>
-        <div>
-          <h3 style="font-size:14px;margin:0 0 10px">Form</h3>
-          <div id="formStrip" style="display:flex;gap:8px;flex-wrap:wrap"></div>
-          <div class="muted small" style="margin-top:8px">Last five Premier League results</div>
-        </div>
+      <div class="dashboard-card">
+        <div class="dashboard-card-title"><span>Form</span><small>Last five</small></div>
+        <div id="formStrip" class="dashboard-form-strip"></div>
       </div>
     </div>
 
-    <div class="panel pad">
-      <div class="sectiontitle"><h2>CEO inbox</h2><button class="btn primary" id="advanceBtn" type="button">Advance matchweek →</button></div>
-      <div id="inbox"></div>
+    <div class="dashboard-card inbox-card">
+      <div class="dashboard-card-title">
+        <span>CEO Inbox</span>
+        <span class="inbox-count" id="dashboardInboxCount">0</span>
+      </div>
+      <div id="dashboardInboxPreview"></div>
+      <button class="btn secondary inbox-expand-btn" id="toggleInboxBtn" type="button">Open full inbox</button>
+      <div id="inbox" class="dashboard-full-inbox hide"></div>
     </div>
+
+    <button class="advance-week-btn" id="advanceBtn" type="button">
+      <span>Advance matchweek</span>
+      <strong>→</strong>
+    </button>
+
   </div>
 </div>
 

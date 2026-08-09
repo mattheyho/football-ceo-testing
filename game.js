@@ -769,19 +769,17 @@ function renderAll(){
 
 function renderDashboard(){
   updateStakeholderDrivers();
+
   q("dashboardWeek").textContent=state.week===0?"Pre-season":`After MW ${state.week}`;
+
   const people=[
     ["Fans","fans"],["Owners","owners"],["Players","players"],["Manager","manager"]
   ];
   q("happinessCards").innerHTML=people.map(([label,key])=>{
     const v=Math.max(0,Math.min(100,state.happiness[key]));
-    const drivers=(state.happinessDrivers?.[key]||[]).slice(0,4);
     return `<div class="happy-card">
       <div class="happy-top"><span>${label}</span><span class="happy-value">${v}%</span></div>
       <div class="happy-bar"><span style="width:${v}%"></span></div>
-      <div class="driver-list">
-        ${drivers.length?drivers.map(d=>`<div class="driver"><span>${d.label}</span><span class="delta ${d.value>0?"pos":d.value<0?"neg":"neu"}">${d.value>0?"+":""}${d.value}</span></div>`).join(""):`<div class="happiness-explainer">No major current pressure.</div>`}
-      </div>
     </div>`;
   }).join("");
 
@@ -791,23 +789,56 @@ function renderDashboard(){
   }
 
   const pl=q("seasonPL");
-  pl.textContent=money(state.seasonPL);
-  pl.className="v "+(state.seasonPL>0?"good":state.seasonPL<0?"bad":"");
-
-  q("formStrip").innerHTML=[...state.form.slice(-5),...Array(Math.max(0,5-state.form.length)).fill("")].map(x=>
-    `<div class="form-chip ${x||"empty"}">${x||"—"}</div>`
-  ).join("");
-
-  if(state.week>=38){
-    q("dashboardNextFixture").innerHTML=`<div class="fixture"><div class="teams">Season complete</div></div>`;
-  }else{
-    const r=state.fixtures[state.week];
-    const g=r.games.find(x=>x.home===state.club||x.away===state.club);
-    q("dashboardNextFixture").innerHTML=`<div class="fixture">
-      <div class="muted small">MATCHWEEK ${r.week} • ${g.home===state.club?"HOME":"AWAY"}</div>
-      <div class="teams">${g.home} <span class="muted">vs</span> ${g.away}</div>
-    </div>`;
+  if(pl){
+    pl.textContent=money(state.seasonPL);
+    pl.className=(state.seasonPL>0?"good":state.seasonPL<0?"bad":"");
   }
+
+  if(q("formStrip")){
+    q("formStrip").innerHTML=[...state.form.slice(-5),...Array(Math.max(0,5-state.form.length)).fill("")].map(x=>
+      `<div class="form-chip ${x||"empty"}">${x||"—"}</div>`
+    ).join("");
+  }
+
+  if(q("dashboardNextFixture")){
+    if(state.week>=38){
+      q("dashboardNextFixture").innerHTML=`<div class="fixture"><div class="teams">Season complete</div></div>`;
+    }else{
+      const r=state.fixtures[state.week];
+      const g=r.games.find(x=>x.home===state.club||x.away===state.club);
+      q("dashboardNextFixture").innerHTML=`<div class="fixture">
+        <div class="muted small">MATCHWEEK ${r.week} • ${g.home===state.club?"HOME":"AWAY"}</div>
+        <div class="teams">${g.home} <span class="muted">vs</span> ${g.away}</div>
+      </div>`;
+    }
+  }
+
+  renderDashboardInboxPreview();
+}
+
+function renderDashboardInboxPreview(){
+  const preview=q("dashboardInboxPreview");
+  const count=q("dashboardInboxCount");
+  if(!preview || !count) return;
+
+  const actionable=(state.news||[]).filter(n=>{
+    if(n.requestId){
+      const req=state.managerRequests?.find(r=>r.id===n.requestId);
+      return req && !req.resolved;
+    }
+    if(n.incomingOfferId){
+      const offer=state.incomingTransferOffers?.find(o=>o.id===n.incomingOfferId);
+      return offer && offer.status==="pending";
+    }
+    return false;
+  });
+
+  const display=(actionable.length?actionable:state.news||[]).slice(0,3);
+  count.textContent=String(actionable.length);
+
+  preview.innerHTML=display.length
+    ? display.map(n=>`<div class="inbox-preview-item"><span class="pill">MW ${n.week}</span>${n.text}</div>`).join("")
+    : `<div class="muted small">No messages requiring your attention.</div>`;
 }
 
 function renderInbox(){
@@ -834,6 +865,7 @@ function renderInbox(){
   document.querySelectorAll(".manager-request-btn").forEach(btn=>{
     btn.addEventListener("click",()=>resolveManagerRequest(btn.dataset.requestId,btn.dataset.accept==="1"));
   });
+  renderDashboardInboxPreview();
 }
 
 function renderSquad(){
@@ -1349,6 +1381,19 @@ function init(){
   });
   document.querySelectorAll("#tabs button").forEach(btn=>{
     btn.addEventListener("click",()=>showTab(btn.dataset.tab));
+  });
+  document.querySelectorAll("[data-go-tab]").forEach(btn=>{
+    btn.addEventListener("click",()=>showTab(btn.dataset.goTab));
+  });
+  document.querySelectorAll(".home-dashboard-btn").forEach(btn=>{
+    btn.addEventListener("click",()=>showTab("dashboard"));
+  });
+  q("toggleInboxBtn")?.addEventListener("click",()=>{
+    const inbox=q("inbox");
+    if(!inbox) return;
+    const opening=inbox.classList.contains("hide");
+    inbox.classList.toggle("hide");
+    q("toggleInboxBtn").textContent=opening?"Close full inbox":"Open full inbox";
   });
   document.querySelectorAll(".squad-view-btn").forEach(btn=>{
     btn.addEventListener("click",()=>{
