@@ -586,6 +586,11 @@ const strength=name=>{
   const a=squad(name).map(p=>p.overall).sort((a,b)=>b-a).slice(0,16);
   return a.length ? a.reduce((x,y)=>x+y,0)/a.length : 70;
 };
+function currentSeasonStartYear(){ return state?.season?.year ?? 2025; }
+function currentSeasonLabel(){ const y=currentSeasonStartYear(); return `${y}/${String((y+1)%100).padStart(2,"0")}`; }
+function currentContractSeasonEndYear(){ return currentSeasonStartYear()+1; }
+function seasonDisplayNumber(){ return state?.season?.number ?? 1; }
+
 const ordinal=n=>{
   const s=["th","st","nd","rd"],v=n%100;
   return n+(s[(v-20)%10]||s[v]||s[0]);
@@ -618,6 +623,7 @@ function createCareer(club){
   if(!c) return;
   state={
     club,
+    season:{year:2025,label:"2025/26",number:1},
     week:0,
     budget:c.transferBudget,
     wageBudget:c.wageBudget,
@@ -646,6 +652,10 @@ function createCareer(club){
     sponsorship:null,
     sponsorOffers:[],
     clubHistory:{recentFinishes:[Math.min(20,c.target+1),c.target]},
+    careerHistory:{seasons:[]},
+    scrHistory:[],
+    seasonComplete:false,
+    seasonSummaryViewed:false,
     matchdayStats:{revenue:0,attendance:0,homeGames:0},
     form:[],
     fixtures:generateFixtures(DB.clubs.map(x=>x.name)),
@@ -678,6 +688,12 @@ function enterGame(){
   if(state.seasonTicketDiscount==null) state.seasonTicketDiscount=15;
   if(state.pricingLocked==null) state.pricingLocked=false;
   if(!state.matchdayStats) state.matchdayStats={revenue:0,attendance:0,homeGames:0};
+  if(!state.season) state.season={year:2025,label:"2025/26",number:1};
+  if(!state.season.label) state.season.label=`${state.season.year}/${String((state.season.year+1)%100).padStart(2,"0")}`;
+  if(!state.careerHistory) state.careerHistory={seasons:[]};
+  if(!state.scrHistory) state.scrHistory=[];
+  if(state.seasonComplete==null) state.seasonComplete=false;
+  if(state.seasonSummaryViewed==null) state.seasonSummaryViewed=false;
   if(!state.clubHistory) state.clubHistory={recentFinishes:[byClub(state.club).target+1,byClub(state.club).target]};
   if(!state.sponsorOffers) state.sponsorOffers=[];
   q("startScreen").classList.add("hide");
@@ -760,7 +776,7 @@ function showTab(id){
 function renderAll(){
   const c=byClub(state.club);
   q("clubTitle").textContent=state.club;
-  q("subTitle").textContent=`CEO • ${state.staff.manager.name} is manager • Season 2025/26 • Matchweek ${state.week}` + (storageAvailable ? "" : " • Session save only");
+  q("subTitle").textContent=`CEO • ${state.staff.manager.name} is manager • Season ${currentSeasonLabel()} • Matchweek ${state.week}` + (storageAvailable ? "" : " • Session save only");
   renderDashboard();
   renderInbox();
   renderSquad();
@@ -999,7 +1015,7 @@ function applyResult(home,away,hg,ag){
 }
 
 function advanceMatchweek(){
-  if(state.week>=38) return;
+  if(state.seasonComplete || state.week>=38){ renderSeasonSummary(); return; }
   const r=state.fixtures[state.week];
   r.games.forEach(g=>{
     const [hg,ag]=simulateGame(g.home,g.away);
@@ -1047,8 +1063,96 @@ function advanceMatchweek(){
   if(typeof processTransferWeek==="function") processTransferWeek();
   state.week++;
   addNews(`${state.club} ${myGoals}–${opGoals} ${opp}.`);
-  saveGame(false);
-  renderAll();
+  if(state.week>=38){ state.seasonComplete=true; archiveCurrentSeason(); }
+  saveGame(false); renderAll();
+  if(state.seasonComplete) renderSeasonSummary();
+}
+
+
+function seasonTableFinish(club){
+  const arr=tableArray();
+  const i=arr.findIndex(x=>x.name===club);
+  return i>=0?i+1:20;
+}
+function clubSeasonRecord(club){
+  const t=state.table?.[club];
+  return t?{w:t.w||0,d:t.d||0,l:t.l||0}:{w:0,d:0,l:0};
+}
+function seasonTopScorer(){
+  const sq=squad(state.club);
+  return [...sq].sort((a,b)=>{
+    const gb=state.playerStats?.[b.id]?.goals||0,ga=state.playerStats?.[a.id]?.goals||0;
+    if(gb!==ga)return gb-ga;
+    return (state.playerStats?.[b.id]?.appearances||0)-(state.playerStats?.[a.id]?.appearances||0);
+  })[0]||null;
+}
+function buildSeasonArchive(){
+  const finish=seasonTableFinish(state.club);
+  const record=clubSeasonRecord(state.club);
+  const transferPL=(state.transferFinance?.received||0)-(state.transferFinance?.spent||0);
+  const scr=typeof userSCRSnapshot==="function"?userSCRSnapshot():null;
+  const top=seasonTopScorer();
+  const playerStats={};
+  squad(state.club).forEach(p=>playerStats[p.id]={name:p.name,club:state.club,appearances:state.playerStats?.[p.id]?.appearances||0,goals:state.playerStats?.[p.id]?.goals||0,overall:p.overall});
+  return {season:currentSeasonLabel(),year:currentSeasonStartYear(),seasonNumber:seasonDisplayNumber(),club:state.club,leagueFinish:finish,record,seasonProfitLoss:state.seasonPL||0,transferPL,transferSpent:state.transferFinance?.spent||0,transferReceived:state.transferFinance?.received||0,scr:scr?{ratio:scr.ratio,status:scr.status,revenue:scr.revenue,squadCost:scr.squadCost}:null,stakeholders:{...state.happiness},topScorer:top?{id:top.id,name:top.name,goals:state.playerStats?.[top.id]?.goals||0}:null,playerStats};
+}
+function archiveCurrentSeason(){
+  if(!state.careerHistory)state.careerHistory={seasons:[]};
+  const existing=state.careerHistory.seasons.find(x=>x.year===currentSeasonStartYear());
+  if(existing)return existing;
+  const archive=buildSeasonArchive();
+  state.careerHistory.seasons.push(archive);
+  if(!state.scrHistory)state.scrHistory=[];
+  if(archive.scr)state.scrHistory.push({season:archive.season,year:archive.year,revenue:archive.scr.revenue,squadCost:archive.scr.squadCost,ratio:archive.scr.ratio,status:archive.scr.status});
+  state.clubHistory.recentFinishes=([...(state.clubHistory.recentFinishes||[]),archive.leagueFinish]).slice(-3);
+  return archive;
+}
+function renderSeasonSummary(){
+  if(!q("seasonSummary"))return;
+  const a=archiveCurrentSeason();
+  q("summarySeasonTitle").textContent=`${a.season} Season Review`; q("summaryClubName").textContent=a.club; q("summaryFinish").textContent=ordinal(a.leagueFinish); q("summaryLeagueFinish").textContent=ordinal(a.leagueFinish);
+  q("summaryRecord").textContent=`${a.record.w}W • ${a.record.d}D • ${a.record.l}L`; q("summaryProfitLoss").textContent=money(a.seasonProfitLoss); q("summaryProfitLoss").className="v "+(a.seasonProfitLoss>0?"good":a.seasonProfitLoss<0?"bad":"");
+  q("summaryTransferPL").textContent=money(a.transferPL); q("summaryTransferPL").className="v "+(a.transferPL>0?"good":a.transferPL<0?"bad":""); q("summarySCR").textContent=a.scr?`${(a.scr.ratio*100).toFixed(1)}% ${a.scr.status}`:"—"; q("summaryTopScorer").textContent=a.topScorer?`${a.topScorer.name} • ${a.topScorer.goals}`:"—";
+  q("summaryStakeholders").innerHTML=[["Fans",a.stakeholders.fans],["Owners",a.stakeholders.owners],["Players",a.stakeholders.players],["Manager",a.stakeholders.manager]].map(([label,value])=>`<div class="summary-stakeholder"><div style="display:flex;justify-content:space-between"><span>${label}</span><b>${Math.round(value)}%</b></div><div class="happy-bar"><span style="width:${Math.max(0,Math.min(100,value))}%"></span></div></div>`).join("");
+  q("summarySeasonNumber").textContent=`Season ${a.seasonNumber}`; q("summarySeasonNotes").innerHTML=`<div class="notice"><b>League:</b> ${ordinal(a.leagueFinish)} place.</div><div class="notice"><b>Financial:</b> ${money(a.seasonProfitLoss)} season P/L; ${money(a.transferPL)} transfer P/L.</div><div class="notice"><b>SCR:</b> ${a.scr?`${(a.scr.ratio*100).toFixed(1)}% — ${a.scr.status}`:"Unavailable"}.</div>`;
+  q("seasonSummary").classList.remove("hide"); state.seasonSummaryViewed=true; saveGame(false);
+}
+function stakeholderSummerReset(v){ return Math.round(v*.70+70*.30); }
+function processPlayerYearEnd(){
+  DB.players.forEach(p=>{
+    p.age=(p.age||0)+1;
+    const potential=p.potential??p.overall,apps=state.playerStats?.[p.id]?.appearances||0;
+    if(p.age<=24&&p.overall<potential){ let chance=.45+(apps>=25?.25:apps>=12?.10:0)+(state.playerMorale?.[p.id]==="Happy"?.08:0); if(Math.random()<chance)p.overall+=Math.min(potential-p.overall,Math.random()<.20?2:1); }
+    else if(p.age>=31){ let chance=Math.min(.90,.45+(p.age-31)*.08); if(Math.random()<chance)p.overall=Math.max(55,p.overall-(Math.random()<.20?2:1)); }
+  });
+}
+function resetSeasonPlayerStats(){ state.playerStats={}; state.playerMorale={}; ensurePlayerState(); }
+function expireContractsAndHandleFreeAgents(){
+  const newYear=currentSeasonStartYear()+1;
+  Object.entries(state.playerContracts||{}).forEach(([pid,c])=>{
+    if((c.endYear||9999)<=newYear){ const p=DB.players.find(x=>String(x.id)===String(pid)); if(!p)return; if(p.club===state.club){ state.playerWorldOverrides=state.playerWorldOverrides||{}; state.playerWorldOverrides[p.id]={...(state.playerWorldOverrides[p.id]||{}),club:"Free Agent"}; state.playerClubOverrides[p.id]="Free Agent"; p.club="Free Agent"; addNews(`${p.name} has left the club after their contract expired.`);} delete state.playerContracts[pid]; }
+  });
+}
+function nextSeasonBudgetForUser(a){
+  const c=byClub(state.club),base=c?.transferBudget||40000000,finish=a.leagueFinish;
+  const mult=finish<=4?1.35:finish<=7?1.18:finish<=12?1:finish<=16?.88:.76;
+  const financeBonus=Math.max(-20000000,Math.min(25000000,(a.seasonProfitLoss||0)*.30));
+  const carry=Math.max(0,state.budget||0)*.25;
+  return Math.max(8000000,Math.round((base*mult+financeBonus+carry)/250000)*250000);
+}
+function resetAIClubFinancesForNewSeason(){
+  if(typeof ensureAIClubFinances!=="function")return; const old=state.aiClubFinances||{}; state.aiClubFinances={}; ensureAIClubFinances(); Object.entries(state.aiClubFinances).forEach(([club,f])=>{const prev=old[club];if(prev)f.transferBudget+=Math.max(0,prev.transferBudget||0)*.15;});
+}
+function updateReputationFromSeason(finish){ const c=byClub(state.club); if(!c)return; const target=c.target||10; let d=finish<=target-3?2:finish<=target-1?1:finish>=target+5?-2:finish>=target+3?-1:0; c.reputation=clamp((c.reputation||70)+d,60,99); }
+function beginNextSeason(){
+  const archive=archiveCurrentSeason(); processPlayerYearEnd(); expireContractsAndHandleFreeAgents(); updateReputationFromSeason(archive.leagueFinish);
+  state.season.year+=1; state.season.number+=1; state.season.label=currentSeasonLabel(); state.week=0; state.seasonComplete=false; state.seasonSummaryViewed=false;
+  state.fixtures=generateFixtures(DB.clubs.map(x=>x.name)); state.table=blankTable(); state.results={}; state.form=[]; state.matchdayStats={revenue:0,attendance:0,homeGames:0}; state.seasonPL=0; state.transferFinance={spent:0,received:0}; state.managerChangesThisSeason=0; state.managerPressureNotified=false; state.managerRequests=[]; state.managerRequestCooldowns={}; state.managerSquadVacancies=[]; state.transferReviewsRun={}; state.incomingTransferOffers=[]; state.transferNegotiations={}; state.aiTransferPlans={};
+  resetSeasonPlayerStats(); Object.keys(state.happiness).forEach(k=>state.happiness[k]=stakeholderSummerReset(state.happiness[k])); state.budget=nextSeasonBudgetForUser(archive); resetAIClubFinancesForNewSeason();
+  if(state.sponsorship){ state.sponsorship.years=Math.max(0,(state.sponsorship.years||1)-1); if(state.sponsorship.years<=0){ addNews(`${state.sponsorship.name}'s sponsorship agreement has expired.`); state.sponsorship=null; state.sponsorOffers=[]; } else state.sponsorship.totalValue=state.sponsorship.annualValue*state.sponsorship.years; } else state.sponsorOffers=[];
+  state.pricingLocked=false; state.pricing=defaultPricing(state.club); state.managerBacking=Math.round((state.managerBacking||70)*.75+70*.25);
+  if(typeof runAITransferReview==="function")runAITransferReview(); if(typeof maybeGenerateManagerSquadRequest==="function")maybeGenerateManagerSquadRequest();
+  q("seasonSummary")?.classList.add("hide"); renderAll(); openSeasonSetup(); saveGame(false);
 }
 
 function tableArray(){
@@ -1186,6 +1290,8 @@ function renderMatchday(){
 let selectedSponsorId=null;
 
 function openSeasonSetup(){
+  const seasonPill=q("seasonSetup")?.querySelector(".pill");
+  if(seasonPill) seasonPill.textContent=currentSeasonLabel();
   if(!state.sponsorOffers || state.sponsorOffers.length===0){
     state.sponsorOffers=generateSponsorOffers(state.club);
   }
@@ -1458,6 +1564,7 @@ function init(){
   q("fireManagerBtn")?.addEventListener("click",()=>fireStaff("manager"));
   q("fireDofBtn")?.addEventListener("click",()=>fireStaff("dof"));
   q("firePhysioBtn")?.addEventListener("click",()=>fireStaff("physio"));
+  q("continueNextSeasonBtn")?.addEventListener("click",beginNextSeason);
   q("closePlayerModal")?.addEventListener("click",closePlayerProfile);
   q("playerModal")?.addEventListener("click",e=>{if(e.target===q("playerModal")) closePlayerProfile();});
   q("negotiateContractBtn")?.addEventListener("click",e=>beginContractNegotiation(e.currentTarget.dataset.playerId));

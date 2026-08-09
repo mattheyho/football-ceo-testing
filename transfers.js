@@ -236,7 +236,7 @@ function maybeGenerateManagerSquadRequest(){
 
   sq.forEach(p=>{
     const c=state.playerContracts[p.id];
-    if(c && c.endYear<=2026 && p.overall>=78) options.push({type:"renew",playerId:p.id,priority:3});
+    if(c && c.endYear<=currentContractSeasonEndYear() && p.overall>=78) options.push({type:"renew",playerId:p.id,priority:3});
     if(p.age>=29 && p.overall<=74) options.push({type:"transfer",playerId:p.id,priority:2});
     if(p.age<=21 && p.overall<=72) options.push({type:"loan",playerId:p.id,priority:2});
   });
@@ -380,7 +380,7 @@ function submitContractOffer(){
   if(Math.random()<chance){
     state.playerContracts[p.id]={
       wage,
-      endYear:2025+years
+      endYear:currentSeasonStartYear()+years
     };
     state.playerMorale[p.id]=state.playerMorale[p.id]==="Wants to leave"?"Unhappy":"Happy";
     addNews(`${p.name} has signed a new ${years}-year contract worth ${money(wage)}/week.`);
@@ -437,7 +437,9 @@ function estimateClubFootballRevenue(club){
   const base=55_000_000;
   const reputationValue=Math.max(0,rep-65)*8_250_000;
   const strengthValue=Math.max(0,squadStrength-70)*3_000_000;
-  return Math.round((base+reputationValue+strengthValue)*variance/1_000_000)*1_000_000;
+  let finishFactor=1;
+  if(club===state?.club && state?.careerHistory?.seasons?.length){ const last=state.careerHistory.seasons[state.careerHistory.seasons.length-1]; finishFactor=last.leagueFinish<=4?1.12:last.leagueFinish<=7?1.07:last.leagueFinish<=12?1:last.leagueFinish<=16?.95:.90; }
+  return Math.round((base+reputationValue+strengthValue)*variance*finishFactor/1_000_000)*1_000_000;
 }
 
 function currentClubWeeklyPlayerWages(club){
@@ -911,7 +913,7 @@ function findTransferTargets(club,position,limit=6){
 }
 
 function currentGameMonthYear(){
-  const start=new Date(Date.UTC(2025,7,11));
+  const start=new Date(Date.UTC(currentSeasonStartYear(),7,11));
   start.setUTCDate(start.getUTCDate()+(state?.week||0)*7);
   return start.toLocaleDateString("en-GB",{month:"short",year:"numeric",timeZone:"UTC"});
 }
@@ -932,7 +934,7 @@ function transferPlayerToClub(p,newClub,fee,fromClub=p.club,details={}){
 
   state.transferLedger.push({
     id:"tx"+Date.now()+Math.floor(Math.random()*1000),week:state.week,playerId:p.id,playerName:p.name,
-    fromClub:oldClub,toClub:newClub,fee,kind:details.kind||"permanent",joined
+    fromClub:oldClub,toClub:newClub,fee,kind:details.kind||"permanent",joined,season:currentSeasonLabel()
   });
   state.transferLedger=state.transferLedger.slice(-120);
 }
@@ -1154,7 +1156,7 @@ function submitNewSigningTerms(id){
     applyAITransferSale(oldClub,n.agreedFee,oldAIWage);
   }
   transferPlayerToClub(p,state.club,n.agreedFee,oldClub);
-  state.playerContracts[p.id]={wage,endYear:2025+years};
+  state.playerContracts[p.id]={wage,endYear:currentSeasonStartYear()+years};
   p.wage=wage;
   state.playerMorale[p.id]="Happy";
   if(!state.playerStats[p.id]) state.playerStats[p.id]={appearances:0,goals:0};
@@ -1292,7 +1294,7 @@ function resolveIncomingTransferOffer(id,action,counter=0){
     const buyer=offer.buyingClub;
     const yearsAtClub=(()=>{
       const joined=parseInt(String(p.joined||"").match(/20\d{2}/)?.[0]||"2025",10);
-      return Math.max(0,2025-joined);
+      return Math.max(0,currentSeasonStartYear()-joined);
     })();
     recordStarSale(p,offer.fee,oldValue,yearsAtClub);
     const buyerWage=offer.expectedWage||expectedTransferWage(p,buyer);
