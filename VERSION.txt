@@ -1,0 +1,7 @@
+Football CEO v0.14.1
+- Multi-season sandbox
+- SCR display and AI finance logic
+- Weekly squad reviews / vacancy tracking
+- Realistic 3-player manager shortlists
+- Multi-year sponsorship rollover
+- Hardened transfer negotiations
