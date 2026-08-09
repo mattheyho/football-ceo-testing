@@ -1,10 +1,10 @@
-Football CEO v0.14.4
-- 0-100 Training, Medical, Academy and Recruitment facility ratings
-- Facility annual running costs
-- Facility upgrades in +5 increments with escalating cost
-- Training facilities affect development/player satisfaction
-- Medical facilities affect injury prevention/recovery
-- Recruitment network affects transfer interest
-- Annual facility deterioration risk at higher standards
-- Facilities separated from generic operating costs
-- Generic operating costs removed from SCR
+Football CEO v0.14.5
+- Monthly report is a fixed 75% screen panel with background scroll locked
+- End-of-season review is a standalone full-screen scrollable view
+- Current-season Apps/Goals/AVG shown during incoming player-offer decisions
+- Underperforming managers proactively request reinforcements during open windows
+- New-season commercial setup preserves previous ticket/hospitality/food prices
+- Rejecting a manager contract-talk request adds a 12-week cooldown
+- Corrected contract rejection cooldown placement
+- Verified AVG rating appears in incoming-offer review
+- Preserved multi-year sponsorship rollover

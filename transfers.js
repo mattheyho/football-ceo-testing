@@ -17,6 +17,7 @@ function ensureContractState(){
   if(!state.playerListStatus) state.playerListStatus={};
   if(!state.managerRequests) state.managerRequests=[];
   if(!state.managerRequestCooldowns) state.managerRequestCooldowns={};
+  if(!state.managerRequestRejections) state.managerRequestRejections={};
   squad(state.club).forEach(p=>{
     if(!state.playerContracts[p.id]){
       state.playerContracts[p.id]={
@@ -304,6 +305,26 @@ function managerShortlistForRequest(req){
   }).filter(Boolean);
 }
 
+
+function managerPerformanceRecruitmentPressure(){
+  if(state.week<8) return 0;
+  const pos=typeof clubLeaguePosition==="function"?clubLeaguePosition(state.club):10;
+  const target=byClub(state.club)?.target||10;
+  const gap=pos-target;
+
+  let pressure=0;
+  if(gap>=7) pressure=3;
+  else if(gap>=5) pressure=2;
+  else if(gap>=3) pressure=1;
+
+  // No transfer spending while badly underperforming increases the manager's
+  // sense that the squad needs reinforcement.
+  const spent=state.transferFinance?.spent||0;
+  if(state.week>=12 && spent<5_000_000 && gap>=4) pressure+=1;
+
+  return pressure;
+}
+
 function maybeGenerateManagerSquadRequest(){
   ensureContractState();
   if(!state.staff?.manager) return;
@@ -313,6 +334,7 @@ function maybeGenerateManagerSquadRequest(){
   const options=[];
   const needs=evaluateSquadNeeds(state.club);
   const transferWindowOpen=isTransferWindowOpen();
+  const performancePressure=managerPerformanceRecruitmentPressure();
 
   // A recent sale of a first-team player creates an explicit vacancy.
   // This prevents a Watkins/Maatsen-type sale being missed by generic depth scoring.
@@ -354,9 +376,38 @@ function maybeGenerateManagerSquadRequest(){
     }
   });
 
+
+  // If results are significantly below club expectations, the manager can push
+  // for reinforcement even without a catastrophic depth-chart vacancy.
+  if(transferWindowOpen && performancePressure>=2){
+    const bestNeed=needs.find(n=>n.score>=35) || needs[0];
+    if(bestNeed){
+      const shortlist=buildManagerShortlist(bestNeed.position);
+      if(shortlist.length){
+        const priority=performancePressure>=3?9:7;
+        options.push({
+          type:"sign",
+          position:bestNeed.position,
+          playerId:shortlist[0].player.id,
+          priority,
+          alternatives:shortlist.slice(1).map(x=>x.player.id),
+          shortlist:shortlist.map(x=>({
+            playerId:x.player.id,role:x.role,asking:x.asking,interest:x.interest
+          })),
+          urgency:performancePressure>=3?"critical":"important",
+          performanceDriven:true
+        });
+      }
+    }
+  }
+
   sq.forEach(p=>{
     const c=state.playerContracts[p.id];
-    if(c && c.endYear<=currentContractSeasonEndYear() && p.overall>=78) options.push({type:"renew",playerId:p.id,priority:3});
+    const renewRejectedWeek=state.managerRequestRejections?.[`renew-${p.id}`];
+    const renewCooling=renewRejectedWeek!=null && state.week-renewRejectedWeek<12;
+    if(c && c.endYear<=currentContractSeasonEndYear() && p.overall>=78 && !renewCooling){
+      options.push({type:"renew",playerId:p.id,priority:3});
+    }
     if(p.age>=29 && p.overall<=74 && state.playerListStatus?.[p.id]!=="Transfer"){
       options.push({type:"transfer",playerId:p.id,priority:2});
     }
@@ -448,6 +499,10 @@ function resolveManagerRequest(id,accepted){
       q("contractNegotiation")?.classList.remove("hide");
     }
   }else{
+    if(req.type==="renew"){
+      if(!state.managerRequestRejections) state.managerRequestRejections={};
+      state.managerRequestRejections[`renew-${req.playerId}`]=state.week;
+    }
     if(req.type!=="sign") state.managerBacking=clamp((state.managerBacking||70)-3,0,100);
     if(req.type==="sign") recordManagerTransferChoice(false);
     addNews(`You rejected ${req.manager}'s recommendation regarding ${p.name}.`);
@@ -1417,6 +1472,17 @@ function submitNewSigningTerms(id){
   renderAll();
 }
 
+
+function playerSaleDecisionStatsHTML(p){
+  const s=state.playerStats?.[p.id]||{};
+  const avg=typeof playerAverageRating==="function"?playerAverageRating(p.id):null;
+  return `<div class="sale-decision-stats">
+    <div><span>Apps</span><b>${s.appearances||0}</b></div>
+    <div><span>Goals</span><b>${s.goals||0}</b></div>
+    <div><span>AVG rating</span><b>${avg!=null?avg.toFixed(2):"—"}</b></div>
+  </div>`;
+}
+
 function incomingOfferFairValue(p){
   return Math.round(estimatedAskingPrice(p,state.club)/250000)*250000;
 }
@@ -1490,6 +1556,7 @@ function openIncomingTransferOffer(id){
       <div class="transfer-metric"><span>Manager view</span><b>${v.manager}</b></div>
       <div class="transfer-metric"><span>DOF view</span><b>${v.dof}</b></div>
     </div>
+    ${playerSaleDecisionStatsHTML(v.p)}
     <div class="transfer-actions">
       <button class="btn primary" id="acceptIncomingOffer">Accept</button>
       <button class="btn secondary" id="rejectIncomingOffer">Reject</button>

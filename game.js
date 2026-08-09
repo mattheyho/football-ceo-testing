@@ -810,10 +810,18 @@ function renderMonthlySummary(summary=null){
     : `<div class="muted">No player qualified.</div>`;
 
   q("monthlySummary").classList.remove("hide");
+  setModalScrollLock(true);
+}
+
+
+function setModalScrollLock(locked){
+  document.documentElement.classList.toggle("modal-open",!!locked);
+  document.body.classList.toggle("modal-open",!!locked);
 }
 
 function closeMonthlySummary(){
   q("monthlySummary")?.classList.add("hide");
+  setModalScrollLock(false);
 }
 
 function currentSeasonStartYear(){ return state?.season?.year ?? 2025; }
@@ -1631,8 +1639,8 @@ function beginNextSeason(){
   state.season.year+=1; state.season.number+=1; state.season.label=currentSeasonLabel(); state.week=0; state.seasonComplete=false; state.seasonSummaryViewed=false;
   state.fixtures=generateFixtures(DB.clubs.map(x=>x.name)); state.table=blankTable(); state.results={}; state.form=[]; state.matchdayStats={revenue:0,attendance:0,homeGames:0}; state.seasonPL=0; state.transferFinance={spent:0,received:0}; state.managerChangesThisSeason=0; state.managerPressureNotified=false; state.managerRequests=[]; state.managerRequestCooldowns={}; state.managerSquadVacancies=[]; state.transferReviewsRun={}; state.incomingTransferOffers=[]; state.transferNegotiations={}; state.aiTransferPlans={};
   resetSeasonPlayerStats(); Object.keys(state.happiness).forEach(k=>state.happiness[k]=stakeholderSummerReset(state.happiness[k])); state.budget=nextSeasonBudgetForUser(archive); resetAIClubFinancesForNewSeason();
-  if(state.sponsorship){ state.sponsorship.years=Math.max(0,(state.sponsorship.years||1)-1); if(state.sponsorship.years<=0){ addNews(`${state.sponsorship.name}'s sponsorship agreement has expired.`); state.sponsorship=null; state.sponsorOffers=[]; } else state.sponsorship.totalValue=state.sponsorship.annualValue*state.sponsorship.years; } else state.sponsorOffers=[];
-  state.pricingLocked=false; state.pricing=defaultPricing(state.club); state.managerBacking=Math.round((state.managerBacking||70)*.75+70*.25);
+  if(state.sponsorship){ if(state.sponsorship.seasonsRemaining==null) state.sponsorship.seasonsRemaining=state.sponsorship.years||1; state.sponsorship.seasonsRemaining=Math.max(0,state.sponsorship.seasonsRemaining-1); if(state.sponsorship.seasonsRemaining<=0){ addNews(`${state.sponsorship.name}'s sponsorship agreement has expired.`); state.sponsorship=null; state.sponsorOffers=[]; } else { state.sponsorOffers=[]; state.sponsorship.totalValue=state.sponsorship.annualValue*state.sponsorship.seasonsRemaining; } } else state.sponsorOffers=[];
+  state.pricingLocked=false; if(!state.pricing) state.pricing=defaultPricing(state.club); state.managerBacking=Math.round((state.managerBacking||70)*.75+70*.25);
   if(typeof runAITransferReview==="function")runAITransferReview(); if(typeof maybeGenerateManagerSquadRequest==="function")maybeGenerateManagerSquadRequest();
   q("seasonSummary")?.classList.add("hide"); renderAll(); openSeasonSetup(); saveGame(false);
 }
@@ -1784,6 +1792,9 @@ function openSeasonSetup(){
   if(seasonPill) seasonPill.textContent=currentSeasonLabel();
   q("seasonSetup").classList.remove("hide");
   q("seasonTicketDiscount").value=String(state.seasonTicketDiscount||15);
+  if(q("foodPrice")) q("foodPrice").value=state.pricing?.food??defaultPricing(state.club).food;
+  if(q("hospitalityPrice")) q("hospitalityPrice").value=state.pricing?.hospitality??defaultPricing(state.club).hospitality;
+  if(q("ticketPrice")) q("ticketPrice").value=state.pricing?.ticket??defaultPricing(state.club).ticket;
   renderSeasonSetup();
 }
 

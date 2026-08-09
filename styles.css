@@ -684,3 +684,103 @@ nav button.active{background:#351426;color:var(--villa-sky);border-color:#75405b
   .facilities-grid{grid-template-columns:1fr}
   .facility-card{padding:12px}
 }
+
+
+/* v0.14.5 summary-screen fixes */
+html.modal-open,body.modal-open{overflow:hidden!important;height:100%!important}
+
+.monthly-summary-overlay{
+  position:fixed;
+  inset:0;
+  z-index:1700;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  padding:12px;
+  background:rgba(6,3,7,.88);
+  overflow:hidden;
+}
+.monthly-summary-card{
+  width:min(760px,96vw);
+  height:75vh;
+  max-height:75vh;
+  overflow:hidden;
+  display:flex;
+  flex-direction:column;
+  background:var(--panel);
+  border:1px solid var(--line);
+  border-radius:18px;
+  padding:14px;
+}
+.monthly-summary-card .panel{padding:10px!important}
+.monthly-summary-card .summary-grid{margin-top:8px!important}
+.monthly-summary-card .summary-grid .metric{padding:7px}
+.monthly-summary-card .summary-grid .k{font-size:8px}
+.monthly-summary-card .summary-grid .v{font-size:14px}
+.monthly-summary-card .monthly-finance-row{padding:4px 0;font-size:10px}
+.monthly-summary-card .monthly-result-row{padding:4px 0;font-size:10px}
+.monthly-summary-card .monthly-injury-row{padding:4px 0;font-size:10px}
+.monthly-summary-card .monthly-potm-name{font-size:17px}
+.monthly-summary-card .monthly-lower-grid{gap:8px!important;margin-top:8px!important}
+.monthly-summary-card #continueMonthlySummaryBtn{margin-top:auto!important;padding:9px}
+
+.season-summary-overlay{
+  position:fixed;
+  inset:0;
+  z-index:1500;
+  display:block;
+  overflow-y:auto;
+  -webkit-overflow-scrolling:touch;
+  background:var(--bg);
+  padding:0;
+}
+.season-summary-card{
+  width:100%;
+  min-height:100%;
+  max-width:none;
+  border:0;
+  border-radius:0;
+  box-shadow:none;
+  padding:18px 14px calc(24px + env(safe-area-inset-bottom));
+  background:var(--bg);
+}
+.season-summary-card>*.panel,
+.season-summary-card .panel{
+  background:var(--panel);
+}
+
+.sale-decision-stats{
+  display:grid;
+  grid-template-columns:repeat(3,1fr);
+  gap:7px;
+  margin:10px 0;
+}
+.sale-decision-stats>div{
+  border:1px solid var(--line);
+  border-radius:9px;
+  padding:8px;
+}
+.sale-decision-stats span{
+  display:block;
+  font-size:8px;
+  color:var(--muted);
+  text-transform:uppercase;
+}
+.sale-decision-stats b{
+  display:block;
+  margin-top:2px;
+  font-size:12px;
+}
+
+@media(max-width:480px){
+  .monthly-summary-card{
+    width:96vw;
+    height:75dvh;
+    max-height:75dvh;
+    min-height:0;
+    border-radius:16px;
+    padding:10px;
+  }
+  .monthly-summary-card .summary-grid{grid-template-columns:repeat(3,1fr)!important}
+  .season-summary-card{padding-top:calc(16px + env(safe-area-inset-top))}
+}
