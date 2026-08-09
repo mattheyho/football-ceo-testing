@@ -104,7 +104,11 @@ function ensurePlayerState(){
   if(!state.playerStats) state.playerStats={};
   if(!state.playerMorale) state.playerMorale={};
   squad(state.club).forEach(p=>{
-    if(!state.playerStats[p.id]) state.playerStats[p.id]={appearances:0,goals:0};
+    if(!state.playerStats[p.id]) state.playerStats[p.id]={appearances:0,goals:0,ratingTotal:0,ratedApps:0,lastRating:null};
+    const ps=state.playerStats[p.id];
+    if(ps.ratingTotal==null) ps.ratingTotal=0;
+    if(ps.ratedApps==null) ps.ratedApps=0;
+    if(ps.lastRating===undefined) ps.lastRating=null;
     if(!state.playerMorale[p.id]) state.playerMorale[p.id]="Content";
   });
 }
@@ -120,10 +124,14 @@ function updateIndividualMorale(){
   ensurePlayerState();
   const teamMood=state.happiness?.players ?? 70;
   const mgrChanges=state.managerChangesThisSeason||0;
+  const trainingStandard=facilityRating("training");
   squad(state.club).forEach(p=>{
     let score=teamMood;
     if(state.injuries?.[p.id]) score-=4;
     if(mgrChanges>=2) score-=8;
+    if(p.overall>=82 && trainingStandard<72) score-=6;
+    else if(p.overall>=78 && trainingStandard<65) score-=4;
+    else if(trainingStandard>=88) score+=2;
     const pos=clubLeaguePosition(state.club), target=byClub(state.club).target||10;
     if(state.week>=8 && p.overall>=82 && pos>=target+4) score-=7;
     if(score>=80) state.playerMorale[p.id]="Happy";
@@ -133,18 +141,28 @@ function updateIndividualMorale(){
   });
 }
 
+
+function playerAverageRating(pOrId){
+  const id=typeof pOrId==="object"?pOrId.id:pOrId;
+  const s=state.playerStats?.[id];
+  if(!s || !s.ratedApps) return null;
+  return s.ratingTotal/s.ratedApps;
+}
+
 function selectMatchSquad(){
   ensurePlayerState();
   const healthy=squad(state.club).filter(p=>!state.injuries?.[p.id]).sort((a,b)=>b.overall-a.overall);
   return healthy.slice(0,11);
 }
 
-function trackPlayerMatchStats(myGoals){
+function trackPlayerMatchStats(myGoals,oppGoals=0){
   ensurePlayerState();
   const starters=selectMatchSquad();
   starters.forEach(p=>state.playerStats[p.id].appearances+=1);
 
   const scorers=starters.filter(p=>!String(p.positions).includes("GK"));
+  const goalsByPlayer={};
+
   for(let g=0;g<myGoals;g++){
     if(!scorers.length) break;
     const weights=scorers.map(p=>{
@@ -159,10 +177,31 @@ function trackPlayerMatchStats(myGoals){
     let r=Math.random()*total, chosen=scorers[0];
     for(let i=0;i<scorers.length;i++){
       r-=weights[i];
-      if(r<=0){ chosen=scorers[i]; break; }
+      if(r<=0){chosen=scorers[i];break;}
     }
     state.playerStats[chosen.id].goals+=1;
+    goalsByPlayer[chosen.id]=(goalsByPlayer[chosen.id]||0)+1;
   }
+
+  // Match ratings: base performance is influenced by result, player quality,
+  // goals and small match-to-match variance. Kept in a familiar 4–10 range.
+  const resultBase=myGoals>oppGoals?0.45:myGoals===oppGoals?0.05:-0.35;
+  starters.forEach(p=>{
+    const quality=((p.overall||75)-75)*0.018;
+    const goalBonus=(goalsByPlayer[p.id]||0)*0.70;
+    const variance=(Math.random()-.5)*1.15;
+    let rating=6.45+resultBase+quality+goalBonus+variance;
+
+    const pos=String(p.positions);
+    if(pos.includes("GK") && oppGoals===0) rating+=0.30;
+    if((pos.includes("CB")||pos.includes("LB")||pos.includes("RB")) && oppGoals===0) rating+=0.20;
+
+    rating=clamp(Math.round(rating*10)/10,4.0,10.0);
+    const s=state.playerStats[p.id];
+    s.lastRating=rating;
+    s.ratingTotal=(s.ratingTotal||0)+rating;
+    s.ratedApps=(s.ratedApps||0)+1;
+  });
 }
 
 function openPlayerProfile(id){
@@ -179,6 +218,7 @@ function openPlayerProfile(id){
   q("profileMorale").className="v "+playerMoraleClass(morale);
   q("profileApps").textContent=stats.appearances;
   q("profileGoals").textContent=stats.goals;
+  if(q("profileAvgRating")) q("profileAvgRating").textContent=playerAverageRating(p.id)?.toFixed(2)||"—";
   q("profileJoined").textContent=p.joined || "Unknown";
   q("profileAge").textContent=p.age;
   q("profileNationality").textContent=p.nationality;
@@ -247,7 +287,7 @@ function processInjuries(){
   const healthy=squad(state.club).filter(p=>!state.injuries[p.id]);
   const chance=0.0055*physioInjuryChanceModifier();
   healthy.forEach(p=>{
-    if(Math.random()<chance){
+    if(Math.random()<chance*medicalModifier){
       const raw=injuryBaseDuration();
       const weeks=Math.max(1,Math.round(raw*physioRecoveryModifier()));
       state.injuries[p.id]={weeksLeft:weeks,totalWeeks:weeks};
@@ -430,6 +470,16 @@ function updateStakeholderDrivers(){
   state.happinessDrivers.manager=manager;
 }
 
+
+function applyHappinessDelta(current,delta){
+  // Extreme values should be difficult to reach and maintain.
+  if(delta>0 && current>=90) delta*=0.35;
+  else if(delta>0 && current>=80) delta*=0.60;
+  if(delta<0 && current<=15) delta*=0.40;
+  else if(delta<0 && current<=25) delta*=0.65;
+  return clamp(current+delta,0,100);
+}
+
 function applyStakeholderHappiness(){
   updateStakeholderDrivers();
   const groups=["fans","owners","players","manager"];
@@ -586,6 +636,173 @@ const strength=name=>{
   const a=squad(name).map(p=>p.overall).sort((a,b)=>b-a).slice(0,16);
   return a.length ? a.reduce((x,y)=>x+y,0)/a.length : 70;
 };
+
+function createEmptyMonthlyFinance(){
+  return {
+    matchdayRevenue:0,
+    commercialIncome:0,
+    sponsorIncome:0,
+    playerWages:0,
+    staffWages:0,
+    operatingCosts:0,
+    transferSpent:0,
+    transferReceived:0
+  };
+}
+
+function resetMonthlyTracker(){
+  state.monthlyFinance=createEmptyMonthlyFinance();
+  state.monthlyResults=[];
+  state.monthlyPlayerSnapshot={};
+
+  if(state?.playerStats){
+    Object.entries(state.playerStats).forEach(([id,s])=>{
+      state.monthlyPlayerSnapshot[id]={
+        appearances:s.appearances||0,
+        goals:s.goals||0,
+        ratingTotal:s.ratingTotal||0,
+        ratedApps:s.ratedApps||0
+      };
+    });
+  }
+}
+
+function monthlyPlayerPerformance(id){
+  const now=state.playerStats?.[id]||{};
+  const before=state.monthlyPlayerSnapshot?.[id]||{};
+  const apps=(now.appearances||0)-(before.appearances||0);
+  const goals=(now.goals||0)-(before.goals||0);
+  const ratedApps=(now.ratedApps||0)-(before.ratedApps||0);
+  const ratingTotal=(now.ratingTotal||0)-(before.ratingTotal||0);
+  return {
+    apps,
+    goals,
+    ratedApps,
+    avgRating:ratedApps>0?ratingTotal/ratedApps:null
+  };
+}
+
+function monthlyPlayerOfPeriod(){
+  return squad(state.club)
+    .map(p=>({player:p,...monthlyPlayerPerformance(p.id)}))
+    .filter(x=>x.apps>0)
+    .sort((a,b)=>{
+      const scoreA=(a.avgRating||0)*10+a.goals*2.4+a.apps*.12;
+      const scoreB=(b.avgRating||0)*10+b.goals*2.4+b.apps*.12;
+      return scoreB-scoreA;
+    })[0]||null;
+}
+
+function monthlyInjurySnapshot(){
+  return squad(state.club)
+    .filter(p=>state.injuries?.[p.id])
+    .map(p=>({
+      id:p.id,
+      name:p.name,
+      weeksLeft:state.injuries[p.id].weeksLeft
+    }))
+    .sort((a,b)=>b.weeksLeft-a.weeksLeft);
+}
+
+function monthlyOperatingPL(finance){
+  const income=finance.matchdayRevenue+finance.commercialIncome+finance.sponsorIncome;
+  const expenses=finance.playerWages+finance.staffWages+finance.operatingCosts;
+  return income-expenses;
+}
+
+function buildMonthlySummary(){
+  const f={...state.monthlyFinance};
+  const player=monthlyPlayerOfPeriod();
+  const injuries=monthlyInjurySnapshot();
+  const operatingPL=monthlyOperatingPL(f);
+  const transferPL=(f.transferReceived||0)-(f.transferSpent||0);
+  const results=[...(state.monthlyResults||[])];
+
+  const w=results.filter(x=>x.outcome==="W").length;
+  const d=results.filter(x=>x.outcome==="D").length;
+  const l=results.filter(x=>x.outcome==="L").length;
+  const periodNumber=Math.ceil(state.week/4);
+
+  return {
+    season:currentSeasonLabel(),
+    period:periodNumber,
+    weeks:`${Math.max(1,state.week-3)}–${state.week}`,
+    finance:f,
+    operatingPL,
+    transferPL,
+    results,
+    record:{w,d,l},
+    injuries,
+    playerOfMonth:player?{
+      id:player.player.id,
+      name:player.player.name,
+      apps:player.apps,
+      goals:player.goals,
+      avgRating:player.avgRating
+    }:null
+  };
+}
+
+function archiveMonthlySummary(){
+  const summary=buildMonthlySummary();
+  if(!state.monthlyHistory) state.monthlyHistory=[];
+  state.monthlyHistory.push(summary);
+  return summary;
+}
+
+function renderMonthlySummary(summary=null){
+  if(!q("monthlySummary")) return;
+  summary=summary||state.monthlyHistory?.[state.monthlyHistory.length-1];
+  if(!summary) return;
+
+  const f=summary.finance;
+  const totalIncome=f.matchdayRevenue+f.commercialIncome+f.sponsorIncome;
+  const totalExpenses=f.playerWages+f.staffWages+f.operatingCosts;
+
+  q("monthlySummaryTitle").textContent=`${summary.season} • Weeks ${summary.weeks}`;
+  q("monthlySummaryRecord").textContent=`${summary.record.w}W • ${summary.record.d}D • ${summary.record.l}L`;
+  q("monthlySummaryPL").textContent=money(summary.operatingPL);
+  q("monthlySummaryPL").className="v "+(summary.operatingPL>0?"good":summary.operatingPL<0?"bad":"");
+  q("monthlySummaryTransferPL").textContent=money(summary.transferPL);
+  q("monthlySummaryTransferPL").className="v "+(summary.transferPL>0?"good":summary.transferPL<0?"bad":"");
+
+  q("monthlyFinanceBreakdown").innerHTML=`
+    <div class="monthly-finance-row"><span>Matchday revenue</span><b class="good">${money(f.matchdayRevenue)}</b></div>
+    <div class="monthly-finance-row"><span>Commercial income</span><b class="good">${money(f.commercialIncome)}</b></div>
+    <div class="monthly-finance-row"><span>Sponsorship income</span><b class="good">${money(f.sponsorIncome)}</b></div>
+    <div class="monthly-finance-row monthly-total"><span>Total operating income</span><b>${money(totalIncome)}</b></div>
+    <div class="monthly-finance-row"><span>Player wages</span><b class="bad">-${money(f.playerWages)}</b></div>
+    <div class="monthly-finance-row"><span>Senior staff wages</span><b class="bad">-${money(f.staffWages)}</b></div>
+    <div class="monthly-finance-row"><span>Club & facility operating costs</span><b class="bad">-${money(f.operatingCosts)}</b></div>
+    <div class="monthly-finance-row monthly-total"><span>Total operating expenses</span><b>-${money(totalExpenses)}</b></div>
+    <div class="monthly-finance-row"><span>Transfer income</span><b>${money(f.transferReceived)}</b></div>
+    <div class="monthly-finance-row"><span>Transfer spending</span><b>-${money(f.transferSpent)}</b></div>
+  `;
+
+  q("monthlyResultsList").innerHTML=summary.results.length
+    ? summary.results.map(r=>`<div class="monthly-result-row">
+        <span class="form-chip ${r.outcome}">${r.outcome}</span>
+        <span>${r.home?"vs":"at"} ${r.opponent}</span>
+        <b>${r.goalsFor}–${r.goalsAgainst}</b>
+      </div>`).join("")
+    : `<div class="muted">No matches played.</div>`;
+
+  q("monthlyInjuriesList").innerHTML=summary.injuries.length
+    ? summary.injuries.map(i=>`<div class="monthly-injury-row"><span>${i.name}</span><b>${i.weeksLeft} week${i.weeksLeft===1?"":"s"} remaining</b></div>`).join("")
+    : `<div class="good">No current first-team injuries.</div>`;
+
+  q("monthlyPOTM").innerHTML=summary.playerOfMonth
+    ? `<div class="monthly-potm-name">${summary.playerOfMonth.name}</div>
+       <div class="muted">${summary.playerOfMonth.apps} apps • ${summary.playerOfMonth.goals} goals • ${summary.playerOfMonth.avgRating?.toFixed(2)||"—"} AVG</div>`
+    : `<div class="muted">No player qualified.</div>`;
+
+  q("monthlySummary").classList.remove("hide");
+}
+
+function closeMonthlySummary(){
+  q("monthlySummary")?.classList.add("hide");
+}
+
 function currentSeasonStartYear(){ return state?.season?.year ?? 2025; }
 function currentSeasonLabel(){ const y=currentSeasonStartYear(); return `${y}/${String((y+1)%100).padStart(2,"0")}`; }
 function currentContractSeasonEndYear(){ return currentSeasonStartYear()+1; }
@@ -640,7 +857,12 @@ function createCareer(club){
     ownerProfile:{lossTolerance:15_000_000},
     managerBacking:70,
     managerChangesThisSeason:0,
-    trainingFacilities:{rating:clamp(Math.round(c.reputation-4),65,92)},
+    facilities:{
+      training:clamp(Math.round(c.reputation-3),55,94),
+      medical:clamp(Math.round(c.reputation-5),52,92),
+      academy:clamp(Math.round(c.reputation-7),48,93),
+      recruitment:clamp(Math.round(c.reputation-4),52,94)
+    },
     transferSentiment:{fans:[],owners:[],players:[],manager:[]},
     transferFinance:{spent:0,received:0},
     aiClubFinances:{},
@@ -678,7 +900,20 @@ function enterGame(){
   if(!state.ownerProfile) state.ownerProfile={lossTolerance:15_000_000};
   if(state.managerBacking==null) state.managerBacking=70;
   if(state.managerChangesThisSeason==null) state.managerChangesThisSeason=0;
-  if(!state.trainingFacilities) state.trainingFacilities={rating:clamp(Math.round(byClub(state.club).reputation-4),65,92)};
+  if(!state.facilities){
+    const rep=byClub(state.club)?.reputation||72;
+    state.facilities={
+      training:clamp(Math.round(rep-3),55,94),
+      medical:clamp(Math.round(rep-5),52,92),
+      academy:clamp(Math.round(rep-7),48,93),
+      recruitment:clamp(Math.round(rep-4),52,94)
+    };
+  }
+  // Legacy migration
+  if(state.trainingFacilities?.rating!=null && !state.facilities.training){
+    state.facilities.training=state.trainingFacilities.rating;
+  }
+  delete state.trainingFacilities;
   if(!state.transferSentiment) state.transferSentiment={fans:[],owners:[],players:[],manager:[]};
   if(!state.transferFinance) state.transferFinance={spent:0,received:0};
   if(!state.aiClubFinances) state.aiClubFinances={};
@@ -782,6 +1017,7 @@ function renderAll(){
   renderInbox();
   renderSquad();
   renderTable();
+  renderFacilities();
   renderFinances();
   renderMatchday();
   renderStaff();
@@ -944,7 +1180,7 @@ function renderSquad(){
 
   if(q("squadHead")){
     q("squadHead").innerHTML=squadView==="stats"
-      ? `<tr><th>Player</th><th>Pos</th><th>OVR</th><th>Morale</th><th class="num">Apps</th><th class="num">Goals</th></tr>`
+      ? `<tr><th>Player</th><th>Pos</th><th>OVR</th><th>Morale</th><th class="num">Apps</th><th class="num">Goals</th><th class="num">AVG</th></tr>`
       : `<tr><th>Player</th><th>Age</th><th>Value</th><th>Wage</th><th>Contract</th><th>Status</th></tr>`;
   }
 
@@ -959,6 +1195,7 @@ function renderSquad(){
           <td class="${playerMoraleClass(state.playerMorale[p.id])}">${state.playerMorale[p.id]}</td>
           <td class="num">${state.playerStats[p.id]?.appearances||0}</td>
           <td class="num">${state.playerStats[p.id]?.goals||0}</td>
+          <td class="num">${playerAverageRating(p.id)?.toFixed(2)||"—"}</td>
         </tr>`;
       }
 
@@ -1015,6 +1252,180 @@ function applyResult(home,away,hg,ag){
   else{h.d++;a.d++;h.pts++;a.pts++}
 }
 
+
+function clubScaleFactor(club=state.club){
+  const c=byClub(club);
+  const rep=c?.reputation||70;
+  return clamp((rep-60)/35,0.20,1.10);
+}
+
+
+const FACILITY_TYPES={
+  training:{
+    label:"Training facilities",
+    description:"Affects player development and player satisfaction with the club's football environment."
+  },
+  medical:{
+    label:"Medical facilities",
+    description:"Works alongside the Head Physio to reduce injury frequency and improve recovery."
+  },
+  academy:{
+    label:"Academy",
+    description:"Will drive youth intake quality and long-term player development as the academy system expands."
+  },
+  recruitment:{
+    label:"Recruitment network",
+    description:"Improves transfer intelligence and supports the Director of Football."
+  }
+};
+
+function facilityRating(type){
+  return clamp(Number(state.facilities?.[type]??50),0,100);
+}
+
+function facilityAnnualRunningCost(type,rating=facilityRating(type)){
+  // Costs rise non-linearly: elite facilities are disproportionately expensive.
+  const r=clamp(rating,0,100)/100;
+  const scales={
+    training:[1_200_000,17_000_000],
+    medical:[850_000,11_000_000],
+    academy:[1_000_000,15_000_000],
+    recruitment:[700_000,10_000_000]
+  };
+  const [floor,ceiling]=scales[type]||[750_000,10_000_000];
+  return Math.round((floor+(ceiling-floor)*Math.pow(r,1.75))/250000)*250000;
+}
+
+function facilityUpgradeCost(type,points=5){
+  const current=facilityRating(type);
+  const target=clamp(current+points,0,100);
+  if(target<=current) return 0;
+
+  // Every point gets more expensive as the facility becomes elite.
+  let cost=0;
+  for(let r=current;r<target;r++){
+    const basePerPoint={
+      training:650_000,
+      medical:500_000,
+      academy:575_000,
+      recruitment:475_000
+    }[type]||500_000;
+    const eliteMult=1+Math.pow(r/100,2.2)*3.2;
+    cost+=basePerPoint*eliteMult;
+  }
+  return Math.round(cost/250000)*250000;
+}
+
+function totalFacilityAnnualCost(){
+  return Object.keys(FACILITY_TYPES).reduce((sum,type)=>sum+facilityAnnualRunningCost(type),0);
+}
+
+function facilityEffectText(type){
+  const r=facilityRating(type);
+  if(type==="training"){
+    const dev=Math.round((r-50)/12);
+    return `${dev>=0?"+":""}${dev}% development modifier`;
+  }
+  if(type==="medical"){
+    const injury=Math.round((r-50)*0.18);
+    return `${Math.max(0,injury)}% injury-prevention effect`;
+  }
+  if(type==="academy"){
+    return r>=85?"Elite youth pathway":r>=70?"Strong youth pathway":r>=55?"Average youth pathway":"Below PL standard";
+  }
+  if(type==="recruitment"){
+    const intel=Math.round((r-50)*0.22);
+    return `${Math.max(0,intel)}% recruitment intelligence bonus`;
+  }
+  return "";
+}
+
+function approveFacilityUpgrade(type,points=5){
+  if(!FACILITY_TYPES[type]) return;
+  const current=facilityRating(type);
+  if(current>=100) return;
+  const actualPoints=Math.min(points,100-current);
+  const cost=facilityUpgradeCost(type,actualPoints);
+
+  if((state.budget||0)<cost){
+    addNews(`The board could not approve the ${FACILITY_TYPES[type].label.toLowerCase()} upgrade because available funds are insufficient.`);
+    return;
+  }
+
+  state.budget-=cost;
+  state.facilities[type]=clamp(current+actualPoints,0,100);
+  state.seasonPL-=cost;
+  addNews(`${FACILITY_TYPES[type].label} upgraded from ${current} to ${state.facilities[type]} for ${money(cost)}.`);
+  saveGame(false);
+  renderFacilities();
+  renderFinances();
+  renderDashboard();
+}
+
+function renderFacilities(){
+  const wrap=q("facilitiesGrid");
+  if(!wrap) return;
+
+  wrap.innerHTML=Object.entries(FACILITY_TYPES).map(([type,meta])=>{
+    const rating=facilityRating(type);
+    const upgrade=Math.min(5,100-rating);
+    const cost=upgrade>0?facilityUpgradeCost(type,upgrade):0;
+    return `<div class="facility-card">
+      <div class="facility-card-top">
+        <div>
+          <div class="k">${meta.label}</div>
+          <div class="facility-rating">${rating}</div>
+        </div>
+        <span class="pill">${facilityEffectText(type)}</span>
+      </div>
+      <div class="progress"><span style="width:${rating}%"></span></div>
+      <p class="muted small">${meta.description}</p>
+      <div class="facility-cost-row"><span>Annual running cost</span><b>${money(facilityAnnualRunningCost(type))}</b></div>
+      ${upgrade>0?`<button class="btn secondary facility-upgrade-btn" data-facility="${type}">Upgrade +${upgrade} • ${money(cost)}</button>`:`<div class="good small"><b>Maximum standard reached</b></div>`}
+    </div>`;
+  }).join("");
+
+  document.querySelectorAll(".facility-upgrade-btn").forEach(btn=>{
+    btn.addEventListener("click",()=>approveFacilityUpgrade(btn.dataset.facility,5));
+  });
+
+  if(q("facilityAnnualTotal")) q("facilityAnnualTotal").textContent=money(totalFacilityAnnualCost());
+}
+
+function weeklyClubOperatingCosts(){
+  const scale=clubScaleFactor();
+  const squadSize=Math.max(18,squad(state.club).length);
+
+  // Core club overheads separate from football facilities.
+  const stadiumOperations=350_000+scale*620_000;
+  const nonFootballStaff=520_000+scale*1_050_000;   // admin, marketing, finance, HR, IT
+  const matchdayStaff=state.week<38 ? 145_000+scale*260_000 : 0;
+  const travelAndLogistics=110_000+scale*280_000;
+  const insurance=95_000+scale*210_000;
+  const generalOverheads=180_000+scale*400_000;
+  const squadSupport=Math.max(0,squadSize-22)*8_000;
+
+  const facilityRunning=totalFacilityAnnualCost()/38;
+
+  return {
+    stadiumOperations,
+    nonFootballStaff,
+    matchdayStaff,
+    travelAndLogistics,
+    insurance,
+    generalOverheads,
+    squadSupport,
+    facilityRunning,
+    total:stadiumOperations+nonFootballStaff+matchdayStaff+
+      travelAndLogistics+insurance+generalOverheads+squadSupport+facilityRunning
+  };
+}
+
+function annualisedOperatingCosts(){
+  const weekly=weeklyClubOperatingCosts();
+  return weekly.total*38;
+}
+
 function advanceMatchweek(){
   if(state.seasonComplete || state.week>=38){ renderSeasonSummary(); return; }
   const r=state.fixtures[state.week];
@@ -1030,7 +1441,7 @@ function advanceMatchweek(){
   const opGoals=mine.home===state.club?res.ag:res.hg;
   const opp=mine.home===state.club?mine.away:mine.home;
   const outcome=myGoals>opGoals?"W":myGoals===opGoals?"D":"L";
-  trackPlayerMatchStats(myGoals);
+  trackPlayerMatchStats(myGoals,opGoals);
   state.form.push(outcome);
   state.form=state.form.slice(-5);
 
@@ -1055,18 +1466,50 @@ function advanceMatchweek(){
   }
   const commercialIncome=byClub(state.club).reputation*65000;
   const sponsorIncome=state.sponsorship ? state.sponsorship.annualValue/38 : 0;
-  state.seasonPL += homeIncome + commercialIncome + sponsorIncome - weeklyWages;
+  const staffWeekly=(state.staff?.manager?.wage||0)+(state.staff?.dof?.wage||0)+(state.staff?.physio?.wage||0);
+  const operatingCosts=weeklyClubOperatingCosts();
+
+  // Four-week management reporting ledger.
+  if(!state.monthlyFinance) state.monthlyFinance=createEmptyMonthlyFinance();
+  state.monthlyFinance.matchdayRevenue+=homeIncome;
+  state.monthlyFinance.commercialIncome+=commercialIncome;
+  state.monthlyFinance.sponsorIncome+=sponsorIncome;
+  state.monthlyFinance.playerWages+=playerWages;
+  state.monthlyFinance.staffWages+=staffWeekly;
+  state.monthlyFinance.operatingCosts+=operatingCosts.total;
+
+  state.seasonPL += homeIncome + commercialIncome + sponsorIncome - weeklyWages - staffWeekly - operatingCosts.total;
 
   applyStakeholderHappiness();
   updateIndividualMorale();
   processInjuries();
   maybeGenerateManagerSquadRequest();
   if(typeof processTransferWeek==="function") processTransferWeek();
+
+  if(!state.monthlyResults) state.monthlyResults=[];
+  state.monthlyResults.push({
+    week:state.week+1,
+    opponent:opp,
+    home:mine.home===state.club,
+    goalsFor:myGoals,
+    goalsAgainst:opGoals,
+    outcome
+  });
+
   state.week++;
   addNews(`${state.club} ${myGoals}–${opGoals} ${opp}.`);
   if(state.week>=38){ state.seasonComplete=true; archiveCurrentSeason(); }
+  const monthlyDue=state.week>0 && state.week%4===0;
+  let monthlySummary=null;
+  if(monthlyDue){
+    monthlySummary=archiveMonthlySummary();
+    resetMonthlyTracker();
+  }
+
   saveGame(false); renderAll();
+
   if(state.seasonComplete) renderSeasonSummary();
+  else if(monthlySummary) renderMonthlySummary(monthlySummary);
 }
 
 
@@ -1145,6 +1588,22 @@ function resetAIClubFinancesForNewSeason(){
   if(typeof ensureAIClubFinances!=="function")return; const old=state.aiClubFinances||{}; state.aiClubFinances={}; ensureAIClubFinances(); Object.entries(state.aiClubFinances).forEach(([club,f])=>{const prev=old[club];if(prev)f.transferBudget+=Math.max(0,prev.transferBudget||0)*.15;});
 }
 function updateReputationFromSeason(finish){ const c=byClub(state.club); if(!c)return; const target=c.target||10; let d=finish<=target-3?2:finish<=target-1?1:finish>=target+5?-2:finish>=target+3?-1:0; c.reputation=clamp((c.reputation||70)+d,60,99); }
+
+function processFacilityYearEnd(){
+  if(!state.facilities) return;
+  Object.keys(FACILITY_TYPES).forEach(type=>{
+    const r=facilityRating(type);
+    if(r<70) return;
+
+    // Elite facilities need reinvestment to remain elite.
+    const deteriorationChance=clamp(0.10+(r-70)*0.008,0.10,0.34);
+    if(Math.random()<deteriorationChance){
+      state.facilities[type]=Math.max(0,r-1);
+      addNews(`${FACILITY_TYPES[type].label} have slipped slightly in standard and are now rated ${state.facilities[type]}. Continued investment will be needed to maintain elite infrastructure.`);
+    }
+  });
+}
+
 function beginNextSeason(){
   const archive=archiveCurrentSeason(); processPlayerYearEnd(); expireContractsAndHandleFreeAgents(); updateReputationFromSeason(archive.leagueFinish);
   state.season.year+=1; state.season.number+=1; state.season.label=currentSeasonLabel(); state.week=0; state.seasonComplete=false; state.seasonSummaryViewed=false;
@@ -1206,6 +1665,8 @@ function renderFinances(){
     <div class="metric"><div class="k">Staff wages</div><div class="v">${money(staffWages)}/wk</div></div>
     <div class="metric"><div class="k">Staff compensation</div><div class="v">${money(state.staffSpend||0)}</div></div>
     <div class="metric"><div class="k">Season P/L</div><div class="v">${money(state.seasonPL)}</div></div>
+    <div class="metric"><div class="k">Est. annual operating costs</div><div class="v">${money(annualisedOperatingCosts())}</div><div class="muted small">Stadium, admin, matchday staff & general overheads</div></div>
+    <div class="metric"><div class="k">Facility running costs</div><div class="v">${money(totalFacilityAnnualCost())}</div><div class="muted small">Training, medical, academy & recruitment</div></div>
     <div class="metric"><div class="k">Transfer P/L</div><div class="v ${transferNet>0?"good":transferNet<0?"bad":""}">${money(transferNet)}</div><div class="muted small">${money(state.transferFinance?.received||0)} received • ${money(state.transferFinance?.spent||0)} spent</div></div>
   </div>`;
   const top=[...sq].sort((a,b)=>(state.playerContracts?.[b.id]?.wage??b.wage)-(state.playerContracts?.[a.id]?.wage??a.wage)).slice(0,12);
@@ -1581,6 +2042,9 @@ function init(){
   q("fireDofBtn")?.addEventListener("click",()=>fireStaff("dof"));
   q("firePhysioBtn")?.addEventListener("click",()=>fireStaff("physio"));
   q("continueNextSeasonBtn")?.addEventListener("click",beginNextSeason);
+  q("closeMonthlySummaryBtn")?.addEventListener("click",closeMonthlySummary);
+  q("continueMonthlySummaryBtn")?.addEventListener("click",closeMonthlySummary);
+  q("monthlySummary")?.addEventListener("click",e=>{if(e.target===q("monthlySummary")) closeMonthlySummary();});
   q("closeManagerShortlist")?.addEventListener("click",()=>q("managerShortlistModal")?.classList.add("hide"));
   q("managerShortlistModal")?.addEventListener("click",e=>{if(e.target===q("managerShortlistModal")) q("managerShortlistModal").classList.add("hide");});
   q("closePlayerModal")?.addEventListener("click",closePlayerProfile);

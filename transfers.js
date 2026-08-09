@@ -190,11 +190,29 @@ function registerManagerSquadVacancy(p,oldClub){
 }
 
 
-function realisticManagerTargetPool(position,limit=18){
+function managerPositionStandard(position){
+  const players=clubSquadPlayers(state.club)
+    .filter(p=>playsPositionGroup(p,position))
+    .sort((a,b)=>b.overall-a.overall);
+  const starter=players[0]?.overall||68;
+  const second=players[1]?.overall||Math.max(62,starter-8);
+  const clubRep=byClub(state.club)?.reputation||70;
+
+  // The manager's expected first-team standard is anchored to BOTH
+  // current squad quality and club reputation.
+  const reputationStandard=clamp(Math.round(68+(clubRep-70)*0.42),70,87);
+  return {
+    starter,
+    second,
+    expectedStarter:Math.max(starter,reputationStandard),
+    expectedDepth:Math.max(second,reputationStandard-6)
+  };
+}
+
+function realisticManagerTargetPool(position,limit=30){
   const club=state.club;
   const userRep=byClub(club)?.reputation||70;
-  const current=clubSquadPlayers(club).filter(p=>playsPositionGroup(p,position)).sort((a,b)=>b.overall-a.overall);
-  const starter=current[0]?.overall||65;
+  const standard=managerPositionStandard(position);
 
   return DB.players
     .filter(p=>p.club!==club && p.club!=="Free Agent" && playsPositionGroup(p,position))
@@ -202,33 +220,75 @@ function realisticManagerTargetPool(position,limit=18){
       const sellingRep=byClub(p.club)?.reputation||68;
       const asking=estimatedAskingPrice(p,club);
       const interest=playerInterestScore(p,club);
-      const eliteBlock=p.overall>=88 && sellingRep-userRep>=4 && userRep<90;
-      const prestigeBlock=sellingRep-userRep>=8 && interest<58;
-      const budgetBlock=asking>Math.max((state.budget||0)*1.35,25_000_000);
-      return {player:p,asking,interest,starter,attainable:!eliteBlock&&!prestigeBlock&&!budgetBlock};
+      const overall=p.overall||0;
+      const potential=p.potential||overall;
+
+      // Hard realism filters.
+      const eliteBlock=(overall>=88 && userRep<88 && sellingRep>=userRep+2);
+      const prestigeBlock=(sellingRep>=userRep+8 && interest<62);
+      const interestBlock=(interest<38);
+      const affordabilityCeiling=Math.max((state.budget||0)*1.20,30_000_000);
+      const budgetBlock=asking>affordabilityCeiling;
+
+      // A normal first-team recommendation cannot be dramatically below
+      // the club's current standard.
+      const qualityBlock=overall<standard.expectedStarter-5 && potential<standard.expectedStarter+1;
+
+      return {
+        player:p,asking,interest,overall,potential,sellingRep,
+        attainable:!eliteBlock&&!prestigeBlock&&!interestBlock&&!budgetBlock&&!qualityBlock
+      };
     })
     .filter(x=>x.attainable)
-    .sort((a,b)=>((b.player.overall*.55)+(b.interest*.25)-(b.asking/1e6*.10))-((a.player.overall*.55)+(a.interest*.25)-(a.asking/1e6*.10)))
+    .sort((a,b)=>{
+      const sa=(a.overall*2.2)+(a.interest*.22)+(a.potential*.30)-(a.asking/1_000_000*.10);
+      const sb=(b.overall*2.2)+(b.interest*.22)+(b.potential*.30)-(b.asking/1_000_000*.10);
+      return sb-sa;
+    })
     .slice(0,limit);
 }
 
 function buildManagerShortlist(position){
-  const pool=realisticManagerTargetPool(position,24);
+  const pool=realisticManagerTargetPool(position,36);
   if(!pool.length) return [];
-  const starter=clubSquadPlayers(state.club).filter(p=>playsPositionGroup(p,position)).sort((a,b)=>b.overall-a.overall)[0]?.overall||68;
+  const standard=managerPositionStandard(position);
 
-  const ideal=pool.filter(x=>x.player.overall>=starter-1)
-    .sort((a,b)=>((b.player.overall*.65)+(b.interest*.20)-(b.asking/1e6*.05))-((a.player.overall*.65)+(a.interest*.20)-(a.asking/1e6*.05)))[0] || pool[0];
+  // Ideal: genuine first-team upgrade/peer, with quality weighted far more
+  // heavily than price.
+  const ideal=pool
+    .filter(x=>x.overall>=standard.expectedStarter-2)
+    .sort((a,b)=>{
+      const sa=(a.overall*3.2)+(a.interest*.18)+(a.potential*.20)-(a.asking/1_000_000*.055);
+      const sb=(b.overall*3.2)+(b.interest*.18)+(b.potential*.20)-(b.asking/1_000_000*.055);
+      return sb-sa;
+    })[0] || pool[0];
 
-  const cheaper=pool.filter(x=>x.player.id!==ideal.player.id && x.asking<=ideal.asking*.72 && x.player.overall>=Math.max(starter-4,72))
-    .sort((a,b)=>((b.player.overall*2)-(b.asking/1e6))-((a.player.overall*2)-(a.asking/1e6)))[0]
-    || pool.find(x=>x.player.id!==ideal.player.id);
+  // Cheaper: must actually be cheaper than ideal, but still close enough
+  // to first-team standard to be credible.
+  const cheaper=pool
+    .filter(x=>x.player.id!==ideal.player.id)
+    .filter(x=>x.asking<=ideal.asking*.78)
+    .filter(x=>x.overall>=standard.expectedStarter-4)
+    .sort((a,b)=>{
+      const valueA=(a.overall*2.6)+(a.interest*.15)-(a.asking/1_000_000*.22);
+      const valueB=(b.overall*2.6)+(b.interest*.15)-(b.asking/1_000_000*.22);
+      return valueB-valueA;
+    })[0]
+    || pool.find(x=>x.player.id!==ideal.player.id && x.overall>=standard.expectedStarter-5);
 
+  // Prospect: young, high potential, and intentionally allowed to be below
+  // current starter quality.
   const used=new Set([ideal?.player.id,cheaper?.player.id].filter(Boolean));
-  const prospect=pool.filter(x=>!used.has(x.player.id) && x.player.age<=22 && (x.player.potential||x.player.overall)>=starter+1)
-    .sort((a,b)=>((b.player.potential||b.player.overall)+(b.interest*.08)-(b.asking/1e6*.03))-((a.player.potential||a.player.overall)+(a.interest*.08)-(a.asking/1e6*.03)))[0]
-    || pool.find(x=>!used.has(x.player.id) && x.player.age<=24)
-    || pool.find(x=>!used.has(x.player.id));
+  const prospect=pool
+    .filter(x=>!used.has(x.player.id))
+    .filter(x=>x.player.age<=22)
+    .filter(x=>x.potential>=standard.expectedStarter+2)
+    .sort((a,b)=>{
+      const sa=(a.potential*2.4)+(a.overall*.6)+(a.interest*.15)-(a.asking/1_000_000*.07);
+      const sb=(b.potential*2.4)+(b.overall*.6)+(b.interest*.15)-(b.asking/1_000_000*.07);
+      return sb-sa;
+    })[0]
+    || pool.find(x=>!used.has(x.player.id) && x.player.age<=23 && x.potential>=standard.expectedStarter);
 
   const out=[];
   if(ideal) out.push({...ideal,role:"Ideal target"});
@@ -252,10 +312,11 @@ function maybeGenerateManagerSquadRequest(){
   const sq=squad(state.club);
   const options=[];
   const needs=evaluateSquadNeeds(state.club);
+  const transferWindowOpen=isTransferWindowOpen();
 
   // A recent sale of a first-team player creates an explicit vacancy.
   // This prevents a Watkins/Maatsen-type sale being missed by generic depth scoring.
-  (state.managerSquadVacancies||[]).filter(v=>!v.filled).forEach(v=>{
+  if(transferWindowOpen) (state.managerSquadVacancies||[]).filter(v=>!v.filled).forEach(v=>{
     const shortlist=buildManagerShortlist(v.position);
     if(shortlist.length){
       options.push({
@@ -267,8 +328,9 @@ function maybeGenerateManagerSquadRequest(){
     }
   });
 
-  // Weekly review: major holes generate reliable recruitment requests.
-  needs.forEach(need=>{
+  // Weekly review: recruitment requests are only actionable while a transfer
+  // window is open. The need itself persists in the squad model year-round.
+  if(transferWindowOpen) needs.forEach(need=>{
     if(need.score>=72){
       const shortlist=buildManagerShortlist(need.position);
       if(shortlist.length){
@@ -295,8 +357,12 @@ function maybeGenerateManagerSquadRequest(){
   sq.forEach(p=>{
     const c=state.playerContracts[p.id];
     if(c && c.endYear<=currentContractSeasonEndYear() && p.overall>=78) options.push({type:"renew",playerId:p.id,priority:3});
-    if(p.age>=29 && p.overall<=74) options.push({type:"transfer",playerId:p.id,priority:2});
-    if(p.age<=21 && p.overall<=72) options.push({type:"loan",playerId:p.id,priority:2});
+    if(p.age>=29 && p.overall<=74 && state.playerListStatus?.[p.id]!=="Transfer"){
+      options.push({type:"transfer",playerId:p.id,priority:2});
+    }
+    if(p.age<=21 && p.overall<=72 && state.playerListStatus?.[p.id]!=="Loan"){
+      options.push({type:"loan",playerId:p.id,priority:2});
+    }
   });
 
   if(!options.length) return;
@@ -675,6 +741,7 @@ function userProjectedSquadCost(){
   const annualFootballWages=(weeklyPlayerWages+managerWage)*52;
   const netSpend=Math.max(0,(state.transferFinance?.spent||0)-(state.transferFinance?.received||0));
   const transferCommitment=netSpend*0.20;
+
   return annualFootballWages+transferCommitment;
 }
 
@@ -861,6 +928,9 @@ function playerInterestScore(p,buyingClub=state.club){
   // somewhat more open to sideways moves.
   score+=(ambition-0.5)*(buyerRep>=sellerRep?14:-18);
   if(age<=23 && buyerRep>=80) score+=5;
+  if(buyingClub===state.club && typeof facilityRating==="function"){
+    score+=(facilityRating("recruitment")-70)*0.08;
+  }
   if(p.club===buyingClub) score=100;
   return clamp(Math.round(score),0,100);
 }
@@ -1328,6 +1398,7 @@ function submitNewSigningTerms(id){
   const oldAIWage=p.wage||0;
   state.budget-=n.agreedFee;
   if(state.transferFinance) state.transferFinance.spent=(state.transferFinance.spent||0)+n.agreedFee;
+  if(state.monthlyFinance) state.monthlyFinance.transferSpent=(state.monthlyFinance.transferSpent||0)+n.agreedFee;
   if(oldClub!==state.club && aiFinance(oldClub)){
     applyAITransferSale(oldClub,n.agreedFee,oldAIWage);
   }
@@ -1487,6 +1558,7 @@ function resolveIncomingTransferOffer(id,action,counter=0){
     registerManagerSquadVacancy(p,oldClub);
     state.budget+=offer.fee;
     if(state.transferFinance) state.transferFinance.received=(state.transferFinance.received||0)+offer.fee;
+    if(state.monthlyFinance) state.monthlyFinance.transferReceived=(state.monthlyFinance.transferReceived||0)+offer.fee;
     applyAITransferPurchase(buyer,offer.fee,buyerWage);
     p.wage=buyerWage;
     transferPlayerToClub(p,buyer,offer.fee,oldClub);

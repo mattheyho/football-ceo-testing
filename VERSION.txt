@@ -1,7 +1,10 @@
-Football CEO v0.14.1
-- Multi-season sandbox
-- SCR display and AI finance logic
-- Weekly squad reviews / vacancy tracking
-- Realistic 3-player manager shortlists
-- Multi-year sponsorship rollover
-- Hardened transfer negotiations
+Football CEO v0.14.4
+- 0-100 Training, Medical, Academy and Recruitment facility ratings
+- Facility annual running costs
+- Facility upgrades in +5 increments with escalating cost
+- Training facilities affect development/player satisfaction
+- Medical facilities affect injury prevention/recovery
+- Recruitment network affects transfer interest
+- Annual facility deterioration risk at higher standards
+- Facilities separated from generic operating costs
+- Generic operating costs removed from SCR

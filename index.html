@@ -365,7 +365,7 @@
   <button data-tab="database">Player Database</button>
   <button data-tab="fixtures">Fixtures</button>
   <button data-tab="table">League Table</button>
-  <button data-tab="finances">Finances</button>
+  <button data-tab="facilities">Facilities</button><button data-tab="finances">Finances</button>
   <button data-tab="matchday">Matchday & Pricing</button>
   <button data-tab="staff">Staff</button>
 </div>
@@ -499,6 +499,20 @@
 
 <div id="fixtures" class="tab hide"><div class="panel pad"><div class="sectiontitle"><h2>Premier League fixtures</h2><span class="pill">38 matchweeks</span></div><div id="fixturesList"></div></div></div>
 <div id="table" class="tab hide"><div class="panel pad"><div class="sectiontitle"><h2>Premier League table</h2><span class="pill" id="tableWeek"></span></div><div class="scroll"><table><thead><tr><th>#</th><th>Club</th><th>P</th><th>W</th><th>D</th><th>L</th><th>GF</th><th>GA</th><th>GD</th><th>Pts</th></tr></thead><tbody id="tableRows"></tbody></table></div></div></div>
+
+<div id="facilities" class="tab hide">
+  <div class="panel pad">
+    <div class="sectiontitle">
+      <div>
+        <h2 style="margin:0">Club facilities</h2>
+        <div class="muted small">Invest in the infrastructure behind the football operation.</div>
+      </div>
+      <span class="pill">Annual cost <b id="facilityAnnualTotal">—</b></span>
+    </div>
+    <div id="facilitiesGrid" class="facilities-grid"></div>
+  </div>
+</div>
+
 <div id="finances" class="tab hide"><div class="grid2"><div class="panel pad"><h2 style="font-size:17px">Club finances</h2><div id="financeCards"></div></div><div class="panel pad"><h2 style="font-size:17px">Wage structure</h2><div id="wageList"></div></div></div></div>
 
 <div id="matchday" class="tab hide">
@@ -760,6 +774,7 @@
       <div class="metric"><div class="k">Morale</div><div class="v" id="profileMorale"></div></div>
       <div class="metric"><div class="k">Appearances</div><div class="v" id="profileApps"></div></div>
       <div class="metric"><div class="k">Goals</div><div class="v" id="profileGoals"></div></div>
+      <div class="metric"><div class="k">Avg rating</div><div class="v" id="profileAvgRating"></div></div>
     </div>
 
     <div class="profile-actions">
@@ -845,5 +860,48 @@
     <div id="managerShortlistOptions"></div>
   </div>
 </div>
+
+<div id="monthlySummary" class="monthly-summary-overlay hide">
+  <div class="monthly-summary-card">
+    <div class="sectiontitle">
+      <div>
+        <div class="eyebrow">MONTHLY CEO REPORT</div>
+        <h2 style="margin:4px 0 0">Four-week review</h2>
+        <div class="muted" id="monthlySummaryTitle"></div>
+      </div>
+      <button id="closeMonthlySummaryBtn" class="close-x" type="button">×</button>
+    </div>
+
+    <div class="summary-grid" style="margin-top:14px">
+      <div class="metric"><div class="k">Results</div><div class="v summary-small-v" id="monthlySummaryRecord">—</div></div>
+      <div class="metric"><div class="k">Operating P/L</div><div class="v" id="monthlySummaryPL">—</div></div>
+      <div class="metric"><div class="k">Transfer P/L</div><div class="v" id="monthlySummaryTransferPL">—</div></div>
+    </div>
+
+    <div class="panel pad" style="margin-top:12px">
+      <div class="sectiontitle"><h3 style="margin:0">Financial breakdown</h3><span class="pill">4 weeks</span></div>
+      <div id="monthlyFinanceBreakdown" class="monthly-finance-breakdown"></div>
+    </div>
+
+    <div class="panel pad" style="margin-top:12px">
+      <div class="sectiontitle"><h3 style="margin:0">Results</h3><span class="pill" id="monthlyResultsPill"></span></div>
+      <div id="monthlyResultsList"></div>
+    </div>
+
+    <div class="grid2 monthly-lower-grid" style="margin-top:12px">
+      <div class="panel pad">
+        <div class="sectiontitle"><h3 style="margin:0">Injuries</h3></div>
+        <div id="monthlyInjuriesList"></div>
+      </div>
+      <div class="panel pad monthly-potm">
+        <div class="sectiontitle"><h3 style="margin:0">Player of the month</h3></div>
+        <div id="monthlyPOTM"></div>
+      </div>
+    </div>
+
+    <button id="continueMonthlySummaryBtn" class="btn primary" style="width:100%;margin-top:14px">Continue</button>
+  </div>
+</div>
+
 </body>
 </html>
