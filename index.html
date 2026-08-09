@@ -255,7 +255,7 @@ nav button.active{background:#351426;color:var(--villa-sky);border-color:#75405b
 </head>
 <body>
 <div class="shell">
-<div class="topbar"><div class="logo">FOOTBALL <span>CEO</span> 25/26</div><div class="tag">MOBILE UI v0.12</div></div>
+<div class="topbar"><div class="logo">FOOTBALL <span>CEO</span> 25/26</div><div class="tag">CONTRACT TUNING v0.13</div></div>
 
 <section id="startScreen" class="start panel pad">
 <h1>Take control of a Premier League club.</h1>
@@ -906,15 +906,98 @@ function ensureContractState(){
 
 function playerContractDemand(p){
   ensureContractState();
-  const current=state.playerContracts[p.id];
+
+  const current=state.playerContracts[p.id] || {wage:p.wage||0,endYear:p.contract||2026};
+  const currentWage=Math.max(1000,current.wage||p.wage||1000);
   const morale=state.playerMorale?.[p.id]||"Content";
-  let mult=1.05;
-  if(p.overall>=85) mult+=0.12;
-  else if(p.overall>=80) mult+=0.07;
-  if(morale==="Unhappy") mult+=0.08;
-  if(morale==="Wants to leave") mult+=0.18;
-  const demand=Math.round((current.wage*mult)/1000)*1000;
-  return Math.max(demand, current.wage);
+  const stats=state.playerStats?.[p.id]||{appearances:0,goals:0};
+
+  // 1) Rating / status premium.
+  // Low-rated squad players generally ask for modest rises;
+  // elite players can command significantly more.
+  let ratingFactor=1;
+  if(p.overall>=88) ratingFactor=1.20;
+  else if(p.overall>=85) ratingFactor=1.15;
+  else if(p.overall>=82) ratingFactor=1.11;
+  else if(p.overall>=79) ratingFactor=1.08;
+  else if(p.overall>=76) ratingFactor=1.06;
+  else if(p.overall>=73) ratingFactor=1.04;
+  else ratingFactor=1.02;
+
+  // 2) Morale.
+  // Happy players are easier to renew; unhappy players demand a premium.
+  let moraleFactor=1;
+  if(morale==="Happy") moraleFactor=0.96;
+  else if(morale==="Content") moraleFactor=1.00;
+  else if(morale==="Unhappy") moraleFactor=1.10;
+  else if(morale==="Wants to leave") moraleFactor=1.22;
+
+  // 3) Individual season performance.
+  // At GW0 this is neutral. Once games are played, regular starters and
+  // productive attackers earn stronger negotiating leverage.
+  let performanceFactor=1;
+  if(state.week>0){
+    const appearanceRate=stats.appearances/Math.max(1,state.week);
+    const goalRate=stats.goals/Math.max(1,stats.appearances);
+
+    if(appearanceRate>=0.85) performanceFactor+=0.04;
+    else if(appearanceRate<=0.35) performanceFactor-=0.03;
+
+    const pos=String(p.positions||"");
+    const attacking=pos.includes("ST")||pos.includes("CF")||pos.includes("LW")||pos.includes("RW")||
+                    pos.includes("CAM")||pos.includes("LM")||pos.includes("RM");
+
+    if(attacking){
+      if(goalRate>=0.60) performanceFactor+=0.10;
+      else if(goalRate>=0.35) performanceFactor+=0.06;
+      else if(goalRate>=0.18) performanceFactor+=0.03;
+      else if(stats.appearances>=8 && goalRate<0.08) performanceFactor-=0.03;
+    }else{
+      // Non-attackers gain leverage mainly from being regular starters.
+      if(appearanceRate>=0.90 && stats.appearances>=6) performanceFactor+=0.03;
+    }
+  }
+
+  // 4) Contract leverage.
+  // Players close to expiry know the club has less control.
+  const yearsLeft=Math.max(0,(current.endYear||2026)-2025);
+  let contractFactor=1;
+  if(yearsLeft<=1) contractFactor=1.05;
+  else if(yearsLeft>=4) contractFactor=0.98;
+
+  let demand=currentWage*ratingFactor*moraleFactor*performanceFactor*contractFactor;
+
+  // Nobody asks for a pay cut in a normal renewal unless they are already
+  // substantially overpaid relative to their level.
+  const floor=currentWage*(p.overall<=72 ? 0.98 : 1.01);
+  demand=Math.max(floor,demand);
+
+  // Round naturally by salary band rather than forcing everyone to the same step.
+  let step=1000;
+  if(demand>=100000) step=5000;
+  else if(demand>=50000) step=2500;
+
+  return Math.round(demand/step)*step;
+}
+
+function playerContractDemandBreakdown(p){
+  ensureContractState();
+  const current=state.playerContracts[p.id] || {wage:p.wage||0,endYear:p.contract||2026};
+  const stats=state.playerStats?.[p.id]||{appearances:0,goals:0};
+  const morale=state.playerMorale?.[p.id]||"Content";
+  const demand=playerContractDemand(p);
+
+  const reasons=[];
+  reasons.push(`Current wage ${money(current.wage||p.wage||0)}/wk`);
+  reasons.push(`${p.overall} OVR`);
+  reasons.push(`${morale.toLowerCase()} morale`);
+
+  if(state.week>0){
+    reasons.push(`${stats.appearances} apps`);
+    if(stats.goals>0) reasons.push(`${stats.goals} goals`);
+  }
+
+  return {demand,reasons};
 }
 
 function contractAcceptanceChance(p,offerWage,years){
@@ -1135,10 +1218,11 @@ function beginContractNegotiation(id){
   const p=DB.players.find(x=>String(x.id)===String(id));
   if(!p) return;
   const current=state.playerContracts[p.id];
-  const demand=playerContractDemand(p);
+  const breakdown=playerContractDemandBreakdown(p);
+  const demand=breakdown.demand;
   q("contractWageInput").value=Math.max(current.wage,demand);
   q("contractYearsInput").value="3";
-  q("contractDemandText").textContent=`Agent expectation: around ${money(demand)}/wk. Current wage: ${money(current.wage)}/wk.`;
+  q("contractDemandText").textContent=`Agent expectation: around ${money(demand)}/wk • Based on ${breakdown.reasons.join(" • ")}.`;
   q("contractNegotiation").dataset.playerId=p.id;
   q("contractNegotiation").classList.remove("hide");
 }
@@ -1165,7 +1249,8 @@ function submitContractOffer(){
     renderFinances();
   }else{
     addNews(`${p.name}'s representatives rejected your contract offer.`);
-    q("contractDemandText").textContent=`Offer rejected. The player is looking for something closer to ${money(playerContractDemand(p))}/week.`;
+    const revised=playerContractDemandBreakdown(p);
+    q("contractDemandText").textContent=`Offer rejected. The player is looking for something closer to ${money(revised.demand)}/week • ${revised.reasons.join(" • ")}.`;
   }
 }
 
