@@ -6,6 +6,16 @@
 
 const STORAGE_KEY="footballCEO2526";
 
+const BASE_PLAYER_SNAPSHOT=DB.players.map(p=>({...p}));
+
+function resetWorldDatabase(){
+  // Restore the shared in-memory database to its pristine starting state.
+  // Every career then reapplies only its own saved world overrides.
+  DB.players.length=0;
+  BASE_PLAYER_SNAPSHOT.forEach(p=>DB.players.push({...p}));
+}
+
+
 const MANAGER_POOL = [
   {name:"Mikel Arteta",rating:89},{name:"Unai Emery",rating:88},{name:"Andoni Iraola",rating:83},
   {name:"Keith Andrews",rating:72},{name:"Fabian Hürzeler",rating:80},{name:"Scott Parker",rating:75},
@@ -602,6 +612,7 @@ function blankTable(){
 }
 
 function createCareer(club){
+  resetWorldDatabase();
   const c=byClub(club);
   if(!c) return;
   state={
@@ -624,6 +635,7 @@ function createCareer(club){
     managerChangesThisSeason:0,
     trainingFacilities:{rating:clamp(Math.round(c.reputation-4),65,92)},
     transferSentiment:{fans:[],owners:[],players:[],manager:[]},
+    transferFinance:{spent:0,received:0},
     happinessDrivers:{fans:[],owners:[],players:[],manager:[]},
     seasonPL:0,
     pricing:defaultPricing(club),
@@ -639,6 +651,10 @@ function createCareer(club){
     results:{},
     news:[{week:0,text:`You have been appointed CEO of ${club}. ${c.manager} remains in charge of first-team football.`}]
   };
+  // Build the initial recruitment picture before the first matchweek so the
+  // manager and AI clubs enter the season with real squad priorities.
+  if(typeof runAITransferReview==="function") runAITransferReview();
+  if(typeof maybeGenerateManagerSquadRequest==="function") maybeGenerateManagerSquadRequest();
   enterGame();
   saveGame(false);
 }
@@ -652,6 +668,7 @@ function enterGame(){
   if(state.managerChangesThisSeason==null) state.managerChangesThisSeason=0;
   if(!state.trainingFacilities) state.trainingFacilities={rating:clamp(Math.round(byClub(state.club).reputation-4),65,92)};
   if(!state.transferSentiment) state.transferSentiment={fans:[],owners:[],players:[],manager:[]};
+  if(!state.transferFinance) state.transferFinance={spent:0,received:0};
   if(!state.happinessDrivers) state.happinessDrivers={fans:[],owners:[],players:[],manager:[]};
   if(!state.pricing) state.pricing=defaultPricing(state.club);
   if(state.seasonTicketDiscount==null) state.seasonTicketDiscount=15;
@@ -702,6 +719,7 @@ function loadGame(){
     const raw=safeGetSave();
     if(!raw) return;
     state=JSON.parse(raw);
+    resetWorldDatabase();
     enterGame();
   }catch(e){
     alert("The save could not be loaded.");
@@ -798,6 +816,12 @@ function renderInbox(){
         </div>`;
       }
     }
+    if(n.incomingOfferId){
+      const offer=state.incomingTransferOffers?.find(o=>o.id===n.incomingOfferId);
+      if(offer && offer.status==="pending"){
+        actions=`<div class="inbox-action"><button class="btn primary incoming-offer-btn" data-offer-id="${offer.id}">Review offer</button></div>`;
+      }
+    }
     return `<div class="news"><span class="pill">MW ${n.week}</span> &nbsp; ${n.text}${actions}</div>`;
   }).join("")||`<p class="muted">No messages.</p>`;
 
@@ -843,7 +867,7 @@ function renderDatabase(){
   const arr=DB.players.filter(p=>(p.name+" "+p.club+" "+p.nationality+" "+p.positions).toLowerCase().includes(query))
     .sort((a,b)=>b.overall-a.overall).slice(0,300);
   q("dbRows").innerHTML=arr.map(p=>`<tr>
-    <td><b>${p.name}</b></td><td>${p.club}</td><td>${p.positions}</td>
+    <td><button type="button" class="player-link database-player-link" data-player-id="${p.id}">${p.name}</button></td><td>${p.club}</td><td>${p.positions}</td>
     <td><span class="rating">${p.overall}</span></td><td>${p.potential}</td><td>${p.age}</td><td>${money(p.value)}</td>
   </tr>`).join("");
 }
@@ -913,6 +937,7 @@ function advanceMatchweek(){
   updateIndividualMorale();
   processInjuries();
   maybeGenerateManagerSquadRequest();
+  if(typeof processTransferWeek==="function") processTransferWeek();
   state.week++;
   addNews(`${state.club} ${myGoals}–${opGoals} ${opp}.`);
   saveGame(false);
@@ -948,6 +973,7 @@ function renderFinances(){
   const wages=sq.reduce((s,p)=>s+(state.playerContracts?.[p.id]?.wage??p.wage??0),0);
   const vals=sq.reduce((s,p)=>s+(p.value||0),0);
   const staffWages=(state.staff?.manager?.wage||0)+(state.staff?.dof?.wage||0)+(state.staff?.physio?.wage||0);
+  const transferNet=(state.transferFinance?.received||0)-(state.transferFinance?.spent||0);
   q("financeCards").innerHTML=`<div class="grid3">
     <div class="metric"><div class="k">Transfer budget</div><div class="v">${money(state.budget)}</div></div>
     <div class="metric"><div class="k">Squad value</div><div class="v">${money(vals)}</div></div>
@@ -957,12 +983,17 @@ function renderFinances(){
     <div class="metric"><div class="k">Staff wages</div><div class="v">${money(staffWages)}/wk</div></div>
     <div class="metric"><div class="k">Staff compensation</div><div class="v">${money(state.staffSpend||0)}</div></div>
     <div class="metric"><div class="k">Season P/L</div><div class="v">${money(state.seasonPL)}</div></div>
+    <div class="metric"><div class="k">Transfer P/L</div><div class="v ${transferNet>0?"good":transferNet<0?"bad":""}">${money(transferNet)}</div><div class="muted small">${money(state.transferFinance?.received||0)} received • ${money(state.transferFinance?.spent||0)} spent</div></div>
   </div>`;
-  const top=[...sq].sort((a,b)=>b.wage-a.wage).slice(0,12),max=top[0]?.wage||1;
-  q("wageList").innerHTML=top.map(p=>`<div style="margin:10px 0">
-    <div style="display:flex;justify-content:space-between"><b>${p.name}</b><span>${money(p.wage)}/wk</span></div>
-    <div class="progress"><span style="width:${p.wage/max*100}%"></span></div>
-  </div>`).join("");
+  const top=[...sq].sort((a,b)=>(state.playerContracts?.[b.id]?.wage??b.wage)-(state.playerContracts?.[a.id]?.wage??a.wage)).slice(0,12);
+  const max=(state.playerContracts?.[top[0]?.id]?.wage??top[0]?.wage)||1;
+  q("wageList").innerHTML=top.map(p=>{
+    const liveWage=state.playerContracts?.[p.id]?.wage??p.wage;
+    return `<div style="margin:10px 0">
+      <div style="display:flex;justify-content:space-between"><b>${p.name}</b><span>${money(liveWage)}/wk</span></div>
+      <div class="progress"><span style="width:${liveWage/max*100}%"></span></div>
+    </div>`;
+  }).join("");
 }
 
 
