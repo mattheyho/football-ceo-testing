@@ -257,6 +257,7 @@ function processInjuries(){
 }
 
 let state=null;
+let squadView="stats";
 
 const STADIUMS={
   "Arsenal":{name:"Emirates Stadium",capacity:60704},
@@ -834,28 +835,69 @@ function renderSquad(){
   ensurePlayerState();
   const search=q("squadSearch");
   const query=(search?.value||"").toLowerCase();
-  const arr=squad(state.club)
-    .filter(p=>(p.name+" "+p.positions).toLowerCase().includes(query))
+  const fullSquad=squad(state.club);
+  const arr=fullSquad
+    .filter(p=>(p.name+" "+p.positions+" "+p.nationality).toLowerCase().includes(query))
     .sort((a,b)=>b.overall-a.overall);
 
   if(q("squadTitle")) q("squadTitle").textContent=state.club+" squad";
-  if(q("squadCount")) q("squadCount").textContent=arr.length+" players";
+  if(q("squadCount")) q("squadCount").textContent=fullSquad.length+" players";
 
-  if(q("squadRows")) q("squadRows").innerHTML=arr.map(p=>`<tr>
-    <td>${p.number||"—"}</td>
-    <td><button type="button" class="player-link" data-player-id="${p.id}">${p.name}</button><div class="muted small">${p.nationality}</div></td>
-    <td>${p.positions}</td>
-    <td><span class="rating">${p.overall}</span></td>
-    <td class="${playerMoraleClass(state.playerMorale[p.id])}">${state.playerMorale[p.id]}</td>
-    <td>${state.playerStats[p.id]?.appearances||0}</td>
-    <td>${state.playerStats[p.id]?.goals||0}</td>
-    <td>${p.potential}</td>
-    <td>${p.age}</td>
-    <td>${money(p.value)}</td>
-    <td>${money(state.playerContracts[p.id]?.wage??p.wage)}/wk</td>
-    <td>${state.playerContracts[p.id]?.endYear??p.contract}</td>
-    <td>${state.playerListStatus[p.id]==="Transfer"?`<span class="listed-badge listed-transfer">Transfer</span>`:state.playerListStatus[p.id]==="Loan"?`<span class="listed-badge listed-loan">Loan</span>`:state.injuries?.[p.id]?`<span class="injury-chip">${state.injuries[p.id].weeksLeft}w</span>`:`<span class="status-fit">Fit</span>`}</td>
-  </tr>`).join("");
+  // Whole-squad metrics use the full squad, not the current search results.
+  const squadValue=fullSquad.reduce((sum,p)=>sum+(p.value||0),0);
+  const avgWage=fullSquad.length
+    ? fullSquad.reduce((sum,p)=>sum+(state.playerContracts?.[p.id]?.wage??p.wage??0),0)/fullSquad.length
+    : 0;
+  const avgAge=fullSquad.length
+    ? fullSquad.reduce((sum,p)=>sum+(p.age||0),0)/fullSquad.length
+    : 0;
+
+  if(q("squadValueMetric")) q("squadValueMetric").textContent=money(squadValue);
+  if(q("squadAvgWageMetric")) q("squadAvgWageMetric").textContent=money(avgWage)+"/wk";
+  if(q("squadAvgAgeMetric")) q("squadAvgAgeMetric").textContent=avgAge.toFixed(1);
+
+  document.querySelectorAll(".squad-view-btn").forEach(btn=>{
+    btn.classList.toggle("active",btn.dataset.squadView===squadView);
+  });
+
+  if(q("squadHead")){
+    q("squadHead").innerHTML=squadView==="stats"
+      ? `<tr><th>Player</th><th>Pos</th><th>OVR</th><th>Morale</th><th class="num">Apps</th><th class="num">Goals</th></tr>`
+      : `<tr><th>Player</th><th>Age</th><th>Value</th><th>Wage</th><th>Contract</th><th>Status</th></tr>`;
+  }
+
+  if(q("squadRows")){
+    q("squadRows").innerHTML=arr.map(p=>{
+      const playerCell=`<td class="squad-player-cell"><button type="button" class="player-link" data-player-id="${p.id}">${p.name}</button><div class="muted small">${p.nationality}</div></td>`;
+      if(squadView==="stats"){
+        return `<tr>
+          ${playerCell}
+          <td>${p.positions}</td>
+          <td><span class="rating">${p.overall}</span></td>
+          <td class="${playerMoraleClass(state.playerMorale[p.id])}">${state.playerMorale[p.id]}</td>
+          <td class="num">${state.playerStats[p.id]?.appearances||0}</td>
+          <td class="num">${state.playerStats[p.id]?.goals||0}</td>
+        </tr>`;
+      }
+
+      const status=state.playerListStatus[p.id]==="Transfer"
+        ? `<span class="listed-badge listed-transfer">Transfer</span>`
+        : state.playerListStatus[p.id]==="Loan"
+          ? `<span class="listed-badge listed-loan">Loan</span>`
+          : state.injuries?.[p.id]
+            ? `<span class="injury-chip">${state.injuries[p.id].weeksLeft}w</span>`
+            : `<span class="status-fit">Fit</span>`;
+
+      return `<tr>
+        ${playerCell}
+        <td>${p.age}</td>
+        <td>${money(p.value)}</td>
+        <td>${money(state.playerContracts[p.id]?.wage??p.wage)}/wk</td>
+        <td>${state.playerContracts[p.id]?.endYear??p.contract}</td>
+        <td>${status}</td>
+      </tr>`;
+    }).join("");
+  }
 
   document.querySelectorAll(".player-link").forEach(btn=>{
     btn.addEventListener("click",()=>openPlayerProfile(btn.dataset.playerId));
@@ -1302,6 +1344,12 @@ function init(){
   });
   document.querySelectorAll("#tabs button").forEach(btn=>{
     btn.addEventListener("click",()=>showTab(btn.dataset.tab));
+  });
+  document.querySelectorAll(".squad-view-btn").forEach(btn=>{
+    btn.addEventListener("click",()=>{
+      squadView=btn.dataset.squadView||"stats";
+      renderSquad();
+    });
   });
   q("advanceBtn")?.addEventListener("click",advanceMatchweek);
   q("continueBtn")?.addEventListener("click",loadGame);

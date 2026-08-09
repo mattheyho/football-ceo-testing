@@ -391,7 +391,35 @@
   </div>
 </div>
 
-<div id="squad" class="tab hide"><div class="panel pad"><div class="sectiontitle"><h2 id="squadTitle">Squad</h2><span class="pill" id="squadCount"></span></div><input id="squadSearch" class="search" placeholder="Search your squad…" oninput="renderSquad()"><div class="scroll"><table><thead><tr><th>#</th><th>Player</th><th>Pos</th><th>OVR</th><th>Morale</th><th>Apps</th><th>Goals</th><th>POT</th><th>Age</th><th>Value</th><th>Wage</th><th>Contract</th><th>Status</th></tr></thead><tbody id="squadRows"></tbody></table></div></div></div>
+<div id="squad" class="tab hide">
+  <div class="panel pad">
+    <div class="sectiontitle">
+      <h2 id="squadTitle">Squad</h2>
+      <span class="pill" id="squadCount"></span>
+    </div>
+
+    <div class="squad-summary" id="squadSummary">
+      <div class="metric"><div class="k">Squad value</div><div class="v" id="squadValueMetric">—</div></div>
+      <div class="metric"><div class="k">Average wage</div><div class="v" id="squadAvgWageMetric">—</div></div>
+      <div class="metric"><div class="k">Average age</div><div class="v" id="squadAvgAgeMetric">—</div></div>
+    </div>
+
+    <div class="squad-toolbar">
+      <div class="squad-view-toggle">
+        <button type="button" class="squad-view-btn active" data-squad-view="stats">Season stats</button>
+        <button type="button" class="squad-view-btn" data-squad-view="financial">Financial</button>
+      </div>
+      <input id="squadSearch" class="search squad-search" placeholder="Search your squad…" oninput="renderSquad()">
+    </div>
+
+    <div class="scroll squad-table-scroll">
+      <table id="squadTable">
+        <thead id="squadHead"></thead>
+        <tbody id="squadRows"></tbody>
+      </table>
+    </div>
+  </div>
+</div>
 
 <div id="database" class="tab hide"><div class="panel pad"><div class="sectiontitle"><h2>Premier League player database</h2><span class="pill">FC26 ratings</span></div><input id="dbSearch" class="search" placeholder="Search player, club, nationality or position…" oninput="renderDatabase()"><div class="scroll"><table><thead><tr><th>Player</th><th>Club</th><th>Pos</th><th>OVR</th><th>POT</th><th>Age</th><th>Value</th></tr></thead><tbody id="dbRows"></tbody></table></div></div></div>
 
