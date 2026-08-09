@@ -696,6 +696,7 @@ function enterGame(){
   if(state.seasonSummaryViewed==null) state.seasonSummaryViewed=false;
   if(!state.clubHistory) state.clubHistory={recentFinishes:[byClub(state.club).target+1,byClub(state.club).target]};
   if(!state.sponsorOffers) state.sponsorOffers=[];
+  if(state.sponsorship && state.sponsorship.seasonsRemaining==null) state.sponsorship.seasonsRemaining=state.sponsorship.years||1;
   q("startScreen").classList.add("hide");
   q("game").classList.remove("hide");
   showTab("dashboard");
@@ -1290,12 +1291,14 @@ function renderMatchday(){
 let selectedSponsorId=null;
 
 function openSeasonSetup(){
+  if(!state.sponsorship){
+    if(!state.sponsorOffers || state.sponsorOffers.length===0) state.sponsorOffers=generateSponsorOffers(state.club);
+    selectedSponsorId=null;
+  }else{
+    selectedSponsorId=state.sponsorship.id||"ACTIVE";
+  }
   const seasonPill=q("seasonSetup")?.querySelector(".pill");
   if(seasonPill) seasonPill.textContent=currentSeasonLabel();
-  if(!state.sponsorOffers || state.sponsorOffers.length===0){
-    state.sponsorOffers=generateSponsorOffers(state.club);
-  }
-  selectedSponsorId=state.sponsorship?.id || null;
   q("seasonSetup").classList.remove("hide");
   q("seasonTicketDiscount").value=String(state.seasonTicketDiscount||15);
   renderSeasonSetup();
@@ -1315,7 +1318,19 @@ function renderSeasonSetup(){
     diff<-15 ? `Adult tickets are ${Math.abs(diff)}% below the club benchmark. Demand should be strong, but revenue per seat is lower.` :
     `Pricing is broadly in line with the club benchmark. Adult ticket benchmark: ${money(rec.ticket)}.`;
 
-  q("sponsorOptions").innerHTML=state.sponsorOffers.map(s=>`
+  if(state.sponsorship){
+    const remaining=state.sponsorship.seasonsRemaining??state.sponsorship.years??1;
+    q("sponsorOptions").innerHTML=`
+      <div class="sponsor-card selected">
+        <div style="display:flex;justify-content:space-between;gap:10px;align-items:flex-start">
+          <div><b>${state.sponsorship.name}</b><div class="muted small">Current main sponsor</div></div>
+          <div style="text-align:right"><b>${money(state.sponsorship.annualValue)}</b><div class="muted small">per season</div></div>
+        </div>
+        <div class="muted small" style="margin-top:8px">${remaining} season${remaining===1?"":"s"} remaining</div>
+        ${state.sponsorship.fanOpposed?'<div class="sponsor-badge bad">FANS OPPOSE THIS</div>':'<div class="sponsor-badge good">ACTIVE CONTRACT</div>'}
+      </div>`;
+    q("confirmSeasonSetup").disabled=false;
+  }else q("sponsorOptions").innerHTML=state.sponsorOffers.map(s=>`
     <div class="sponsor-card ${s.fanOpposed?"opposed":""} ${selectedSponsorId===s.id?"selected":""}" data-sponsor-id="${s.id}">
       <div style="display:flex;justify-content:space-between;gap:10px;align-items:flex-start">
         <div><b>${s.name}</b><div class="muted small">${s.years} season${s.years===1?"":"s"}</div></div>
@@ -1333,7 +1348,7 @@ function renderSeasonSetup(){
     });
   });
 
-  q("confirmSeasonSetup").disabled=!selectedSponsorId;
+  q("confirmSeasonSetup").disabled=state.sponsorship?false:!selectedSponsorId;
 }
 
 function adjustSetupPrice(key,step){
@@ -1347,20 +1362,21 @@ function adjustSetupPrice(key,step){
 function confirmSeasonSetup(){
   if(!selectedSponsorId) return;
   state.seasonTicketDiscount=Number(q("seasonTicketDiscount").value);
-  const chosen=state.sponsorOffers.find(s=>s.id===selectedSponsorId);
-  state.sponsorship={...chosen};
+  const chosen=state.sponsorship ? null : state.sponsorOffers.find(s=>s.id===selectedSponsorId);
+  if(chosen) state.sponsorship={...chosen,seasonsRemaining:chosen.years};
 
-  if(chosen.fanOpposed){
+  if(chosen?.fanOpposed){
     state.happiness.fans=clamp(state.happiness.fans-3,0,100);
     addNews(`Supporters have criticised the club's new sponsorship agreement with ${chosen.name}.`);
-  }else{
+  }else if(chosen){
     state.happiness.fans=clamp(state.happiness.fans+1,0,100);
     addNews(`${chosen.name} has been announced as the club's main sponsor.`);
   }
 
-  // Small owner happiness boost for financially stronger deals.
-  const avgOffer=state.sponsorOffers.reduce((s,x)=>s+x.annualValue,0)/state.sponsorOffers.length;
-  if(chosen.annualValue>avgOffer*1.08) state.happiness.owners=clamp(state.happiness.owners+2,0,100);
+  if(chosen){
+    const avgOffer=state.sponsorOffers.reduce((s,x)=>s+x.annualValue,0)/Math.max(1,state.sponsorOffers.length);
+    if(chosen.annualValue>avgOffer*1.08) state.happiness.owners=clamp(state.happiness.owners+2,0,100);
+  }
 
   state.pricingLocked=true;
   updateStakeholderDrivers();
@@ -1565,6 +1581,8 @@ function init(){
   q("fireDofBtn")?.addEventListener("click",()=>fireStaff("dof"));
   q("firePhysioBtn")?.addEventListener("click",()=>fireStaff("physio"));
   q("continueNextSeasonBtn")?.addEventListener("click",beginNextSeason);
+  q("closeManagerShortlist")?.addEventListener("click",()=>q("managerShortlistModal")?.classList.add("hide"));
+  q("managerShortlistModal")?.addEventListener("click",e=>{if(e.target===q("managerShortlistModal")) q("managerShortlistModal").classList.add("hide");});
   q("closePlayerModal")?.addEventListener("click",closePlayerProfile);
   q("playerModal")?.addEventListener("click",e=>{if(e.target===q("playerModal")) closePlayerProfile();});
   q("negotiateContractBtn")?.addEventListener("click",e=>beginContractNegotiation(e.currentTarget.dataset.playerId));

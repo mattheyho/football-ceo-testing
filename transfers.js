@@ -189,6 +189,61 @@ function registerManagerSquadVacancy(p,oldClub){
   }
 }
 
+
+function realisticManagerTargetPool(position,limit=18){
+  const club=state.club;
+  const userRep=byClub(club)?.reputation||70;
+  const current=clubSquadPlayers(club).filter(p=>playsPositionGroup(p,position)).sort((a,b)=>b.overall-a.overall);
+  const starter=current[0]?.overall||65;
+
+  return DB.players
+    .filter(p=>p.club!==club && p.club!=="Free Agent" && playsPositionGroup(p,position))
+    .map(p=>{
+      const sellingRep=byClub(p.club)?.reputation||68;
+      const asking=estimatedAskingPrice(p,club);
+      const interest=playerInterestScore(p,club);
+      const eliteBlock=p.overall>=88 && sellingRep-userRep>=4 && userRep<90;
+      const prestigeBlock=sellingRep-userRep>=8 && interest<58;
+      const budgetBlock=asking>Math.max((state.budget||0)*1.35,25_000_000);
+      return {player:p,asking,interest,starter,attainable:!eliteBlock&&!prestigeBlock&&!budgetBlock};
+    })
+    .filter(x=>x.attainable)
+    .sort((a,b)=>((b.player.overall*.55)+(b.interest*.25)-(b.asking/1e6*.10))-((a.player.overall*.55)+(a.interest*.25)-(a.asking/1e6*.10)))
+    .slice(0,limit);
+}
+
+function buildManagerShortlist(position){
+  const pool=realisticManagerTargetPool(position,24);
+  if(!pool.length) return [];
+  const starter=clubSquadPlayers(state.club).filter(p=>playsPositionGroup(p,position)).sort((a,b)=>b.overall-a.overall)[0]?.overall||68;
+
+  const ideal=pool.filter(x=>x.player.overall>=starter-1)
+    .sort((a,b)=>((b.player.overall*.65)+(b.interest*.20)-(b.asking/1e6*.05))-((a.player.overall*.65)+(a.interest*.20)-(a.asking/1e6*.05)))[0] || pool[0];
+
+  const cheaper=pool.filter(x=>x.player.id!==ideal.player.id && x.asking<=ideal.asking*.72 && x.player.overall>=Math.max(starter-4,72))
+    .sort((a,b)=>((b.player.overall*2)-(b.asking/1e6))-((a.player.overall*2)-(a.asking/1e6)))[0]
+    || pool.find(x=>x.player.id!==ideal.player.id);
+
+  const used=new Set([ideal?.player.id,cheaper?.player.id].filter(Boolean));
+  const prospect=pool.filter(x=>!used.has(x.player.id) && x.player.age<=22 && (x.player.potential||x.player.overall)>=starter+1)
+    .sort((a,b)=>((b.player.potential||b.player.overall)+(b.interest*.08)-(b.asking/1e6*.03))-((a.player.potential||a.player.overall)+(a.interest*.08)-(a.asking/1e6*.03)))[0]
+    || pool.find(x=>!used.has(x.player.id) && x.player.age<=24)
+    || pool.find(x=>!used.has(x.player.id));
+
+  const out=[];
+  if(ideal) out.push({...ideal,role:"Ideal target"});
+  if(cheaper&&!out.some(x=>x.player.id===cheaper.player.id)) out.push({...cheaper,role:"Cheaper alternative"});
+  if(prospect&&!out.some(x=>x.player.id===prospect.player.id)) out.push({...prospect,role:"Young prospect"});
+  return out.slice(0,3);
+}
+
+function managerShortlistForRequest(req){
+  return (req.shortlist||[]).map(x=>{
+    const p=DB.players.find(pl=>String(pl.id)===String(x.playerId));
+    return p?{...x,player:p}:null;
+  }).filter(Boolean);
+}
+
 function maybeGenerateManagerSquadRequest(){
   ensureContractState();
   if(!state.staff?.manager) return;
@@ -201,12 +256,13 @@ function maybeGenerateManagerSquadRequest(){
   // A recent sale of a first-team player creates an explicit vacancy.
   // This prevents a Watkins/Maatsen-type sale being missed by generic depth scoring.
   (state.managerSquadVacancies||[]).filter(v=>!v.filled).forEach(v=>{
-    const targets=findTransferTargets(state.club,v.position,6);
-    if(targets.length){
-      const preferred=[...targets].sort((a,b)=>managerInterestScore(b.player)-managerInterestScore(a.player))[0];
+    const shortlist=buildManagerShortlist(v.position);
+    if(shortlist.length){
       options.push({
-        type:"sign",position:v.position,playerId:preferred.player.id,priority:12,
-        alternatives:targets.slice(0,4).map(x=>x.player.id),urgency:"critical",vacancy:true
+        type:"sign",position:v.position,playerId:shortlist[0].player.id,priority:12,
+        alternatives:shortlist.slice(1).map(x=>x.player.id),
+        shortlist:shortlist.map(x=>({playerId:x.player.id,role:x.role,asking:x.asking,interest:x.interest})),
+        urgency:"critical",vacancy:true
       });
     }
   });
@@ -214,21 +270,23 @@ function maybeGenerateManagerSquadRequest(){
   // Weekly review: major holes generate reliable recruitment requests.
   needs.forEach(need=>{
     if(need.score>=72){
-      const targets=findTransferTargets(state.club,need.position,6);
-      if(targets.length){
-        const preferred=[...targets].sort((a,b)=>managerInterestScore(b.player)-managerInterestScore(a.player))[0];
+      const shortlist=buildManagerShortlist(need.position);
+      if(shortlist.length){
         options.push({
-          type:"sign",position:need.position,playerId:preferred.player.id,priority:10,
-          alternatives:targets.slice(0,4).map(x=>x.player.id),urgency:"critical"
+          type:"sign",position:need.position,playerId:shortlist[0].player.id,priority:10,
+          alternatives:shortlist.slice(1).map(x=>x.player.id),
+          shortlist:shortlist.map(x=>({playerId:x.player.id,role:x.role,asking:x.asking,interest:x.interest})),
+          urgency:"critical"
         });
       }
     }else if(need.score>=56){
-      const targets=findTransferTargets(state.club,need.position,6);
-      if(targets.length){
-        const preferred=[...targets].sort((a,b)=>managerInterestScore(b.player)-managerInterestScore(a.player))[0];
+      const shortlist=buildManagerShortlist(need.position);
+      if(shortlist.length){
         options.push({
-          type:"sign",position:need.position,playerId:preferred.player.id,priority:5,
-          alternatives:targets.slice(0,4).map(x=>x.player.id),urgency:"important"
+          type:"sign",position:need.position,playerId:shortlist[0].player.id,priority:5,
+          alternatives:shortlist.slice(1).map(x=>x.player.id),
+          shortlist:shortlist.map(x=>({playerId:x.player.id,role:x.role,asking:x.asking,interest:x.interest})),
+          urgency:"important"
         });
       }
     }
@@ -286,13 +344,13 @@ function maybeGenerateManagerSquadRequest(){
   const id="mr"+Date.now()+Math.floor(Math.random()*1000);
   const req={
     id,type:pick.type,playerId:p.id,position:pick.position||null,
-    alternatives:pick.alternatives||[],urgency:pick.urgency||null,
+    alternatives:pick.alternatives||[],shortlist:pick.shortlist||[],urgency:pick.urgency||null,
     resolved:false,manager:manager.name
   };
   state.managerRequests.push(req);
 
   const wording = pick.type==="sign"
-    ? `${manager.name} has reviewed the squad and wants a new ${positionLabel(pick.position)}${pick.urgency==="critical"?" urgently":""}. ${p.name} is the preferred target.`
+    ? `${manager.name} has reviewed the squad and wants a new ${positionLabel(pick.position)}${pick.urgency==="critical"?" urgently":""}. A three-player shortlist is ready for your review.`
     : pick.type==="renew"
       ? `${manager.name} wants the club to open contract talks with ${p.name}.`
       : pick.type==="transfer"
@@ -313,9 +371,11 @@ function resolveManagerRequest(id,accepted){
     if(req.type==="transfer") setPlayerListStatus(p.id,"Transfer","Manager");
     else if(req.type==="loan") setPlayerListStatus(p.id,"Loan","Manager");
     else if(req.type==="sign"){
-      recordManagerTransferChoice(true);
-      addNews(`You authorised the recruitment team to pursue ${p.name} as a ${positionLabel(req.position)} target.`);
-      openTransferPlayerFile(p.id,{managerRequestId:req.id});
+      req.resolved=false;
+      openManagerShortlist(req.id);
+      saveGame(false);
+      renderInbox();
+      return;
     }else{
       addNews(`You agreed with ${req.manager} to begin contract talks with ${p.name}.`);
       openPlayerProfile(p.id);
@@ -1424,3 +1484,49 @@ function allAIClubFinanceSnapshots(){
     .filter(Boolean)
     .sort((a,b)=>b.scrRatio-a.scrRatio);
 }
+
+
+function openManagerShortlist(requestId){
+  const req=state.managerRequests?.find(r=>r.id===requestId);
+  if(!req||req.type!=="sign") return;
+  const shortlist=managerShortlistForRequest(req);
+  if(!shortlist.length) return;
+
+  q("managerShortlistTitle").textContent=`New ${positionLabel(req.position)} shortlist`;
+  q("managerShortlistIntro").textContent=`${req.manager} has presented three realistic approaches to solve this squad need.`;
+  q("managerShortlistOptions").innerHTML=shortlist.map((x,i)=>{
+    const p=x.player, tag=x.role||["Ideal target","Cheaper alternative","Young prospect"][i];
+    return `<div class="manager-shortlist-option">
+      <div class="manager-shortlist-top">
+        <div><span class="shortlist-role">${tag}</span><h3>${p.name}</h3><div class="muted small">${p.club} • ${p.age} yrs • ${p.positions}</div></div>
+        <div class="rating">${p.overall}</div>
+      </div>
+      <div class="shortlist-metrics">
+        <div><span>Potential</span><b>${p.potential||p.overall}</b></div>
+        <div><span>Est. price</span><b>${money(x.asking||estimatedAskingPrice(p,state.club))}</b></div>
+        <div><span>Interest</span><b>${Math.round(x.interest??playerInterestScore(p,state.club))}%</b></div>
+      </div>
+      <button class="btn ${i===0?"primary":"secondary"} pursue-shortlist-btn" data-request-id="${req.id}" data-player-id="${p.id}" data-role="${tag}">Pursue ${tag.toLowerCase()}</button>
+    </div>`;
+  }).join("");
+
+  document.querySelectorAll(".pursue-shortlist-btn").forEach(btn=>btn.addEventListener("click",()=>pursueManagerShortlistTarget(btn.dataset.requestId,btn.dataset.playerId,btn.dataset.role)));
+  q("managerShortlistModal").classList.remove("hide");
+}
+
+function pursueManagerShortlistTarget(requestId,playerId,role){
+  const req=state.managerRequests?.find(r=>r.id===requestId);
+  const p=DB.players.find(x=>String(x.id)===String(playerId));
+  if(!req||!p) return;
+  req.resolved=true;
+  req.selectedPlayerId=p.id;
+  req.selectedRole=role;
+  state.managerBacking=clamp((state.managerBacking||70)+(role==="Ideal target"?4:role==="Cheaper alternative"?2:1),0,100);
+  addNews(`You selected ${p.name} as the ${role.toLowerCase()} for ${req.manager}'s ${positionLabel(req.position)} request.`);
+  q("managerShortlistModal").classList.add("hide");
+  saveGame(false);
+  openTransferPlayerFile(p.id,{managerRequestId:req.id});
+  renderInbox();
+  renderDashboard();
+}
+

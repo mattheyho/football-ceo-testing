@@ -628,3 +628,16 @@ nav button.active{background:#351426;color:var(--villa-sky);border-color:#75405b
 
 /* Multi-season review */
 .season-summary-overlay{position:fixed;inset:0;background:#060307e8;z-index:1500;display:flex;align-items:flex-start;justify-content:center;overflow:auto;padding:18px}.season-summary-card{width:min(760px,100%);background:var(--panel);border:1px solid var(--line);border-radius:18px;padding:18px;box-shadow:0 30px 90px #000b}.season-summary-hero{display:flex;align-items:center;justify-content:space-between;gap:14px;padding:4px 0 14px}.season-summary-hero .eyebrow{font-size:9px;letter-spacing:1.3px;color:var(--villa-sky);font-weight:900}.season-summary-hero h2{margin:4px 0 2px;font-size:23px}.summary-finish{font-size:40px;font-weight:900;color:var(--villa-sky)}.summary-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}.summary-small-v{font-size:15px!important}.summary-stakeholders{display:grid;grid-template-columns:1fr 1fr;gap:10px}.summary-stakeholder{padding:9px;border:1px solid var(--line);border-radius:10px}@media(max-width:480px){.season-summary-overlay{padding:0;align-items:flex-end}.season-summary-card{min-height:100dvh;border-radius:0;padding:16px 10px calc(18px + env(safe-area-inset-bottom))}.summary-grid{grid-template-columns:1fr 1fr}.summary-finish{font-size:34px}}
+
+.manager-shortlist-overlay{position:fixed;inset:0;background:#060307e8;z-index:1600;display:flex;align-items:flex-start;justify-content:center;overflow:auto;padding:18px}
+.manager-shortlist-card{width:min(760px,100%);background:var(--panel);border:1px solid var(--line);border-radius:18px;padding:18px}
+.manager-shortlist-card .eyebrow{font-size:9px;letter-spacing:1.3px;color:var(--villa-sky);font-weight:900}
+.manager-shortlist-option{border:1px solid var(--line);border-radius:14px;padding:14px;margin:10px 0;background:rgba(255,255,255,.025)}
+.manager-shortlist-top{display:flex;align-items:flex-start;justify-content:space-between;gap:12px}
+.manager-shortlist-top h3{margin:4px 0 2px;font-size:17px}
+.shortlist-role{display:inline-block;font-size:9px;font-weight:900;letter-spacing:.6px;text-transform:uppercase;color:var(--villa-sky)}
+.shortlist-metrics{display:grid;grid-template-columns:repeat(3,1fr);gap:7px;margin:11px 0}
+.shortlist-metrics>div{border:1px solid var(--line);border-radius:9px;padding:8px}
+.shortlist-metrics span{display:block;color:var(--muted);font-size:8px;text-transform:uppercase}
+.shortlist-metrics b{display:block;margin-top:2px;font-size:12px}
+@media(max-width:480px){.manager-shortlist-overlay{padding:0;align-items:flex-end}.manager-shortlist-card{min-height:100dvh;border-radius:0;padding:14px 10px calc(18px + env(safe-area-inset-bottom))}}
