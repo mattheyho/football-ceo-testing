@@ -1081,7 +1081,18 @@ function renderFinances(){
   const vals=sq.reduce((s,p)=>s+(p.value||0),0);
   const staffWages=(state.staff?.manager?.wage||0)+(state.staff?.dof?.wage||0)+(state.staff?.physio?.wage||0);
   const transferNet=(state.transferFinance?.received||0)-(state.transferFinance?.spent||0);
-  q("financeCards").innerHTML=`<div class="grid3">
+  const scr=typeof userSCRSnapshot==="function"?userSCRSnapshot():null;
+  q("financeCards").innerHTML=`${scr?`<div class="scr-card scr-${scr.status.toLowerCase()}">
+    <div class="sectiontitle"><div><div class="k">Squad Cost Ratio (SCR)</div><div class="scr-value">${(scr.ratio*100).toFixed(1)}%</div></div><span class="scr-status">${scr.status}</span></div>
+    <div class="progress scr-progress"><span style="width:${Math.min(100,(scr.ratio/1.15)*100)}%"></span></div>
+    <div class="scr-scale"><span>0%</span><span>85% green limit</span><span>115% max</span></div>
+    <div class="grid3 scr-metrics">
+      <div><span>Football revenue</span><b>${money(scr.revenue)}</b></div>
+      <div><span>Projected squad cost</span><b>${money(scr.squadCost)}</b></div>
+      <div><span>85% headroom</span><b class="${scr.greenHeadroom<0?"bad":"good"}">${money(scr.greenHeadroom)}</b></div>
+    </div>
+    <div class="muted small" style="margin-top:8px">Green ≤85% • Amber 85–115% • Red above 115%</div>
+  </div>`:""}<div class="grid3">
     <div class="metric"><div class="k">Transfer budget</div><div class="v">${money(state.budget)}</div></div>
     <div class="metric"><div class="k">Squad value</div><div class="v">${money(vals)}</div></div>
     <div class="metric"><div class="k">Player wages</div><div class="v">${money(wages)}/wk</div></div>

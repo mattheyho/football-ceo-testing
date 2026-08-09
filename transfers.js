@@ -151,15 +151,65 @@ function setPlayerListStatus(id,status,source="CEO"){
   }
 }
 
+
+function primaryRecruitmentGroup(p){
+  const tokens=playerPositionTokens(p);
+  return Object.keys(TRANSFER_POSITION_GROUPS).find(group=>
+    (TRANSFER_POSITION_GROUPS[group]||[]).some(pos=>tokens.includes(pos))
+  ) || null;
+}
+
+function registerManagerSquadVacancy(p,oldClub){
+  if(oldClub!==state.club || !p) return;
+  ensureTransferMarketState();
+
+  // Losing a regular/high-quality first-team player should force the manager
+  // to reassess that exact role, even if generic depth scoring is borderline.
+  const group=primaryRecruitmentGroup(p);
+  if(!group) return;
+
+  const clubRep=byClub(state.club)?.reputation||72;
+  const firstTeamThreshold=clamp(Math.round(65+(clubRep-65)*0.42),70,84);
+  if((p.overall||0)<firstTeamThreshold) return;
+
+  const existing=state.managerSquadVacancies.find(v=>v.position===group && !v.filled);
+  if(existing){
+    existing.priority=Math.max(existing.priority||0,p.overall||0);
+    existing.week=state.week;
+  }else{
+    state.managerSquadVacancies.push({
+      position:group,
+      soldPlayerId:p.id,
+      soldPlayerName:p.name,
+      soldOverall:p.overall||0,
+      week:state.week,
+      filled:false,
+      priority:p.overall||0
+    });
+  }
+}
+
 function maybeGenerateManagerSquadRequest(){
   ensureContractState();
   if(!state.staff?.manager) return;
-  if(state.managerRequests.some(r=>!r.resolved)) return;
 
   const manager=state.staff.manager;
   const sq=squad(state.club);
   const options=[];
   const needs=evaluateSquadNeeds(state.club);
+
+  // A recent sale of a first-team player creates an explicit vacancy.
+  // This prevents a Watkins/Maatsen-type sale being missed by generic depth scoring.
+  (state.managerSquadVacancies||[]).filter(v=>!v.filled).forEach(v=>{
+    const targets=findTransferTargets(state.club,v.position,6);
+    if(targets.length){
+      const preferred=[...targets].sort((a,b)=>managerInterestScore(b.player)-managerInterestScore(a.player))[0];
+      options.push({
+        type:"sign",position:v.position,playerId:preferred.player.id,priority:12,
+        alternatives:targets.slice(0,4).map(x=>x.player.id),urgency:"critical",vacancy:true
+      });
+    }
+  });
 
   // Weekly review: major holes generate reliable recruitment requests.
   needs.forEach(need=>{
@@ -193,7 +243,17 @@ function maybeGenerateManagerSquadRequest(){
 
   if(!options.length) return;
 
-  const critical=options.filter(o=>o.type==="sign" && o.urgency==="critical");
+  // Never create a duplicate open request for the same action/position.
+  const openRequests=state.managerRequests.filter(r=>!r.resolved);
+  const available=options.filter(o=>!openRequests.some(r=>
+    o.type==="sign"
+      ? (r.type==="sign" && r.position===o.position)
+      : (r.type===o.type && String(r.playerId)===String(o.playerId))
+  ));
+  if(!available.length) return;
+
+  const critical=available.filter(o=>o.type==="sign" && o.urgency==="critical");
+  const importantSignings=available.filter(o=>o.type==="sign" && o.urgency==="important");
   let pick;
   if(critical.length){
     pick=critical.sort((a,b)=>{
@@ -201,9 +261,16 @@ function maybeGenerateManagerSquadRequest(){
       const nb=needs.find(n=>n.position===b.position)?.score||0;
       return nb-na;
     })[0];
+  }else if(importantSignings.length){
+    // Genuine squad weaknesses take precedence over admin requests.
+    pick=importantSignings.sort((a,b)=>{
+      const na=needs.find(n=>n.position===a.position)?.score||0;
+      const nb=needs.find(n=>n.position===b.position)?.score||0;
+      return nb-na;
+    })[0];
   }else{
     const weighted=[];
-    options.forEach(o=>{for(let i=0;i<o.priority;i++) weighted.push(o)});
+    available.forEach(o=>{for(let i=0;i<o.priority;i++) weighted.push(o)});
     pick=weighted[Math.floor(Math.random()*weighted.length)];
   }
 
@@ -534,6 +601,35 @@ function refreshAIClubFinance(club){
   if(f) f.weeklyWages=currentClubWeeklyPlayerWages(club);
 }
 
+
+function userFootballRevenue(){
+  return estimateClubFootballRevenue(state.club);
+}
+
+function userProjectedSquadCost(){
+  const sq=DB.players.filter(p=>p.club===state.club);
+  const weeklyPlayerWages=sq.reduce((sum,p)=>sum+(state.playerContracts?.[p.id]?.wage??p.wage??0),0);
+  const managerWage=state.staff?.manager?.wage||0;
+  const annualFootballWages=(weeklyPlayerWages+managerWage)*52;
+  const netSpend=Math.max(0,(state.transferFinance?.spent||0)-(state.transferFinance?.received||0));
+  const transferCommitment=netSpend*0.20;
+  return annualFootballWages+transferCommitment;
+}
+
+function userSCRSnapshot(){
+  const revenue=userFootballRevenue();
+  const squadCost=userProjectedSquadCost();
+  const ratio=revenue>0?squadCost/revenue:0;
+  const greenLimit=revenue*0.85;
+  const maxLimit=revenue*1.15;
+  return {
+    revenue,squadCost,ratio,
+    status:ratio<=0.85?"Green":ratio<=1.15?"Amber":"Red",
+    greenHeadroom:greenLimit-squadCost,
+    maximumHeadroom:maxLimit-squadCost
+  };
+}
+
 function aiFinanceSnapshot(club){
   const f=aiFinance(club);
   if(!f) return null;
@@ -598,28 +694,35 @@ function blockClosedWindow(action="complete this transfer"){
 
 const TRANSFER_POSITION_GROUPS={
   GK:["GK"],
+  RB:["RB","RWB"],
   CB:["CB"],
-  FB:["LB","RB","LWB","RWB"],
+  LB:["LB","LWB"],
   DM:["CDM","DM"],
   CM:["CM"],
   AM:["CAM","AM"],
-  W:["LW","RW","LM","RM"],
-  ST:["ST","CF"]
+  RW:["RW","RM"],
+  ST:["ST","CF"],
+  LW:["LW","LM"]
 };
 
 function ensureTransferMarketState(){
   if(!state) return;
-  if(!state.playerClubOverrides) state.playerClubOverrides={};
+  if(!state.playerClubOverrides) state.playerClubOverrides={}; // legacy compatibility
+  if(!state.playerWorldOverrides) state.playerWorldOverrides={};
   if(!state.transferLedger) state.transferLedger=[];
   if(!state.transferNegotiations) state.transferNegotiations={};
   if(!state.incomingTransferOffers) state.incomingTransferOffers=[];
   if(!state.aiTransferPlans) state.aiTransferPlans={};
   if(!state.transferReviewsRun) state.transferReviewsRun={};
+  if(!state.managerSquadVacancies) state.managerSquadVacancies=[];
 
-  // Re-apply saved transfers to the in-memory database after loading a career.
+  // Re-apply this career's dynamic player-world changes.
   Object.entries(state.playerClubOverrides).forEach(([pid,club])=>{
+    if(!state.playerWorldOverrides[pid]) state.playerWorldOverrides[pid]={club};
+  });
+  Object.entries(state.playerWorldOverrides).forEach(([pid,changes])=>{
     const p=DB.players.find(x=>String(x.id)===String(pid));
-    if(p) p.club=club;
+    if(p) Object.assign(p,changes);
   });
 }
 
@@ -634,7 +737,7 @@ function playsPositionGroup(p,group){
 }
 
 function positionLabel(group){
-  return ({GK:"goalkeeper",CB:"centre-back",FB:"full-back",DM:"defensive midfielder",CM:"central midfielder",AM:"attacking midfielder",W:"winger",ST:"striker"})[group] || group;
+  return ({GK:"goalkeeper",RB:"right-back",CB:"centre-back",LB:"left-back",DM:"defensive midfielder",CM:"central midfielder",AM:"attacking midfielder",RW:"right winger",ST:"striker",LW:"left winger"})[group] || group;
 }
 
 function stablePlayerTrait(p,salt="trait"){
@@ -807,14 +910,29 @@ function findTransferTargets(club,position,limit=6){
     .slice(0,limit);
 }
 
+function currentGameMonthYear(){
+  const start=new Date(Date.UTC(2025,7,11));
+  start.setUTCDate(start.getUTCDate()+(state?.week||0)*7);
+  return start.toLocaleDateString("en-GB",{month:"short",year:"numeric",timeZone:"UTC"});
+}
+
 function transferPlayerToClub(p,newClub,fee,fromClub=p.club,details={}){
   ensureTransferMarketState();
   const oldClub=fromClub;
+  const joined=currentGameMonthYear();
+
+  state.playerWorldOverrides[p.id]={
+    ...(state.playerWorldOverrides[p.id]||{}),
+    club:newClub,
+    joined
+  };
   state.playerClubOverrides[p.id]=newClub;
   p.club=newClub;
+  p.joined=joined;
+
   state.transferLedger.push({
     id:"tx"+Date.now()+Math.floor(Math.random()*1000),week:state.week,playerId:p.id,playerName:p.name,
-    fromClub:oldClub,toClub:newClub,fee,kind:details.kind||"permanent"
+    fromClub:oldClub,toClub:newClub,fee,kind:details.kind||"permanent",joined
   });
   state.transferLedger=state.transferLedger.slice(-120);
 }
@@ -1188,6 +1306,7 @@ function resolveIncomingTransferOffer(id,action,counter=0){
       return;
     }
 
+    registerManagerSquadVacancy(p,oldClub);
     state.budget+=offer.fee;
     if(state.transferFinance) state.transferFinance.received=(state.transferFinance.received||0)+offer.fee;
     applyAITransferPurchase(buyer,offer.fee,buyerWage);
