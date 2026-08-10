@@ -1,10 +1,10 @@
-Football CEO v0.14.5
-- Monthly report is a fixed 75% screen panel with background scroll locked
-- End-of-season review is a standalone full-screen scrollable view
-- Current-season Apps/Goals/AVG shown during incoming player-offer decisions
-- Underperforming managers proactively request reinforcements during open windows
-- New-season commercial setup preserves previous ticket/hospitality/food prices
-- Rejecting a manager contract-talk request adds a 12-week cooldown
-- Corrected contract rejection cooldown placement
-- Verified AVG rating appears in incoming-offer review
-- Preserved multi-year sponsorship rollover
+Football CEO v0.14.6
+- Manager squad needs split into starting XI / first-team competition / backup roles
+- Shortlists target the quality band appropriate to the requested role
+- Backup requests deliberately avoid unnecessary superstar targets
+- Up to two manager requests can be created per week
+- Underperformance / multiple major needs increases chance of two requests
+- Successful manager-requested signings suppress the same positional role for 12 weeks
+- Sale-created vacancies remember whether a starter, competition player or backup was lost
+- Manager-requested signings now explicitly fulfil that positional role for 12 weeks
+- Fresh sales/injuries can reopen a previously fulfilled squad role

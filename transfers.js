@@ -18,6 +18,7 @@ function ensureContractState(){
   if(!state.managerRequests) state.managerRequests=[];
   if(!state.managerRequestCooldowns) state.managerRequestCooldowns={};
   if(!state.managerRequestRejections) state.managerRequestRejections={};
+  if(!state.managerRoleFulfilledUntil) state.managerRoleFulfilledUntil={};
   squad(state.club).forEach(p=>{
     if(!state.playerContracts[p.id]){
       state.playerContracts[p.id]={
@@ -164,22 +165,36 @@ function registerManagerSquadVacancy(p,oldClub){
   if(oldClub!==state.club || !p) return;
   ensureTransferMarketState();
 
-  // Losing a regular/high-quality first-team player should force the manager
-  // to reassess that exact role, even if generic depth scoring is borderline.
   const group=primaryRecruitmentGroup(p);
   if(!group) return;
 
+  const before=clubSquadPlayers(state.club)
+    .filter(x=>playsPositionGroup(x,group))
+    .sort((a,b)=>(b.overall||0)-(a.overall||0));
+
+  const wasRank=before.findIndex(x=>String(x.id)===String(p.id));
+
+  let requestedRole="backup";
+  if(wasRank===0) requestedRole="starter";
+  else if(wasRank===1) requestedRole="competition";
+
   const clubRep=byClub(state.club)?.reputation||72;
   const firstTeamThreshold=clamp(Math.round(65+(clubRep-65)*0.42),70,84);
-  if((p.overall||0)<firstTeamThreshold) return;
+  if((p.overall||0)<firstTeamThreshold && requestedRole!=="backup") return;
+
+  if(state.managerRoleFulfilledUntil){
+    delete state.managerRoleFulfilledUntil[`${group}-${requestedRole}`];
+  }
 
   const existing=state.managerSquadVacancies.find(v=>v.position===group && !v.filled);
   if(existing){
     existing.priority=Math.max(existing.priority||0,p.overall||0);
     existing.week=state.week;
+    existing.role=requestedRole;
   }else{
     state.managerSquadVacancies.push({
       position:group,
+      role:requestedRole,
       soldPlayerId:p.id,
       soldPlayerName:p.name,
       soldOverall:p.overall||0,
@@ -249,47 +264,69 @@ function realisticManagerTargetPool(position,limit=30){
     .slice(0,limit);
 }
 
-function buildManagerShortlist(position){
-  const pool=realisticManagerTargetPool(position,36);
+function buildManagerShortlist(position,role="starter"){
+  const pool=realisticManagerTargetPool(position,40);
   if(!pool.length) return [];
-  const standard=managerPositionStandard(position);
 
-  // Ideal: genuine first-team upgrade/peer, with quality weighted far more
-  // heavily than price.
-  const ideal=pool
-    .filter(x=>x.overall>=standard.expectedStarter-2)
-    .sort((a,b)=>{
-      const sa=(a.overall*3.2)+(a.interest*.18)+(a.potential*.20)-(a.asking/1_000_000*.055);
-      const sb=(b.overall*3.2)+(b.interest*.18)+(b.potential*.20)-(b.asking/1_000_000*.055);
-      return sb-sa;
-    })[0] || pool[0];
+  const need=evaluateSquadNeeds(state.club).find(n=>n.position===position);
+  const standards=need?.standards || managerPositionStandard(position);
+  const currentStarter=need?.starter||standards.starter||70;
 
-  // Cheaper: must actually be cheaper than ideal, but still close enough
-  // to first-team standard to be credible.
-  const cheaper=pool
-    .filter(x=>x.player.id!==ideal.player.id)
+  const roleFloor =
+    role==="starter" ? Math.max(currentStarter-1,standards.starter-2) :
+    role==="competition" ? Math.max(standards.competition-3,currentStarter-5) :
+    Math.max(standards.backup-4,64);
+
+  const roleCeiling =
+    role==="backup" ? Math.max(roleFloor+8,currentStarter-2) :
+    role==="competition" ? Math.max(roleFloor+6,currentStarter+1) :
+    99;
+
+  const rolePool=pool.filter(x=>{
+    const o=x.player.overall||0;
+    if(role==="starter") return o>=roleFloor;
+    if(role==="competition") return o>=roleFloor && o<=roleCeiling;
+    return o>=roleFloor && o<=roleCeiling;
+  });
+
+  const usable=rolePool.length?rolePool:pool;
+
+  // Option 1: ideal for the REQUESTED ROLE, not simply best player available.
+  const ideal=[...usable].sort((a,b)=>{
+    const oa=a.player.overall||0, ob=b.player.overall||0;
+    let scoreA=(oa*2.5)+(a.interest*.18)+(a.player.potential||oa)*.18-(a.asking/1e6*.08);
+    let scoreB=(ob*2.5)+(b.interest*.18)+(b.player.potential||ob)*.18-(b.asking/1e6*.08);
+
+    // For backup requests, penalise overqualified/overpriced players.
+    if(role==="backup"){
+      scoreA-=Math.max(0,oa-currentStarter+1)*1.4;
+      scoreB-=Math.max(0,ob-currentStarter+1)*1.4;
+    }
+    return scoreB-scoreA;
+  })[0];
+
+  // Option 2: cheaper alternative, still role-appropriate.
+  const cheaper=usable
+    .filter(x=>x.player.id!==ideal?.player.id)
     .filter(x=>x.asking<=ideal.asking*.78)
-    .filter(x=>x.overall>=standard.expectedStarter-4)
     .sort((a,b)=>{
-      const valueA=(a.overall*2.6)+(a.interest*.15)-(a.asking/1_000_000*.22);
-      const valueB=(b.overall*2.6)+(b.interest*.15)-(b.asking/1_000_000*.22);
-      return valueB-valueA;
+      const oa=a.player.overall||0, ob=b.player.overall||0;
+      return ((ob*2)-(b.asking/1e6*.28))-((oa*2)-(a.asking/1e6*.28));
     })[0]
-    || pool.find(x=>x.player.id!==ideal.player.id && x.overall>=standard.expectedStarter-5);
+    || usable.find(x=>x.player.id!==ideal?.player.id);
 
-  // Prospect: young, high potential, and intentionally allowed to be below
-  // current starter quality.
+  // Option 3: prospect. This can sit below immediate role standard if upside is strong.
   const used=new Set([ideal?.player.id,cheaper?.player.id].filter(Boolean));
   const prospect=pool
     .filter(x=>!used.has(x.player.id))
     .filter(x=>x.player.age<=22)
-    .filter(x=>x.potential>=standard.expectedStarter+2)
+    .filter(x=>(x.player.potential||x.player.overall)>=Math.max(standards.competition,currentStarter))
     .sort((a,b)=>{
-      const sa=(a.potential*2.4)+(a.overall*.6)+(a.interest*.15)-(a.asking/1_000_000*.07);
-      const sb=(b.potential*2.4)+(b.overall*.6)+(b.interest*.15)-(b.asking/1_000_000*.07);
-      return sb-sa;
+      const pa=a.player.potential||a.player.overall;
+      const pb=b.player.potential||b.player.overall;
+      return ((pb*2.5)+(b.interest*.15)-(b.asking/1e6*.08))-((pa*2.5)+(a.interest*.15)-(a.asking/1e6*.08));
     })[0]
-    || pool.find(x=>!used.has(x.player.id) && x.player.age<=23 && x.potential>=standard.expectedStarter);
+    || pool.find(x=>!used.has(x.player.id) && x.player.age<=23);
 
   const out=[];
   if(ideal) out.push({...ideal,role:"Ideal target"});
@@ -331,150 +368,192 @@ function maybeGenerateManagerSquadRequest(){
 
   const manager=state.staff.manager;
   const sq=squad(state.club);
-  const options=[];
   const needs=evaluateSquadNeeds(state.club);
   const transferWindowOpen=isTransferWindowOpen();
   const performancePressure=managerPerformanceRecruitmentPressure();
 
-  // A recent sale of a first-team player creates an explicit vacancy.
-  // This prevents a Watkins/Maatsen-type sale being missed by generic depth scoring.
-  if(transferWindowOpen) (state.managerSquadVacancies||[]).filter(v=>!v.filled).forEach(v=>{
-    const shortlist=buildManagerShortlist(v.position);
-    if(shortlist.length){
-      options.push({
-        type:"sign",position:v.position,playerId:shortlist[0].player.id,priority:12,
-        alternatives:shortlist.slice(1).map(x=>x.player.id),
-        shortlist:shortlist.map(x=>({playerId:x.player.id,role:x.role,asking:x.asking,interest:x.interest})),
-        urgency:"critical",vacancy:true
-      });
-    }
-  });
+  if(!state.managerRequestsByWeek) state.managerRequestsByWeek={};
+  const weekKey=String(state.week);
+  const alreadyThisWeek=state.managerRequestsByWeek[weekKey]||0;
+  const remainingSlots=Math.max(0,2-alreadyThisWeek);
+  if(remainingSlots<=0) return;
 
-  // Weekly review: recruitment requests are only actionable while a transfer
-  // window is open. The need itself persists in the squad model year-round.
-  if(transferWindowOpen) needs.forEach(need=>{
-    if(need.score>=72){
-      const shortlist=buildManagerShortlist(need.position);
-      if(shortlist.length){
-        options.push({
-          type:"sign",position:need.position,playerId:shortlist[0].player.id,priority:10,
-          alternatives:shortlist.slice(1).map(x=>x.player.id),
-          shortlist:shortlist.map(x=>({playerId:x.player.id,role:x.role,asking:x.asking,interest:x.interest})),
-          urgency:"critical"
-        });
-      }
-    }else if(need.score>=56){
-      const shortlist=buildManagerShortlist(need.position);
-      if(shortlist.length){
-        options.push({
-          type:"sign",position:need.position,playerId:shortlist[0].player.id,priority:5,
-          alternatives:shortlist.slice(1).map(x=>x.player.id),
-          shortlist:shortlist.map(x=>({playerId:x.player.id,role:x.role,asking:x.asking,interest:x.interest})),
-          urgency:"important"
-        });
-      }
-    }
-  });
+  let options=[];
 
-
-  // If results are significantly below club expectations, the manager can push
-  // for reinforcement even without a catastrophic depth-chart vacancy.
-  if(transferWindowOpen && performancePressure>=2){
-    const bestNeed=needs.find(n=>n.score>=35) || needs[0];
-    if(bestNeed){
-      const shortlist=buildManagerShortlist(bestNeed.position);
+  // Explicit vacancies from sales.
+  if(transferWindowOpen){
+    (state.managerSquadVacancies||[]).filter(v=>!v.filled).forEach(v=>{
+      const shortlist=buildManagerShortlist(v.position,v.role||"starter");
       if(shortlist.length){
-        const priority=performancePressure>=3?9:7;
         options.push({
           type:"sign",
-          position:bestNeed.position,
+          position:v.position,
+          squadRole:v.role||"starter",
           playerId:shortlist[0].player.id,
-          priority,
+          priority:14,
           alternatives:shortlist.slice(1).map(x=>x.player.id),
           shortlist:shortlist.map(x=>({
             playerId:x.player.id,role:x.role,asking:x.asking,interest:x.interest
           })),
-          urgency:performancePressure>=3?"critical":"important",
-          performanceDriven:true
+          urgency:"critical",
+          vacancy:true,
+          reason:`A ${v.role||"starter"} replacement is needed after ${v.soldPlayerName}'s departure.`
         });
       }
-    }
+    });
   }
 
+  // Normal squad assessment.
+  if(transferWindowOpen){
+    needs.filter(n=>n.role!=="none").forEach(need=>{
+      const shortlist=buildManagerShortlist(need.position,need.role);
+      if(!shortlist.length) return;
+
+      let priority=
+        need.role==="starter" ? 10 :
+        need.role==="competition" ? 7 : 4;
+
+      if(need.score>=75) priority+=2;
+      if(performancePressure>=2 && need.role!=="backup") priority+=2;
+
+      options.push({
+        type:"sign",
+        position:need.position,
+        squadRole:need.role,
+        playerId:shortlist[0].player.id,
+        priority,
+        alternatives:shortlist.slice(1).map(x=>x.player.id),
+        shortlist:shortlist.map(x=>({
+          playerId:x.player.id,role:x.role,asking:x.asking,interest:x.interest
+        })),
+        urgency:need.score>=72?"critical":need.score>=50?"important":"normal",
+        reason:need.reason
+      });
+    });
+  }
+
+  // Contract / list-management requests.
   sq.forEach(p=>{
     const c=state.playerContracts[p.id];
+
     const renewRejectedWeek=state.managerRequestRejections?.[`renew-${p.id}`];
     const renewCooling=renewRejectedWeek!=null && state.week-renewRejectedWeek<12;
     if(c && c.endYear<=currentContractSeasonEndYear() && p.overall>=78 && !renewCooling){
       options.push({type:"renew",playerId:p.id,priority:3});
     }
+
     if(p.age>=29 && p.overall<=74 && state.playerListStatus?.[p.id]!=="Transfer"){
       options.push({type:"transfer",playerId:p.id,priority:2});
     }
+
     if(p.age<=21 && p.overall<=72 && state.playerListStatus?.[p.id]!=="Loan"){
       options.push({type:"loan",playerId:p.id,priority:2});
     }
   });
 
+  // A recently fulfilled recruitment role is suppressed for 12 weeks unless
+  // a fresh explicit vacancy is created later.
+  options=options.filter(o=>{
+    if(o.type!=="sign") return true;
+    const key=`${o.position}-${o.squadRole||"starter"}`;
+    const until=state.managerRoleFulfilledUntil?.[key];
+    return until==null || state.week>=until;
+  });
+
+  // Remove duplicate open requests.
+  const openRequests=state.managerRequests.filter(r=>!r.resolved);
+  options=options.filter(o=>!openRequests.some(r=>{
+    if(o.type==="sign"){
+      return r.type==="sign" && r.position===o.position && (r.squadRole||"starter")===(o.squadRole||"starter");
+    }
+    return r.type===o.type && String(r.playerId)===String(o.playerId);
+  }));
+
   if(!options.length) return;
 
-  // Never create a duplicate open request for the same action/position.
-  const openRequests=state.managerRequests.filter(r=>!r.resolved);
-  const available=options.filter(o=>!openRequests.some(r=>
-    o.type==="sign"
-      ? (r.type==="sign" && r.position===o.position)
-      : (r.type===o.type && String(r.playerId)===String(o.playerId))
-  ));
-  if(!available.length) return;
+  // Deterministic manager appetite: some weeks one request, some weeks two.
+  // Aggressive/high-pressure situations make two more likely.
+  let maxRequests=1;
+  const unresolvedRecruitment=openRequests.filter(r=>r.type==="sign").length;
+  const majorNeeds=needs.filter(n=>n.role==="starter" && n.score>=60).length;
+  const overhaulPressure=performancePressure>=2 || majorNeeds>=2 || (state.managerSquadVacancies||[]).filter(v=>!v.filled).length>=2;
 
-  const critical=available.filter(o=>o.type==="sign" && o.urgency==="critical");
-  const importantSignings=available.filter(o=>o.type==="sign" && o.urgency==="important");
-  let pick;
-  if(critical.length){
-    pick=critical.sort((a,b)=>{
-      const na=needs.find(n=>n.position===a.position)?.score||0;
-      const nb=needs.find(n=>n.position===b.position)?.score||0;
-      return nb-na;
-    })[0];
-  }else if(importantSignings.length){
-    // Genuine squad weaknesses take precedence over admin requests.
-    pick=importantSignings.sort((a,b)=>{
-      const na=needs.find(n=>n.position===a.position)?.score||0;
-      const nb=needs.find(n=>n.position===b.position)?.score||0;
-      return nb-na;
-    })[0];
-  }else{
-    const weighted=[];
-    available.forEach(o=>{for(let i=0;i<o.priority;i++) weighted.push(o)});
-    pick=weighted[Math.floor(Math.random()*weighted.length)];
+  if(overhaulPressure && remainingSlots>=2){
+    maxRequests=2;
+  }else if(remainingSlots>=2 && Math.random()<0.28){
+    maxRequests=2;
   }
 
-  const p=DB.players.find(x=>String(x.id)===String(pick.playerId));
-  if(!p) return;
+  maxRequests=Math.min(maxRequests,remainingSlots);
 
-  if(!state.managerRequestCooldowns) state.managerRequestCooldowns={};
-  const cooldownKey=pick.type==="sign" ? `sign-${pick.position}` : `${pick.type}-${p.id}`;
-  const lastWeek=state.managerRequestCooldowns[cooldownKey];
-  if(lastWeek!=null && state.week-lastWeek<2) return;
-  state.managerRequestCooldowns[cooldownKey]=state.week;
+  for(let requestIndex=0;requestIndex<maxRequests;requestIndex++){
+    if(!options.length) break;
 
-  const id="mr"+Date.now()+Math.floor(Math.random()*1000);
-  const req={
-    id,type:pick.type,playerId:p.id,position:pick.position||null,
-    alternatives:pick.alternatives||[],shortlist:pick.shortlist||[],urgency:pick.urgency||null,
-    resolved:false,manager:manager.name
-  };
-  state.managerRequests.push(req);
+    // Prioritise starter > competition > backup when scores are comparable.
+    options.sort((a,b)=>{
+      const roleWeight=r=>r==="starter"?12:r==="competition"?7:r==="backup"?3:0;
+      const scoreA=(a.priority||0)+roleWeight(a.squadRole);
+      const scoreB=(b.priority||0)+roleWeight(b.squadRole);
+      return scoreB-scoreA;
+    });
 
-  const wording = pick.type==="sign"
-    ? `${manager.name} has reviewed the squad and wants a new ${positionLabel(pick.position)}${pick.urgency==="critical"?" urgently":""}. A three-player shortlist is ready for your review.`
-    : pick.type==="renew"
-      ? `${manager.name} wants the club to open contract talks with ${p.name}.`
-      : pick.type==="transfer"
-        ? `${manager.name} recommends placing ${p.name} on the transfer list.`
-        : `${manager.name} recommends making ${p.name} available for loan.`;
+    const pick=options.shift();
+    const p=DB.players.find(x=>String(x.id)===String(pick.playerId));
+    if(!p) continue;
 
-  state.news.unshift({week:state.week,text:wording,requestId:id});
+    if(!state.managerRequestCooldowns) state.managerRequestCooldowns={};
+    const cooldownKey=pick.type==="sign"
+      ? `sign-${pick.position}-${pick.squadRole||"starter"}`
+      : `${pick.type}-${p.id}`;
+
+    const lastWeek=state.managerRequestCooldowns[cooldownKey];
+    if(lastWeek!=null && state.week-lastWeek<2) continue;
+    state.managerRequestCooldowns[cooldownKey]=state.week;
+
+    const id="mr"+Date.now()+Math.floor(Math.random()*1000)+requestIndex;
+    const req={
+      id,
+      type:pick.type,
+      playerId:p.id,
+      position:pick.position||null,
+      squadRole:pick.squadRole||null,
+      alternatives:pick.alternatives||[],
+      shortlist:pick.shortlist||[],
+      urgency:pick.urgency||null,
+      reason:pick.reason||null,
+      resolved:false,
+      manager:manager.name
+    };
+
+    state.managerRequests.push(req);
+    state.managerRequestsByWeek[weekKey]=(state.managerRequestsByWeek[weekKey]||0)+1;
+
+    let wording;
+    if(pick.type==="sign"){
+      const roleLabel={
+        starter:"new starting",
+        competition:"new first-team competition",
+        backup:"new backup"
+      }[pick.squadRole] || "new";
+
+      wording=`${manager.name} wants a ${roleLabel} ${positionLabel(pick.position)}. A three-player shortlist is ready for review.${pick.reason?` ${pick.reason}`:""}`;
+    }else if(pick.type==="renew"){
+      wording=`${manager.name} wants the club to open contract talks with ${p.name}.`;
+    }else if(pick.type==="transfer"){
+      wording=`${manager.name} recommends placing ${p.name} on the transfer list.`;
+    }else{
+      wording=`${manager.name} recommends making ${p.name} available for loan.`;
+    }
+
+    state.news.unshift({week:state.week,text:wording,requestId:id});
+
+    // Prevent a second request for the exact same positional role in same week.
+    options=options.filter(o=>!(
+      o.type==="sign" &&
+      o.position===pick.position &&
+      (o.squadRole||"starter")===(pick.squadRole||"starter")
+    ));
+  }
 }
 function resolveManagerRequest(id,accepted){
   ensureContractState();
@@ -939,34 +1018,78 @@ function clubSquadPlayers(club){
 function evaluateSquadNeeds(club){
   const c=byClub(club);
   const rep=c?.reputation||72;
-  const expectedStarter=clamp(Math.round(66+(rep-65)*0.38),68,86);
   const groups=Object.keys(TRANSFER_POSITION_GROUPS);
 
+  // Club-standard bands. These are relative targets, not hard squad rules.
+  const starterStandard=clamp(Math.round(70+(rep-70)*0.42),72,88);
+  const competitionStandard=clamp(starterStandard-3,69,85);
+  const backupStandard=clamp(starterStandard-8,64,81);
+
   return groups.map(position=>{
-    const players=clubSquadPlayers(club).filter(p=>playsPositionGroup(p,position)).sort((a,b)=>b.overall-a.overall);
-    const starter=players[0]?.overall||55;
-    const backup=players[1]?.overall||50;
+    const players=clubSquadPlayers(club)
+      .filter(p=>playsPositionGroup(p,position))
+      .sort((a,b)=>(b.overall||0)-(a.overall||0));
+
+    const first=players[0]?.overall||50;
+    const second=players[1]?.overall||45;
+    const third=players[2]?.overall||40;
     const depth=players.length;
+
+    let role="none";
     let score=0;
-    score += Math.max(0,expectedStarter-starter)*5.2;
-    score += Math.max(0,(expectedStarter-7)-backup)*2.8;
-    if(depth===0) score+=45;
-    else if(depth===1) score+=24;
-    else if(depth===2) score+=7;
+    let reason="";
 
-    const oldCore=players.slice(0,2).filter(p=>p.age>=31).length;
-    score+=oldCore*7;
-
-    // Contract risk matters for the user's club because live contract state exists.
-    if(club===state.club){
-      players.slice(0,2).forEach(p=>{
-        const end=state.playerContracts?.[p.id]?.endYear ?? p.contract;
-        if(end && end<=2026) score+=8;
-      });
-      players.slice(0,2).forEach(p=>{if(state.injuries?.[p.id]?.weeksLeft>=8) score+=10;});
+    // STARTER need: current best player is clearly below club level.
+    if(first < starterStandard-3){
+      role="starter";
+      score=55 + (starterStandard-first)*6;
+      reason=`Best option is rated ${first}, below the expected starter level of ${starterStandard}.`;
+    }
+    // COMPETITION need: starter is acceptable but second choice is too weak
+    // to realistically challenge or rotate.
+    else if(second < competitionStandard-4){
+      role="competition";
+      score=42 + (competitionStandard-second)*5;
+      reason=`Starter quality is acceptable, but there is not enough first-team competition.`;
+    }
+    // BACKUP need: top two are strong, but depth behind them is poor/missing.
+    else if(depth<3 || third < backupStandard-5){
+      role="backup";
+      score=28 + (depth<3?16:0) + Math.max(0,(backupStandard-third)*3);
+      reason=`The position lacks reliable depth behind the first two choices.`;
     }
 
-    return {position,score:clamp(Math.round(score),0,100),starter,backup,depth,expectedStarter};
+    // Injuries can elevate urgency for the user's club.
+    if(club===state.club){
+      const injuredCore=players.slice(0,2).filter(p=>state.injuries?.[p.id]?.weeksLeft>=6);
+      if(injuredCore.length){
+        score+=10*injuredCore.length;
+        if(role==="none") role="backup";
+        reason=reason || `A long-term injury has reduced usable depth.`;
+      }
+
+      // Contract risk can add urgency.
+      players.slice(0,2).forEach(p=>{
+        const end=state.playerContracts?.[p.id]?.endYear ?? p.contract;
+        if(end && end<=currentContractSeasonEndYear()) score+=6;
+      });
+    }
+
+    return {
+      position,
+      role,
+      score:clamp(Math.round(score),0,100),
+      reason,
+      starter:first,
+      second,
+      third,
+      depth,
+      standards:{
+        starter:starterStandard,
+        competition:competitionStandard,
+        backup:backupStandard
+      }
+    };
   }).sort((a,b)=>b.score-a.score);
 }
 
@@ -1458,6 +1581,31 @@ function submitNewSigningTerms(id){
     applyAITransferSale(oldClub,n.agreedFee,oldAIWage);
   }
   transferPlayerToClub(p,state.club,n.agreedFee,oldClub);
+
+  // If this signing came from a manager request, satisfy that specific role and
+  // stop the manager immediately asking for the same thing again.
+  const req=n.managerRequestId ? state.managerRequests?.find(r=>r.id===n.managerRequestId) : null;
+  if(req?.type==="sign"){
+    const signedGroup=primaryRecruitmentGroup(p);
+
+    (state.managerSquadVacancies||[])
+      .filter(v=>!v.filled && v.position===req.position)
+      .forEach(v=>{
+        const need=evaluateSquadNeeds(state.club).find(x=>x.position===req.position);
+        const standards=need?.standards||{};
+        const ovr=p.overall||0;
+        const threshold =
+          v.role==="starter" ? (standards.starter||75)-3 :
+          v.role==="competition" ? (standards.competition||72)-4 :
+          (standards.backup||68)-5;
+
+        if(ovr>=threshold) v.filled=true;
+      });
+
+    if(!state.managerRoleFulfilledUntil) state.managerRoleFulfilledUntil={};
+    state.managerRoleFulfilledUntil[`${req.position}-${req.squadRole||"starter"}`]=state.week+12;
+  }
+
   state.playerContracts[p.id]={wage,endYear:currentSeasonStartYear()+years};
   p.wage=wage;
   state.playerMorale[p.id]="Happy";
@@ -1747,8 +1895,13 @@ function openManagerShortlist(requestId){
   const shortlist=managerShortlistForRequest(req);
   if(!shortlist.length) return;
 
-  q("managerShortlistTitle").textContent=`New ${positionLabel(req.position)} shortlist`;
-  q("managerShortlistIntro").textContent=`${req.manager} has presented three realistic approaches to solve this squad need.`;
+  const roleLabel={
+    starter:"starting",
+    competition:"first-team competition",
+    backup:"backup"
+  }[req.squadRole] || "";
+  q("managerShortlistTitle").textContent=`New ${roleLabel} ${positionLabel(req.position)} shortlist`;
+  q("managerShortlistIntro").textContent=`${req.manager} has presented three realistic approaches for this ${roleLabel||"squad"} role.${req.reason?` ${req.reason}`:""}`;
   q("managerShortlistOptions").innerHTML=shortlist.map((x,i)=>{
     const p=x.player, tag=x.role||["Ideal target","Cheaper alternative","Young prospect"][i];
     return `<div class="manager-shortlist-option">
