@@ -844,3 +844,70 @@ html.modal-open,body.modal-open{overflow:hidden!important;height:100%!important}
 /* v0.15 daily calendar */
 .advance-week-btn span{letter-spacing:.2px}
 .fixture .muted.small{line-height:1.35}
+
+
+/* v0.15.1 save management */
+.saved-careers-section{
+  border:1px solid var(--line);
+  border-radius:16px;
+  padding:14px;
+  margin:12px 0 18px;
+  background:rgba(255,255,255,.025);
+}
+.saved-careers-list{display:grid;gap:9px;margin-top:10px}
+.save-card{border:1px solid var(--line);border-radius:12px;background:var(--panel);overflow:hidden}
+.save-card-main{
+  width:100%;border:0;background:transparent;color:inherit;
+  display:flex;align-items:center;justify-content:space-between;text-align:left;
+  padding:12px;cursor:pointer
+}
+.save-card-main b{font-size:15px}
+.save-card-main>span{color:var(--villa-sky);font-weight:900}
+.save-card-footer{
+  border-top:1px solid var(--line);padding:8px 10px;
+  display:flex;align-items:center;justify-content:space-between;gap:8px
+}
+.save-card-footer>div{display:flex;gap:6px}
+.save-card-footer .btn{padding:6px 8px;font-size:9px}
+.start-new-career-heading{margin:16px 0 8px}
+.start-new-career-heading h2{margin:0 0 2px}
+
+.save-status{
+  font-size:9px;
+  color:var(--muted);
+  margin-top:4px;
+}
+.save-status.bad{color:#ff8b8b}
+
+.save-manager-overlay{
+  position:fixed;inset:0;z-index:1900;background:#060307e8;
+  display:flex;align-items:center;justify-content:center;padding:14px;
+}
+.save-manager-card{
+  width:min(720px,96vw);max-height:82dvh;overflow-y:auto;
+  background:var(--panel);border:1px solid var(--line);border-radius:18px;padding:16px;
+}
+.save-manager-card .eyebrow{font-size:9px;letter-spacing:1.3px;color:var(--villa-sky);font-weight:900}
+.save-manager-toolbar{display:flex;gap:8px;flex-wrap:wrap;margin:12px 0}
+.save-manager-list{display:grid;gap:8px;margin-top:12px}
+.save-manager-row{
+  display:flex;justify-content:space-between;align-items:center;gap:12px;
+  border:1px solid var(--line);border-radius:12px;padding:11px
+}
+.save-manager-row.active{border-color:var(--villa-sky)}
+.save-manager-actions{display:flex;gap:6px;align-items:center;flex-wrap:wrap;justify-content:flex-end}
+.save-manager-actions .btn{font-size:9px;padding:6px 8px}
+.tiny{font-size:8px}
+
+@media(max-width:480px){
+  .save-card-footer{align-items:flex-start;flex-direction:column}
+  .save-card-footer>div{width:100%}
+  .save-card-footer .btn{flex:1}
+  .save-manager-overlay{padding:0;align-items:flex-end}
+  .save-manager-card{
+    width:100%;max-height:88dvh;border-radius:18px 18px 0 0;
+    padding:14px 10px calc(16px + env(safe-area-inset-bottom))
+  }
+  .save-manager-row{align-items:flex-start;flex-direction:column}
+  .save-manager-actions{width:100%;justify-content:flex-start}
+}

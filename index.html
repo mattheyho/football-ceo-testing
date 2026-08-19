@@ -13,6 +13,22 @@
 <h1>Take control of a Premier League club.</h1>
 <p class="muted">You are the CEO. Pick a club below; the manager runs the team. Every club option is stored directly inside this file.</p>
 
+<div id="savedCareersSection" class="saved-careers-section hide">
+  <div class="sectiontitle">
+    <div>
+      <h2 style="margin:0">Saved careers</h2>
+      <div class="muted small" id="saveSlotCount">0/5 local saves</div>
+    </div>
+    <button class="btn secondary" id="importSaveStartBtn" type="button">Import save</button>
+  </div>
+  <div id="savedCareersList" class="saved-careers-list"></div>
+</div>
+
+<div class="start-new-career-heading">
+  <h2>New career</h2>
+  <p class="muted small">Choose a club to create a separate save slot.</p>
+</div>
+
 <div class="club-grid" id="clubGrid">
 
 <button class="club-card" type="button" data-club="Arsenal">
@@ -336,8 +352,10 @@
 </button>
 </div>
 
-<div style="height:14px"></div>
-<button id="continueBtn" class="btn secondary hide" style="width:100%">Continue saved career</button>
+
+
+<input id="importSaveInput" type="file" accept=".json,application/json" class="hide">
+
 <div class="notice small muted" style="margin-top:14px"><b>Database:</b> 20 clubs • 547 embedded players • FC26 overall/potential/value/wage/contract fields • 38 league matchweeks • no web connection required.</div>
 </section>
 
@@ -348,7 +366,8 @@
   <div class="game-brand">FOOTBALL <span>CEO</span></div>
   <div class="game-top-actions">
     <button class="icon-btn" type="button" onclick="saveGame()" aria-label="Save career">✓</button>
-    <button class="icon-btn danger-icon" type="button" onclick="newCareer()" aria-label="Start new career">↺</button>
+    <button class="icon-btn" type="button" onclick="openSaveManager()" aria-label="Manage saves">▣</button>
+    <button class="icon-btn danger-icon" type="button" onclick="newCareer()" aria-label="Return to careers">↺</button>
   </div>
 </div>
 
@@ -357,6 +376,7 @@
     <div id="clubTitle" class="clubname"></div>
   </div>
   <div id="subTitle" class="club-subtitle"></div>
+  <div id="saveStatus" class="save-status">Autosave enabled</div>
 </div>
 
 <div class="tabs compact-tabs" id="tabs" aria-label="Game navigation">
@@ -902,6 +922,31 @@
     </div>
 
     <button id="continueMonthlySummaryBtn" class="btn primary monthly-summary-footer-btn">Continue</button>
+  </div>
+</div>
+
+
+<div id="saveManagerModal" class="save-manager-overlay hide">
+  <div class="save-manager-card">
+    <div class="sectiontitle">
+      <div>
+        <div class="eyebrow">CAREER STORAGE</div>
+        <h2 style="margin:4px 0 0">Save games</h2>
+      </div>
+      <button id="closeSaveManagerBtn" class="close-x" type="button">×</button>
+    </div>
+
+    <div class="save-manager-toolbar">
+      <button id="manualSaveBtn" class="btn primary" type="button">Save current career</button>
+      <button id="exportCurrentSaveBtn" class="btn secondary" type="button">Export backup</button>
+      <button id="importSaveManagerBtn" class="btn secondary" type="button">Import save</button>
+    </div>
+
+    <div class="notice small muted">
+      Local saves stay in this browser on this website. Export a JSON backup before clearing Safari data, changing domains, or testing a risky new build.
+    </div>
+
+    <div id="saveManagerList" class="save-manager-list"></div>
   </div>
 </div>
 

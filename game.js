@@ -4,7 +4,13 @@
    Other systems will be moved out gradually and tested after each extraction.
 */
 
-const STORAGE_KEY="footballCEO2526";
+const LEGACY_STORAGE_KEY="footballCEO2526";
+const SAVE_MANIFEST_KEY="footballCEO_saves_v1";
+const SAVE_SLOT_PREFIX="footballCEO_save_";
+const MAX_LOCAL_SAVES=5;
+const SAVE_FORMAT_VERSION=1;
+let activeSaveId=null;
+let lastSaveTimestamp=null;
 
 const BASE_PLAYER_SNAPSHOT=DB.players.map(p=>({...p}));
 
@@ -1016,11 +1022,20 @@ function blankTable(){
 }
 
 function createCareer(club){
+  if(getSaveManifest().length>=MAX_LOCAL_SAVES){
+    alert(`You already have ${MAX_LOCAL_SAVES} local careers. Delete a save before starting another.`);
+    renderSavedCareers();
+    return;
+  }
+
   resetWorldDatabase();
   const c=byClub(club);
   if(!c) return;
+
+  activeSaveId=generateSaveId();
   state={
     club,
+    saveId:activeSaveId,
     season:{year:2025,label:"2025/26",number:1,phase:"preseason"},
     calendar:{date:"2025-08-01",careerDay:0,lastWeeklyProcess:null,monthlyMonthKey:"2025-08",managerReassessOn:null},
     week:0,
@@ -1075,6 +1090,8 @@ function createCareer(club){
 }
 
 function enterGame(){
+  if(!activeSaveId) activeSaveId=state?.saveId||null;
+  if(activeSaveId && state) state.saveId=activeSaveId;
   ensureStaffState();
   ensurePlayerState();
   updateIndividualMorale();
@@ -1119,24 +1136,19 @@ function enterGame(){
   q("game").classList.remove("hide");
   showTab("dashboard");
   renderAll();
+  updateSaveStatus();
   if(!state.pricingLocked) openSeasonSetup();
 }
 
 let storageAvailable=true;
 
-function safeGetSave(){
-  try{
-    return window.localStorage ? window.localStorage.getItem(STORAGE_KEY) : null;
-  }catch(e){
-    storageAvailable=false;
-    return null;
-  }
-}
 
-function safeSetSave(){
+function storageWorks(){
   try{
-    if(!window.localStorage) throw new Error("Storage unavailable");
-    window.localStorage.setItem(STORAGE_KEY,JSON.stringify(state));
+    if(!window.localStorage) return false;
+    const key="__football_ceo_storage_test__";
+    window.localStorage.setItem(key,"1");
+    window.localStorage.removeItem(key);
     storageAvailable=true;
     return true;
   }catch(e){
@@ -1145,31 +1157,394 @@ function safeSetSave(){
   }
 }
 
+function getSaveManifest(){
+  if(!storageWorks()) return [];
+  try{
+    const raw=window.localStorage.getItem(SAVE_MANIFEST_KEY);
+    const manifest=raw?JSON.parse(raw):[];
+    return Array.isArray(manifest)?manifest:[];
+  }catch(e){
+    console.error("Save manifest could not be read",e);
+    return [];
+  }
+}
+
+function setSaveManifest(manifest){
+  if(!storageWorks()) return false;
+  try{
+    window.localStorage.setItem(SAVE_MANIFEST_KEY,JSON.stringify(manifest.slice(0,MAX_LOCAL_SAVES)));
+    return true;
+  }catch(e){
+    storageAvailable=false;
+    return false;
+  }
+}
+
+function saveSlotKey(id){
+  return `${SAVE_SLOT_PREFIX}${id}`;
+}
+
+function generateSaveId(){
+  return `save_${Date.now()}_${Math.floor(Math.random()*100000)}`;
+}
+
+function saveMetadataFromState(id=activeSaveId,savedAt=new Date().toISOString()){
+  return {
+    id,
+    club:state?.club||"Unknown club",
+    season:state?.season?.label||"—",
+    seasonNumber:state?.season?.number||1,
+    gameDate:typeof currentGameDateISO==="function"?currentGameDateISO():(state?.calendar?.date||null),
+    week:state?.week||0,
+    savedAt,
+    version:SAVE_FORMAT_VERSION
+  };
+}
+
+function writeSaveSlot(id,saveState=state){
+  if(!id || !saveState || !storageWorks()) return false;
+  try{
+    const savedAt=new Date().toISOString();
+    window.localStorage.setItem(saveSlotKey(id),JSON.stringify(saveState));
+
+    let manifest=getSaveManifest().filter(x=>x.id!==id);
+    const originalState=state;
+    if(saveState!==state) state=saveState;
+    const meta=saveMetadataFromState(id,savedAt);
+    if(saveState!==originalState) state=originalState;
+
+    manifest.unshift(meta);
+    if(!setSaveManifest(manifest)) throw new Error("Could not update save index");
+
+    activeSaveId=id;
+    lastSaveTimestamp=savedAt;
+    updateSaveStatus();
+    renderSaveManager();
+    return true;
+  }catch(e){
+    console.error("Save failed",e);
+    storageAvailable=false;
+    updateSaveStatus("Save failed");
+    return false;
+  }
+}
+
+function safeSetSave(){
+  if(!state) return false;
+  if(!activeSaveId){
+    activeSaveId=state.saveId || generateSaveId();
+    state.saveId=activeSaveId;
+  }
+  return writeSaveSlot(activeSaveId,state);
+}
+
+function safeGetSave(id=activeSaveId){
+  if(!id || !storageWorks()) return null;
+  try{
+    return window.localStorage.getItem(saveSlotKey(id));
+  }catch(e){
+    storageAvailable=false;
+    return null;
+  }
+}
+
 function saveGame(show=true){
   const saved=safeSetSave();
-  if(show){
-    if(saved) addNews("Career saved locally on this device.");
-    else addNews("Career is active in this session. This viewer blocks persistent browser storage, so the save cannot yet persist after closing the file.");
+  if(saved){
+    if(show) addNews("Career saved locally on this device.");
+  }else if(show){
+    addNews("Save failed. Export this career as a backup before closing the browser.");
+  }
+  updateSaveStatus();
+}
+
+function loadSaveById(id){
+  try{
+    const raw=safeGetSave(id);
+    if(!raw) throw new Error("Save data is missing");
+    const loaded=JSON.parse(raw);
+    if(!loaded?.club) throw new Error("Invalid career data");
+
+    activeSaveId=id;
+    loaded.saveId=id;
+    state=loaded;
+
+    const meta=getSaveManifest().find(x=>x.id===id);
+    lastSaveTimestamp=meta?.savedAt||null;
+
+    resetWorldDatabase();
+    enterGame();
+    updateSaveStatus();
+  }catch(e){
+    console.error(e);
+    alert("The save could not be loaded. If you exported a backup, you can import it from the start screen.");
   }
 }
 
 function loadGame(){
+  const saves=getSaveManifest();
+  if(saves.length) loadSaveById(saves[0].id);
+}
+
+function deleteSaveById(id){
+  const meta=getSaveManifest().find(x=>x.id===id);
+  const label=meta?`${meta.club} • ${meta.season}`:"this career";
+  if(!confirm(`Delete ${label}? This cannot be undone unless you exported a backup.`)) return;
+
   try{
-    const raw=safeGetSave();
-    if(!raw) return;
-    state=JSON.parse(raw);
-    resetWorldDatabase();
-    enterGame();
+    window.localStorage?.removeItem(saveSlotKey(id));
+    setSaveManifest(getSaveManifest().filter(x=>x.id!==id));
+  }catch(e){}
+
+  if(activeSaveId===id){
+    activeSaveId=null;
+    state=null;
+    q("game")?.classList.add("hide");
+    q("startScreen")?.classList.remove("hide");
+  }
+  renderSavedCareers();
+  renderSaveManager();
+}
+
+function newCareer(){
+  // Do not delete the current career. Autosave it, then return to club selection.
+  if(state) saveGame(false);
+  activeSaveId=null;
+  state=null;
+  q("game").classList.add("hide");
+  q("startScreen").classList.remove("hide");
+  q("seasonSetup")?.classList.add("hide");
+  q("playerModal")?.classList.add("hide");
+  renderSavedCareers();
+}
+
+function formatSavedAt(iso){
+  if(!iso) return "Not saved yet";
+  try{
+    return new Date(iso).toLocaleString("en-GB",{
+      day:"2-digit",month:"short",hour:"2-digit",minute:"2-digit"
+    });
+  }catch(e){ return "Saved"; }
+}
+
+function updateSaveStatus(forcedText=null){
+  const el=q("saveStatus");
+  if(!el) return;
+  if(forcedText){
+    el.textContent=forcedText;
+    return;
+  }
+  if(!storageAvailable){
+    el.textContent="Browser storage unavailable • export a backup";
+    el.classList.add("bad");
+    return;
+  }
+  el.classList.remove("bad");
+  el.textContent=lastSaveTimestamp
+    ? `Autosaved • ${formatSavedAt(lastSaveTimestamp)}`
+    : "Autosave enabled";
+}
+
+function renderSavedCareers(){
+  const wrap=q("savedCareersList");
+  const section=q("savedCareersSection");
+  if(!wrap || !section) return;
+
+  const saves=getSaveManifest();
+  section.classList.toggle("hide",saves.length===0);
+
+  wrap.innerHTML=saves.map(meta=>`
+    <div class="save-card">
+      <button class="save-card-main load-save-btn" data-save-id="${meta.id}" type="button">
+        <div>
+          <b>${meta.club}</b>
+          <div class="muted small">${meta.season} • ${meta.gameDate?shortGameDate(meta.gameDate):`After MW ${meta.week||0}`}</div>
+        </div>
+        <span>Load →</span>
+      </button>
+      <div class="save-card-footer">
+        <span class="muted small">Saved ${formatSavedAt(meta.savedAt)}</span>
+        <div>
+          <button class="btn secondary export-slot-btn" data-save-id="${meta.id}" type="button">Export</button>
+          <button class="btn danger delete-slot-btn" data-save-id="${meta.id}" type="button">Delete</button>
+        </div>
+      </div>
+    </div>
+  `).join("");
+
+  document.querySelectorAll(".load-save-btn").forEach(btn=>btn.addEventListener("click",()=>loadSaveById(btn.dataset.saveId)));
+  document.querySelectorAll(".export-slot-btn").forEach(btn=>btn.addEventListener("click",()=>exportSaveById(btn.dataset.saveId)));
+  document.querySelectorAll(".delete-slot-btn").forEach(btn=>btn.addEventListener("click",()=>deleteSaveById(btn.dataset.saveId)));
+
+  const count=q("saveSlotCount");
+  if(count) count.textContent=`${saves.length}/${MAX_LOCAL_SAVES} local saves`;
+}
+
+function renderSaveManager(){
+  const list=q("saveManagerList");
+  if(!list) return;
+  const saves=getSaveManifest();
+
+  list.innerHTML=saves.map(meta=>`
+    <div class="save-manager-row ${meta.id===activeSaveId?"active":""}">
+      <div>
+        <b>${meta.club}</b>
+        <div class="muted small">${meta.season} • ${meta.gameDate?shortGameDate(meta.gameDate):"—"}</div>
+        <div class="muted tiny">Saved ${formatSavedAt(meta.savedAt)}</div>
+      </div>
+      <div class="save-manager-actions">
+        ${meta.id!==activeSaveId?`<button class="btn secondary load-save-btn" data-save-id="${meta.id}">Load</button>`:`<span class="pill">Current</span>`}
+        <button class="btn secondary export-slot-btn" data-save-id="${meta.id}">Export</button>
+        <button class="btn danger delete-slot-btn" data-save-id="${meta.id}">Delete</button>
+      </div>
+    </div>
+  `).join("") || `<p class="muted">No local careers found.</p>`;
+
+  list.querySelectorAll(".load-save-btn").forEach(btn=>btn.addEventListener("click",()=>{closeSaveManager();loadSaveById(btn.dataset.saveId);}));
+  list.querySelectorAll(".export-slot-btn").forEach(btn=>btn.addEventListener("click",()=>exportSaveById(btn.dataset.saveId)));
+  list.querySelectorAll(".delete-slot-btn").forEach(btn=>btn.addEventListener("click",()=>deleteSaveById(btn.dataset.saveId)));
+}
+
+function openSaveManager(){
+  if(state) saveGame(false);
+  renderSaveManager();
+  q("saveManagerModal")?.classList.remove("hide");
+  setModalScrollLock(true);
+}
+
+function closeSaveManager(){
+  q("saveManagerModal")?.classList.add("hide");
+  setModalScrollLock(false);
+}
+
+function exportedCareerPayload(saveState,id){
+  return {
+    game:"Football CEO",
+    formatVersion:SAVE_FORMAT_VERSION,
+    exportedAt:new Date().toISOString(),
+    metadata:{
+      club:saveState.club,
+      season:saveState.season?.label,
+      gameDate:saveState.calendar?.date,
+      sourceSaveId:id
+    },
+    state:saveState
+  };
+}
+
+function downloadJSON(data,filename){
+  const blob=new Blob([JSON.stringify(data,null,2)],{type:"application/json"});
+  const url=URL.createObjectURL(blob);
+  const a=document.createElement("a");
+  a.href=url;
+  a.download=filename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(()=>URL.revokeObjectURL(url),1500);
+}
+
+function exportSaveById(id=activeSaveId){
+  try{
+    let saveState;
+    if(id===activeSaveId && state){
+      saveGame(false);
+      saveState=state;
+    }else{
+      const raw=safeGetSave(id);
+      if(!raw) throw new Error("Save data missing");
+      saveState=JSON.parse(raw);
+    }
+    const safeClub=String(saveState.club||"career").replace(/[^a-z0-9]+/gi,"-").replace(/^-|-$/g,"");
+    const safeDate=saveState.calendar?.date||"save";
+    downloadJSON(exportedCareerPayload(saveState,id),`football-ceo-${safeClub}-${safeDate}.json`);
   }catch(e){
-    alert("The save could not be loaded.");
+    console.error(e);
+    alert("The save could not be exported.");
   }
 }
-function newCareer(){
-  if(confirm("Start a new career? Your current save will be replaced.")){
-    try{ window.localStorage?.removeItem(STORAGE_KEY); }catch(e){}
-    state=null;
-    q("game").classList.add("hide");
-    q("startScreen").classList.remove("hide");
+
+function exportCurrentSave(){
+  if(!state) return;
+  exportSaveById(activeSaveId);
+}
+
+function triggerImportSave(){
+  q("importSaveInput")?.click();
+}
+
+function validateImportedState(candidate){
+  if(!candidate || typeof candidate!=="object") return false;
+  if(!candidate.club || !candidate.season) return false;
+  if(!DB.clubs.some(c=>c.name===candidate.club)) return false;
+  return true;
+}
+
+function importSaveFile(file){
+  if(!file) return;
+  if(getSaveManifest().length>=MAX_LOCAL_SAVES){
+    alert(`You already have ${MAX_LOCAL_SAVES} local careers. Delete one before importing another.`);
+    return;
+  }
+
+  const reader=new FileReader();
+  reader.onload=()=>{
+    try{
+      const parsed=JSON.parse(String(reader.result||""));
+      const imported=parsed?.state||parsed;
+      if(!validateImportedState(imported)) throw new Error("Invalid Football CEO save");
+
+      const id=generateSaveId();
+      imported.saveId=id;
+
+      // Imported saves can be from older builds. enterGame performs migrations.
+      const previousState=state;
+      const previousId=activeSaveId;
+      state=imported;
+      activeSaveId=id;
+      resetWorldDatabase();
+      ensureCalendarState();
+      if(!writeSaveSlot(id,state)) throw new Error("Could not write imported save");
+
+      state=previousState;
+      activeSaveId=previousId;
+
+      renderSavedCareers();
+      renderSaveManager();
+      alert(`${imported.club} career imported successfully.`);
+    }catch(e){
+      console.error(e);
+      alert("That file could not be imported as a Football CEO save.");
+    }finally{
+      if(q("importSaveInput")) q("importSaveInput").value="";
+    }
+  };
+  reader.readAsText(file);
+}
+
+function migrateLegacySave(){
+  if(!storageWorks()) return;
+  try{
+    if(getSaveManifest().length) return;
+    const raw=window.localStorage.getItem(LEGACY_STORAGE_KEY);
+    if(!raw) return;
+
+    const legacy=JSON.parse(raw);
+    if(!validateImportedState(legacy)) return;
+
+    const id=generateSaveId();
+    legacy.saveId=id;
+    const previousState=state;
+    const previousId=activeSaveId;
+    state=legacy;
+    activeSaveId=id;
+    writeSaveSlot(id,legacy);
+    state=previousState;
+    activeSaveId=previousId;
+
+    // Keep the legacy key as an emergency backup for now.
+  }catch(e){
+    console.error("Legacy save migration failed",e);
   }
 }
 
@@ -2390,7 +2765,13 @@ function init(){
       renderInbox();
     }
   });
-  q("continueBtn")?.addEventListener("click",loadGame);
+  q("importSaveStartBtn")?.addEventListener("click",triggerImportSave);
+  q("importSaveManagerBtn")?.addEventListener("click",triggerImportSave);
+  q("importSaveInput")?.addEventListener("change",e=>importSaveFile(e.target.files?.[0]));
+  q("manualSaveBtn")?.addEventListener("click",()=>saveGame(true));
+  q("exportCurrentSaveBtn")?.addEventListener("click",exportCurrentSave);
+  q("closeSaveManagerBtn")?.addEventListener("click",closeSaveManager);
+  q("saveManagerModal")?.addEventListener("click",e=>{if(e.target===q("saveManagerModal")) closeSaveManager();});
   document.querySelectorAll("#matchday .step-btn").forEach(btn=>{
     btn.addEventListener("click",()=>updatePrice(btn.dataset.price,Number(btn.dataset.step)));
   });
@@ -2420,6 +2801,10 @@ function init(){
   q("cancelContractBtn")?.addEventListener("click",()=>q("contractNegotiation")?.classList.add("hide"));
   q("transferListBtn")?.addEventListener("click",e=>toggleTransferList(e.currentTarget.dataset.playerId));
   q("loanListBtn")?.addEventListener("click",e=>toggleLoanList(e.currentTarget.dataset.playerId));
-  if(safeGetSave()) q("continueBtn")?.classList.remove("hide");
+  migrateLegacySave();
+  renderSavedCareers();
+  updateSaveStatus();
 }
+window.addEventListener("pagehide",()=>{ if(state && activeSaveId) safeSetSave(); });
+document.addEventListener("visibilitychange",()=>{ if(document.visibilityState==="hidden" && state && activeSaveId) safeSetSave(); });
 document.addEventListener("DOMContentLoaded",init);

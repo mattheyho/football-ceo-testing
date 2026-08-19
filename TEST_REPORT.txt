@@ -1,56 +1,41 @@
-v0.15.0 PRE-INTEGRATION TEST REPORT
+v0.15.1 SAVE-MANAGEMENT PRETEST
 
-Automated checks completed:
+Static validation:
 PASS — game.js syntax
 PASS — transfers.js syntax
-PASS — summer transfer window opens 16 June
-PASS — summer transfer window closes after 1 September
-PASS — winter transfer window opens 1 January
-PASS — winter transfer window closes after 2 February
-PASS — old matchweek transfer-window bands removed
-PASS — old four-week monthly-summary trigger removed
-PASS — 12-week manager cooldowns converted to 84 days
-PASS — two-week request cooldowns converted to 14 days
-PASS — manager normal review occurs on Monday
-PASS — sale-triggered manager reassessment scheduled for next day
-PASS — significant injury triggers next-day manager reassessment
-PASS — weekly club finances run on Sunday
-PASS — monthly reports trigger on calendar month changes
-PASS — off-season state exists between final match and next season
-PASS — fixture dates are regenerated from each season's calendar
+PASS — no duplicate HTML element IDs
+PASS — old single Continue Saved Career control removed
+PASS — save manifest and separate slot keys present
+PASS — five-save limit enforced
+PASS — each new career receives its own save ID
+PASS — manual save available
+PASS — last-save status UI present
+PASS — pagehide autosave hook present
+PASS — visibility-change autosave hook present
+PASS — JSON export uses a versioned Football CEO wrapper
+PASS — JSON import accepts wrapped saves and older raw-state saves
+PASS — imported careers receive a fresh local slot ID
+PASS — legacy footballCEO2526 storage key migration present
+PASS — delete removes only the selected save slot
+PASS — returning to New Career no longer deletes the active save
 
-Fixture-generation stress test:
-Years tested: 2025 through 2040 inclusive.
-For every season:
-- 38 unique league rounds
-- dates strictly increase
-- opening round is a Saturday
-- final round is before 1 June
-- opening date moves with the weekday rather than reusing the previous year's date
+Storage design:
+Manifest key: footballCEO_saves_v1
+Slot keys: footballCEO_save_<unique id>
+Legacy key retained as an emergency fallback after migration.
 
-Examples:
-2025/26: opening 16 Aug 2025; final 16 May 2026
-2026/27: opening 15 Aug 2026; final 15 May 2027
-2027/28: opening 14 Aug 2027; final 13 May 2028
-2028/29: opening 12 Aug 2028; final 12 May 2029
+Important browser limitation:
+localStorage is tied to the exact website origin and browser profile. A career saved at
+mattheyho.github.io will not automatically appear at a Netlify preview, local file, private
+browsing session, or another browser/device. Exported JSON backups are the protection against
+Safari storage clearing and against moving between origins.
 
-Integration notes:
-- Calendar logic lives in game.js, so no new script/module is required.
-- transfers.js references calendar helpers at runtime; game.js is loaded after transfers.js,
-  but these calls occur after page initialization, so the existing script order is compatible.
-- state.week deliberately remains a match-count concept for form, appearances and performance
-  thresholds. It no longer drives transfer windows or time-based cooldowns.
-- Transfer bid/counter negotiations themselves remain immediate for now. The daily engine is
-  ready for multi-day negotiation responses later, but v0.15.0 does not intentionally change
-  that interaction yet.
-- Cups/Europe are not scheduled yet, so fixture congestion is a controlled PL-only approximation.
-
-Recommended manual test:
-1. Start a new save; confirm date begins 8 Aug 2025 and Continue moves one day.
-2. Reach 16 Aug; confirm MW1 plays only on its fixture date.
-3. Continue through 1 Sep; confirm transfer window closes after deadline.
-4. Check a Monday manager review and a next-day review after selling a starter.
-5. Cross a calendar month and inspect the monthly CEO report.
-6. Reach January and test the winter window.
-7. Complete MW38, enter off-season, continue into June and confirm new-season rollover.
-8. Verify the next season's MW1 date differs appropriately from the previous year.
+Recommended test:
+1. Start Aston Villa career and Continue 2–3 days.
+2. Press manual Save; verify last-saved time updates.
+3. Return to Careers; verify Villa save card remains.
+4. Start Arsenal as a second save.
+5. Return to Careers and load Villa; verify original game date/state returns.
+6. Export Villa JSON and confirm it appears in Downloads/Files.
+7. Delete Villa locally, import the JSON, and load it again.
+8. Close Safari completely, reopen the same GitHub Pages URL, and verify both careers remain.
