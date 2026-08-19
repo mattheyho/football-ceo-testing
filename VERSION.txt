@@ -1,10 +1,40 @@
-Football CEO v0.14.6
-- Manager squad needs split into starting XI / first-team competition / backup roles
-- Shortlists target the quality band appropriate to the requested role
-- Backup requests deliberately avoid unnecessary superstar targets
-- Up to two manager requests can be created per week
-- Underperformance / multiple major needs increases chance of two requests
-- Successful manager-requested signings suppress the same positional role for 12 weeks
-- Sale-created vacancies remember whether a starter, competition player or backup was lost
-- Manager-requested signings now explicitly fulfil that positional role for 12 weeks
-- Fresh sales/injuries can reopen a previously fulfilled squad role
+Football CEO v0.15.0 — Daily Calendar & Simulation Engine
+
+Core:
+- Continue advances one calendar day.
+- state.week remains league matchweeks completed; calendar time is separate.
+- Fixtures carry actual dates generated independently every season.
+- Opening round is the first Saturday on/after 10 August.
+- Mix of weekend rounds, midweek rounds and breaks runs the league into May.
+- Playable off-season after the final league match.
+- New football season rolls over in early June.
+- Monthly reports follow actual calendar months.
+
+Simulation cadence:
+- Daily: injuries/recovery, transfer-market activity, scheduled events.
+- Monday: manager squad review and AI squad planning.
+- Event-triggered: major sale or 14+ day injury causes manager reassessment next day.
+- Sunday: wages, recurring operating costs, commercial and sponsorship accounting.
+- Match date: fixture simulation, matchday revenue, appearances/goals/ratings.
+
+Transfers:
+- Summer window: 16 June–1 September.
+- Winter window: 1 January–2 February.
+- Old weekly transfer-window bands removed.
+- Incoming/AI transfer probabilities converted from weekly to daily equivalents.
+- Manager 12-week cooldowns converted to 84 calendar days.
+
+Off-season:
+- Final match opens Season Review.
+- Continue from review enters off-season instead of jumping to MW1.
+- Calendar continues through late May/June.
+- Season rollover occurs after the May monthly report, in early June.
+- Next season fixtures are regenerated from the new year's weekday calendar.
+
+Compatibility:
+- Existing week-based saves receive an inferred calendar date.
+- Old week-based injuries are migrated to daysRemaining.
+- Legacy advanceMatchweek() remains as an alias to advanceDay().
+
+Patch v0.15.0a
+- New careers begin on 1 August 2025.

@@ -790,3 +790,57 @@ html.modal-open,body.modal-open{overflow:hidden!important;height:100%!important}
   color:var(--muted);
   margin-top:2px;
 }
+
+
+/* v0.14.7.1 monthly report scroll fix */
+.monthly-summary-card{
+  display:flex!important;
+  flex-direction:column!important;
+  overflow:hidden!important;
+}
+
+.monthly-summary-scroll{
+  flex:1 1 auto;
+  min-height:0;
+  overflow-y:auto;
+  -webkit-overflow-scrolling:touch;
+  overscroll-behavior:contain;
+  padding-right:2px;
+  margin-top:4px;
+}
+
+.monthly-summary-scroll::-webkit-scrollbar{
+  width:4px;
+}
+.monthly-summary-scroll::-webkit-scrollbar-thumb{
+  background:var(--line);
+  border-radius:999px;
+}
+
+.monthly-summary-footer-btn{
+  flex:0 0 auto;
+  width:100%;
+  margin-top:10px!important;
+}
+
+@media(max-width:480px){
+  .monthly-summary-overlay{
+    padding:10px!important;
+    align-items:center!important;
+  }
+  .monthly-summary-card{
+    width:96vw!important;
+    height:75dvh!important;
+    max-height:75dvh!important;
+    min-height:0!important;
+    border-radius:16px!important;
+    padding:10px!important;
+  }
+  .monthly-summary-scroll{
+    padding-bottom:6px;
+  }
+}
+
+/* v0.15 daily calendar */
+.advance-week-btn span{letter-spacing:.2px}
+.fixture .muted.small{line-height:1.35}

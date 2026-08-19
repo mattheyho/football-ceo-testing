@@ -228,7 +228,7 @@ function openPlayerProfile(id){
   q("profileValue").textContent=money(p.value);
   q("profileWage").textContent=money(contract.wage)+"/wk";
   q("profileAvailability").innerHTML=state.injuries?.[p.id]
-    ? `<span class="bad">Injured — ${state.injuries[p.id].weeksLeft} week${state.injuries[p.id].weeksLeft===1?"":"s"} remaining</span>`
+    ? `<span class="bad">Injured — ${state.injuries[p.id].daysRemaining??state.injuries[p.id].weeksLeft*7} day${(state.injuries[p.id].daysRemaining??state.injuries[p.id].weeksLeft*7)===1?"":"s"} remaining</span>`
     : `<span class="good">Fit</span>`;
 
   const listStatus=state.playerListStatus[p.id]||"None";
@@ -273,38 +273,46 @@ function injuryBaseDuration(){
 
 function processInjuries(){
   ensureStaffState();
+  ensureCalendarState();
 
   const medical=typeof facilityRating==="function" ? facilityRating("medical") : 70;
   const medicalModifier=clamp(1-(medical-50)*0.006,0.65,1.18);
 
-  // Existing injuries recover by one week.
+  // Existing injuries recover every calendar day.
   Object.keys(state.injuries).forEach(pid=>{
     const injury=state.injuries[pid];
-    injury.weeksLeft-=1;
+    if(injury.daysRemaining==null) injury.daysRemaining=Math.max(1,(injury.weeksLeft||1)*7);
 
-    // Elite medical facilities occasionally accelerate recovery.
-    if(medical>=85 && injury.weeksLeft>1 && Math.random()<0.20){
-      injury.weeksLeft-=1;
+    injury.daysRemaining-=1;
+    if(medical>=85 && injury.daysRemaining>2 && Math.random()<0.20/7){
+      injury.daysRemaining-=1;
     }
+    injury.weeksLeft=Math.max(0,Math.ceil(injury.daysRemaining/7));
 
-    if(injury.weeksLeft<=0){
+    if(injury.daysRemaining<=0){
       const p=DB.players.find(x=>String(x.id)===String(pid));
       if(p) addNews(`${p.name} has returned to full training.`);
       delete state.injuries[pid];
+      scheduleManagerReassessment(1);
     }
   });
 
-  // New injuries. Head Physio and medical facilities both reduce risk.
+  // Convert old weekly ~0.55% per-player risk to an equivalent daily probability.
   const healthy=squad(state.club).filter(p=>!state.injuries[p.id]);
-  const chance=0.0055*physioInjuryChanceModifier()*medicalModifier;
+  const weeklyChance=0.0055*physioInjuryChanceModifier()*medicalModifier;
+  const dailyChance=1-Math.pow(1-weeklyChance,1/7);
 
   healthy.forEach(p=>{
-    if(Math.random()<chance){
-      const raw=injuryBaseDuration();
+    if(Math.random()<dailyChance){
+      const rawWeeks=injuryBaseDuration();
       const facilityRecovery=clamp(1-(medical-70)*0.004,0.86,1.08);
-      const weeks=Math.max(1,Math.round(raw*physioRecoveryModifier()*facilityRecovery));
-      state.injuries[p.id]={weeksLeft:weeks,totalWeeks:weeks};
-      addNews(`${p.name} has suffered an injury and is expected to miss around ${weeks} week${weeks===1?"":"s"}.`);
+      const days=Math.max(3,Math.round(rawWeeks*7*physioRecoveryModifier()*facilityRecovery));
+      state.injuries[p.id]={
+        daysRemaining:days,totalDays:days,
+        weeksLeft:Math.ceil(days/7),totalWeeks:Math.ceil(days/7)
+      };
+      addNews(`${p.name} has suffered an injury and is expected to miss around ${days} day${days===1?"":"s"}.`);
+      if(days>=14) scheduleManagerReassessment(1);
     }
   });
 }
@@ -712,7 +720,8 @@ function monthlyInjurySnapshot(){
     .map(p=>({
       id:p.id,
       name:p.name,
-      weeksLeft:state.injuries[p.id].weeksLeft
+      weeksLeft:state.injuries[p.id].weeksLeft,
+      daysRemaining:state.injuries[p.id].daysRemaining??state.injuries[p.id].weeksLeft*7
     }))
     .sort((a,b)=>b.weeksLeft-a.weeksLeft);
 }
@@ -723,7 +732,7 @@ function monthlyOperatingPL(finance){
   return income-expenses;
 }
 
-function buildMonthlySummary(){
+function buildMonthlySummary(monthKey=state.calendar?.monthlyMonthKey||currentGameDateISO().slice(0,7)){
   const f={...state.monthlyFinance};
   const player=monthlyPlayerOfPeriod();
   const injuries=monthlyInjurySnapshot();
@@ -734,30 +743,20 @@ function buildMonthlySummary(){
   const w=results.filter(x=>x.outcome==="W").length;
   const d=results.filter(x=>x.outcome==="D").length;
   const l=results.filter(x=>x.outcome==="L").length;
-  const periodNumber=Math.ceil(state.week/4);
 
   return {
     season:currentSeasonLabel(),
-    period:periodNumber,
-    weeks:`${Math.max(1,state.week-3)}–${state.week}`,
-    finance:f,
-    operatingPL,
-    transferPL,
-    results,
-    record:{w,d,l},
-    injuries,
+    monthKey,
+    monthLabel:monthLabelFromKey(monthKey),
+    finance:f,operatingPL,transferPL,results,record:{w,d,l},injuries,
     playerOfMonth:player?{
-      id:player.player.id,
-      name:player.player.name,
-      apps:player.apps,
-      goals:player.goals,
-      avgRating:player.avgRating
+      id:player.player.id,name:player.player.name,apps:player.apps,goals:player.goals,avgRating:player.avgRating
     }:null
   };
 }
 
-function archiveMonthlySummary(){
-  const summary=buildMonthlySummary();
+function archiveMonthlySummary(monthKey=state.calendar?.monthlyMonthKey){
+  const summary=buildMonthlySummary(monthKey);
   if(!state.monthlyHistory) state.monthlyHistory=[];
   state.monthlyHistory.push(summary);
   return summary;
@@ -772,7 +771,7 @@ function renderMonthlySummary(summary=null){
   const totalIncome=f.matchdayRevenue+f.commercialIncome+f.sponsorIncome;
   const totalExpenses=f.playerWages+f.staffWages+f.operatingCosts;
 
-  q("monthlySummaryTitle").textContent=`${summary.season} • Weeks ${summary.weeks}`;
+  q("monthlySummaryTitle").textContent=summary.monthLabel || monthLabelFromKey(summary.monthKey);
   q("monthlySummaryRecord").textContent=`${summary.record.w}W • ${summary.record.d}D • ${summary.record.l}L`;
   q("monthlySummaryPL").textContent=money(summary.operatingPL);
   q("monthlySummaryPL").className="v "+(summary.operatingPL>0?"good":summary.operatingPL<0?"bad":"");
@@ -801,7 +800,7 @@ function renderMonthlySummary(summary=null){
     : `<div class="muted">No matches played.</div>`;
 
   q("monthlyInjuriesList").innerHTML=summary.injuries.length
-    ? summary.injuries.map(i=>`<div class="monthly-injury-row"><span>${i.name}</span><b>${i.weeksLeft} week${i.weeksLeft===1?"":"s"} remaining</b></div>`).join("")
+    ? summary.injuries.map(i=>`<div class="monthly-injury-row"><span>${i.name}</span><b>${i.daysRemaining} day${i.daysRemaining===1?"":"s"} remaining</b></div>`).join("")
     : `<div class="good">No current first-team injuries.</div>`;
 
   q("monthlyPOTM").innerHTML=summary.playerOfMonth
@@ -824,6 +823,166 @@ function closeMonthlySummary(){
   setModalScrollLock(false);
 }
 
+
+/* --------------------------------------------------------------------------
+   Daily calendar engine — v0.15
+   -------------------------------------------------------------------------- */
+
+function isoDateUTC(date){
+  return date.toISOString().slice(0,10);
+}
+function parseISODate(iso){
+  return new Date(`${iso}T12:00:00Z`);
+}
+function addCalendarDays(iso,days){
+  const d=parseISODate(iso);
+  d.setUTCDate(d.getUTCDate()+days);
+  return isoDateUTC(d);
+}
+function dateDiffDays(a,b){
+  return Math.round((parseISODate(b)-parseISODate(a))/86400000);
+}
+function dayOfWeekISO(iso){
+  return parseISODate(iso).getUTCDay(); // 0 Sun ... 6 Sat
+}
+function sameCalendarMonth(a,b){
+  return String(a).slice(0,7)===String(b).slice(0,7);
+}
+function monthLabelFromKey(key){
+  const [y,m]=key.split("-").map(Number);
+  return new Date(Date.UTC(y,m-1,1)).toLocaleDateString("en-GB",{month:"long",year:"numeric",timeZone:"UTC"});
+}
+function formatGameDate(iso=currentGameDateISO(),opts={}){
+  return parseISODate(iso).toLocaleDateString("en-GB",{
+    weekday:opts.weekday===false?undefined:"long",
+    day:"numeric",month:"long",year:"numeric",timeZone:"UTC"
+  });
+}
+function shortGameDate(iso=currentGameDateISO()){
+  return parseISODate(iso).toLocaleDateString("en-GB",{day:"numeric",month:"short",year:"numeric",timeZone:"UTC"});
+}
+function currentGameDateISO(){
+  return state?.calendar?.date || `${state?.season?.year||2025}-08-01`;
+}
+function currentCareerDay(){
+  return state?.calendar?.careerDay||0;
+}
+function currentCalendarWeekKey(){
+  const d=parseISODate(currentGameDateISO());
+  const daysFromMonday=(d.getUTCDay()+6)%7;
+  d.setUTCDate(d.getUTCDate()-daysFromMonday);
+  return isoDateUTC(d);
+}
+function isMonday(iso=currentGameDateISO()){ return dayOfWeekISO(iso)===1; }
+function isSunday(iso=currentGameDateISO()){ return dayOfWeekISO(iso)===0; }
+
+function seasonOpeningDate(year){
+  // First Saturday on/after 10 August. Dates naturally move each season:
+  // e.g. 2025-08-16, 2026-08-15, 2027-08-14, 2028-08-12.
+  let d=new Date(Date.UTC(year,7,10));
+  while(d.getUTCDay()!==6) d.setUTCDate(d.getUTCDate()+1);
+  return isoDateUTC(d);
+}
+
+function generateLeagueRoundDates(year){
+  const dates=[];
+  let current=seasonOpeningDate(year);
+
+  // Midweek rounds create congestion; scheduled breaks keep the campaign
+  // running into May. All dates are regenerated from the calendar each season.
+  const midweekAfter=new Set([5,12,18,21,28,32]);
+  const breakAfter=new Set([3,7,10,14,25,29,34,35,36]);
+
+  for(let i=0;i<38;i++){
+    if(i===0){
+      dates.push(current);
+      continue;
+    }
+    const previousRound=i-1;
+    if(midweekAfter.has(previousRound)){
+      current=addCalendarDays(current,4); // Saturday -> Wednesday
+    }else if(dayOfWeekISO(current)===3){
+      current=addCalendarDays(current,3); // Wednesday -> Saturday
+    }else if(breakAfter.has(previousRound)){
+      current=addCalendarDays(current,14);
+    }else{
+      current=addCalendarDays(current,7);
+    }
+    dates.push(current);
+  }
+  return dates;
+}
+
+function ensureFixtureDates(fixtures,seasonYear=currentSeasonStartYear()){
+  if(!fixtures?.length) return fixtures;
+  const dates=generateLeagueRoundDates(seasonYear);
+  fixtures.forEach((round,i)=>{
+    round.week=i+1;
+    if(!round.date) round.date=dates[i];
+  });
+  return fixtures;
+}
+
+function nextUserFixture(){
+  if(!state?.fixtures?.length) return null;
+  const today=currentGameDateISO();
+  for(const round of state.fixtures){
+    if(round.date<today) continue;
+    const game=round.games.find(g=>g.home===state.club||g.away===state.club);
+    if(game) return {round,game};
+  }
+  return null;
+}
+
+function fixtureRoundOnDate(iso=currentGameDateISO()){
+  return state.fixtures?.find(r=>r.date===iso)||null;
+}
+
+function ensureCalendarState(){
+  if(!state) return;
+  if(!state.calendar){
+    const y=state.season?.year||2025;
+    const opening=seasonOpeningDate(y);
+    // Old weekly saves migrate to approximately one week before/after their next round.
+    let inferred=addCalendarDays(opening,-8);
+    if((state.week||0)>0){
+      const dates=generateLeagueRoundDates(y);
+      inferred=dates[Math.min(state.week,dates.length-1)] || inferred;
+    }
+    state.calendar={
+      date:inferred,
+      careerDay:Math.max(0,dateDiffDays(`${y}-08-01`,inferred)),
+      lastWeeklyProcess:null,
+      monthlyMonthKey:inferred.slice(0,7),
+      managerReassessOn:null
+    };
+  }
+  if(state.calendar.careerDay==null) state.calendar.careerDay=0;
+  if(!state.calendar.monthlyMonthKey) state.calendar.monthlyMonthKey=state.calendar.date.slice(0,7);
+  state.fixtures=ensureFixtureDates(state.fixtures,state.season?.year||2025);
+
+  // Injury migration: old week-based injuries remain valid.
+  Object.values(state.injuries||{}).forEach(injury=>{
+    if(injury.daysRemaining==null){
+      injury.daysRemaining=Math.max(1,(injury.weeksLeft||1)*7);
+      injury.totalDays=Math.max(injury.daysRemaining,(injury.totalWeeks||injury.weeksLeft||1)*7);
+    }
+    injury.weeksLeft=Math.max(1,Math.ceil(injury.daysRemaining/7));
+  });
+}
+
+function scheduleManagerReassessment(daysFromNow=1){
+  ensureCalendarState();
+  const proposed=addCalendarDays(currentGameDateISO(),daysFromNow);
+  if(!state.calendar.managerReassessOn || proposed<state.calendar.managerReassessOn){
+    state.calendar.managerReassessOn=proposed;
+  }
+}
+
+function startOfNextSeasonYearDate(year){
+  return `${year}-06-01`;
+}
+
 function currentSeasonStartYear(){ return state?.season?.year ?? 2025; }
 function currentSeasonLabel(){ const y=currentSeasonStartYear(); return `${y}/${String((y+1)%100).padStart(2,"0")}`; }
 function currentContractSeasonEndYear(){ return currentSeasonStartYear()+1; }
@@ -834,7 +993,7 @@ const ordinal=n=>{
   return n+(s[(v-20)%10]||s[v]||s[0]);
 };
 
-function generateFixtures(names){
+function generateFixtures(names,seasonYear=(state?.season?.year||2025)){
   let arr=[...names], rounds=[];
   for(let r=0;r<19;r++){
     let games=[];
@@ -846,7 +1005,8 @@ function generateFixtures(names){
     arr=[arr[0],arr[19],...arr.slice(1,19)];
   }
   const second=rounds.map(x=>x.map(g=>({home:g.away,away:g.home})));
-  return [...rounds,...second].map((games,i)=>({week:i+1,games}));
+  const dates=generateLeagueRoundDates(seasonYear);
+  return [...rounds,...second].map((games,i)=>({week:i+1,date:dates[i],games}));
 }
 
 function blankTable(){
@@ -861,7 +1021,8 @@ function createCareer(club){
   if(!c) return;
   state={
     club,
-    season:{year:2025,label:"2025/26",number:1},
+    season:{year:2025,label:"2025/26",number:1,phase:"preseason"},
+    calendar:{date:"2025-08-01",careerDay:0,lastWeeklyProcess:null,monthlyMonthKey:"2025-08",managerReassessOn:null},
     week:0,
     budget:c.transferBudget,
     wageBudget:c.wageBudget,
@@ -901,15 +1062,14 @@ function createCareer(club){
     seasonSummaryViewed:false,
     matchdayStats:{revenue:0,attendance:0,homeGames:0},
     form:[],
-    fixtures:generateFixtures(DB.clubs.map(x=>x.name)),
+    fixtures:generateFixtures(DB.clubs.map(x=>x.name),2025),
     table:blankTable(),
     results:{},
-    news:[{week:0,text:`You have been appointed CEO of ${club}. ${c.manager} remains in charge of first-team football.`}]
+    news:[{week:0,date:"2025-08-01",text:`You have been appointed CEO of ${club}. ${c.manager} remains in charge of first-team football.`}]
   };
   // Build the initial recruitment picture before the first matchweek so the
   // manager and AI clubs enter the season with real squad priorities.
   if(typeof runAITransferReview==="function") runAITransferReview();
-  if(typeof maybeGenerateManagerSquadRequest==="function") maybeGenerateManagerSquadRequest();
   enterGame();
   saveGame(false);
 }
@@ -944,8 +1104,10 @@ function enterGame(){
   if(state.seasonTicketDiscount==null) state.seasonTicketDiscount=15;
   if(state.pricingLocked==null) state.pricingLocked=false;
   if(!state.matchdayStats) state.matchdayStats={revenue:0,attendance:0,homeGames:0};
-  if(!state.season) state.season={year:2025,label:"2025/26",number:1};
+  if(!state.season) state.season={year:2025,label:"2025/26",number:1,phase:"preseason"};
+  if(!state.season.phase) state.season.phase=state.seasonComplete?"complete":(state.week>0?"season":"preseason");
   if(!state.season.label) state.season.label=`${state.season.year}/${String((state.season.year+1)%100).padStart(2,"0")}`;
+  ensureCalendarState();
   if(!state.careerHistory) state.careerHistory={seasons:[]};
   if(!state.scrHistory) state.scrHistory=[];
   if(state.seasonComplete==null) state.seasonComplete=false;
@@ -1012,8 +1174,8 @@ function newCareer(){
 }
 
 function addNews(text){
-  state.news.unshift({week:state.week,text});
-  state.news=state.news.slice(0,12);
+  state.news.unshift({week:state.week,date:currentGameDateISO(),text});
+  state.news=state.news.slice(0,20);
   renderInbox();
 }
 
@@ -1030,10 +1192,87 @@ function showTab(id){
   if(id==="staff") renderStaff();
 }
 
+
+function advanceDay(){
+  ensureCalendarState();
+
+  // Season review must be acknowledged before time moves again.
+  if(state.seasonComplete){
+    renderSeasonSummary();
+    return;
+  }
+
+  const previousDate=currentGameDateISO();
+  const nextDate=addCalendarDays(previousDate,1);
+  const previousMonth=previousDate.slice(0,7);
+  const nextMonth=nextDate.slice(0,7);
+
+  let completedMonthlySummary=null;
+  if(previousMonth!==nextMonth && (state.monthlyResults?.length || monthlyOperatingPL(state.monthlyFinance||createEmptyMonthlyFinance())!==0)){
+    completedMonthlySummary=archiveMonthlySummary(previousMonth);
+    resetMonthlyTracker();
+  }
+
+  state.calendar.date=nextDate;
+  state.calendar.careerDay=(state.calendar.careerDay||0)+1;
+  state.calendar.monthlyMonthKey=nextMonth;
+
+  // Off-season rolls into the next football year on 1 June, but remains a
+  // playable pre-season until the opening league fixture in August.
+  if(state.season.phase==="offseason" &&
+     nextDate>=startOfNextSeasonYearDate(currentSeasonStartYear()+1) &&
+     !completedMonthlySummary){
+    performSeasonRollover();
+  }
+
+  // Injuries/recovery and transfer-market activity live on the daily clock.
+  processInjuries();
+  if(typeof processTransferDay==="function") processTransferDay();
+
+  // Event-triggered manager reassessment happens the day after a significant
+  // sale/injury; normal squad reviews happen once a week on Monday.
+  let managerReviewed=false;
+  if(state.calendar.managerReassessOn && nextDate>=state.calendar.managerReassessOn){
+    state.calendar.managerReassessOn=null;
+    if(typeof maybeGenerateManagerSquadRequest==="function"){
+      maybeGenerateManagerSquadRequest();
+      managerReviewed=true;
+    }
+  }
+
+  if(isMonday(nextDate)){
+    if(typeof runAITransferReview==="function") runAITransferReview();
+    if(!managerReviewed && typeof maybeGenerateManagerSquadRequest==="function") maybeGenerateManagerSquadRequest();
+  }
+
+  if(isSunday(nextDate)){
+    processWeeklyClubCycle();
+  }
+
+  // Fixtures are attached to real dates, independent of the Continue cadence.
+  const round=fixtureRoundOnDate(nextDate);
+  if(round){
+    simulateFixtureRound(round);
+
+    if(round.week>=38){
+      state.seasonComplete=true;
+      state.season.phase="complete";
+      archiveCurrentSeason();
+    }
+  }
+
+  saveGame(false);
+  renderAll();
+
+  // Season review takes precedence over monthly reporting if both occur together.
+  if(state.seasonComplete) renderSeasonSummary();
+  else if(completedMonthlySummary) renderMonthlySummary(completedMonthlySummary);
+}
+
 function renderAll(){
   const c=byClub(state.club);
   q("clubTitle").textContent=state.club;
-  q("subTitle").textContent=`CEO • ${state.staff.manager.name} is manager • Season ${currentSeasonLabel()} • Matchweek ${state.week}` + (storageAvailable ? "" : " • Session save only");
+  q("subTitle").textContent=`CEO • ${state.staff.manager.name} • ${currentSeasonLabel()} • ${formatGameDate(currentGameDateISO(),{weekday:false})}` + (storageAvailable ? "" : " • Session save only");
   renderDashboard();
   renderInbox();
   renderSquad();
@@ -1047,7 +1286,9 @@ function renderAll(){
 function renderDashboard(){
   updateStakeholderDrivers();
 
-  q("dashboardWeek").textContent=state.week===0?"Pre-season":`After MW ${state.week}`;
+  q("dashboardWeek").textContent=state.season?.phase==="offseason"
+    ? `Off-season • ${formatGameDate(currentGameDateISO(),{weekday:false})}`
+    : `${formatGameDate(currentGameDateISO())}${state.week?` • After MW ${state.week}`:" • Pre-season"}`;
 
   const people=[
     ["Fans","fans"],["Owners","owners"],["Players","players"],["Manager","manager"]
@@ -1078,15 +1319,25 @@ function renderDashboard(){
   }
 
   if(q("dashboardNextFixture")){
-    if(state.week>=38){
-      q("dashboardNextFixture").innerHTML=`<div class="fixture"><div class="teams">Season complete</div></div>`;
+    if(state.season?.phase==="offseason"){
+      const next=nextUserFixture();
+      if(next){
+        q("dashboardNextFixture").innerHTML=`<div class="fixture"><div class="muted small">OFF-SEASON • OPENING FIXTURE ${shortGameDate(next.round.date).toUpperCase()}</div><div class="teams">${next.game.home} <span class="muted">vs</span> ${next.game.away}</div></div>`;
+      }else{
+        q("dashboardNextFixture").innerHTML=`<div class="fixture"><div class="muted small">OFF-SEASON</div><div class="teams">Next season fixtures pending</div></div>`;
+      }
     }else{
-      const r=state.fixtures[state.week];
-      const g=r.games.find(x=>x.home===state.club||x.away===state.club);
-      q("dashboardNextFixture").innerHTML=`<div class="fixture">
-        <div class="muted small">MATCHWEEK ${r.week} • ${g.home===state.club?"HOME":"AWAY"}</div>
-        <div class="teams">${g.home} <span class="muted">vs</span> ${g.away}</div>
-      </div>`;
+      const next=nextUserFixture();
+      if(!next){
+        q("dashboardNextFixture").innerHTML=`<div class="fixture"><div class="teams">No upcoming league fixture</div></div>`;
+      }else{
+        const {round:r,game:g}=next;
+        const days=Math.max(0,dateDiffDays(currentGameDateISO(),r.date));
+        q("dashboardNextFixture").innerHTML=`<div class="fixture">
+          <div class="muted small">${shortGameDate(r.date).toUpperCase()} • MW ${r.week} • ${g.home===state.club?"HOME":"AWAY"}${days?` • ${days} DAY${days===1?"":"S"}`:" • TODAY"}</div>
+          <div class="teams">${g.home} <span class="muted">vs</span> ${g.away}</div>
+        </div>`;
+      }
     }
   }
 
@@ -1114,7 +1365,7 @@ function renderDashboardInboxPreview(){
   count.textContent=String(actionable.length);
 
   preview.innerHTML=display.length
-    ? display.map(n=>`<div class="inbox-preview-item"><span class="pill">MW ${n.week}</span>${n.text}</div>`).join("")
+    ? display.map(n=>`<div class="inbox-preview-item"><span class="pill">${n.date?shortGameDate(n.date):`MW ${n.week}`}</span>${n.text}</div>`).join("")
     : `<div class="muted small">No messages requiring your attention.</div>`;
 }
 
@@ -1136,7 +1387,8 @@ function renderInbox(){
         actions=`<div class="inbox-action"><button class="btn primary incoming-offer-btn" data-offer-id="${offer.id}">Review offer</button></div>`;
       }
     }
-    return `<div class="news"><span class="pill">MW ${n.week}</span> &nbsp; ${n.text}${actions}</div>`;
+    const when=n.date?shortGameDate(n.date):`MW ${n.week}`;
+    return `<div class="news"><span class="pill">${when}</span> &nbsp; ${n.text}${actions}</div>`;
   }).join("")||`<p class="muted">No messages.</p>`;
 
   document.querySelectorAll(".manager-request-btn").forEach(btn=>{
@@ -1429,13 +1681,13 @@ function weeklyClubOperatingCosts(){
   // Core club overheads separate from football facilities.
   const stadiumOperations=350_000+scale*620_000;
   const nonFootballStaff=520_000+scale*1_050_000;   // admin, marketing, finance, HR, IT
-  const matchdayStaff=state.week<38 ? 145_000+scale*260_000 : 0;
+  const matchdayStaff=0;
   const travelAndLogistics=110_000+scale*280_000;
   const insurance=95_000+scale*210_000;
   const generalOverheads=180_000+scale*400_000;
   const squadSupport=Math.max(0,squadSize-22)*8_000;
 
-  const facilityRunning=totalFacilityAnnualCost()/38;
+  const facilityRunning=totalFacilityAnnualCost()/52;
 
   return {
     stadiumOperations,
@@ -1453,93 +1705,96 @@ function weeklyClubOperatingCosts(){
 
 function annualisedOperatingCosts(){
   const weekly=weeklyClubOperatingCosts();
-  return weekly.total*38;
+  return weekly.total*52 + weeklyMatchdayStaffCost()*19;
 }
 
-function advanceMatchweek(){
-  if(state.seasonComplete || state.week>=38){ renderSeasonSummary(); return; }
-  const r=state.fixtures[state.week];
-  r.games.forEach(g=>{
-    const [hg,ag]=simulateGame(g.home,g.away);
-    state.results[`${r.week}-${g.home}-${g.away}`]={hg,ag};
-    applyResult(g.home,g.away,hg,ag);
-  });
 
-  const mine=r.games.find(g=>g.home===state.club||g.away===state.club);
-  const res=state.results[`${r.week}-${mine.home}-${mine.away}`];
-  const myGoals=mine.home===state.club?res.hg:res.ag;
-  const opGoals=mine.home===state.club?res.ag:res.hg;
-  const opp=mine.home===state.club?mine.away:mine.home;
-  const outcome=myGoals>opGoals?"W":myGoals===opGoals?"D":"L";
-  trackPlayerMatchStats(myGoals,opGoals);
-  state.form.push(outcome);
-  state.form=state.form.slice(-5);
+function weeklyMatchdayStaffCost(){
+  const scale=clubScaleFactor();
+  return 145_000+scale*260_000;
+}
 
+function processWeeklyClubCycle(){
+  const date=currentGameDateISO();
+  if(state.calendar.lastWeeklyProcess===date) return;
+  state.calendar.lastWeeklyProcess=date;
 
-
-  // Weekly operating model: matchday pricing now drives home-game income.
   const playerWages=squad(state.club).reduce((s,p)=>s+(state.playerContracts?.[p.id]?.wage??p.wage??0),0);
-  const staffWages=(state.staff.manager?.wage||0)+(state.staff.dof?.wage||0)+(state.staff.physio?.wage||0);
-  const weeklyWages=playerWages+staffWages;
-  let homeIncome=0;
-  if(mine.home===state.club){
-    const md=projectedMatchday();
-    homeIncome=md.revenue;
-    state.matchdayStats.revenue+=md.revenue;
-    state.matchdayStats.attendance+=md.attendance;
-    state.matchdayStats.homeGames+=1;
-
-    const fanPriceEffect=pricingFanEffect();
-    state.happiness.fans=clamp(state.happiness.fans+fanPriceEffect,0,100);
-
-    addNews(`${md.attendance.toLocaleString("en-GB")} supporters attended the home match, generating ${money(md.revenue)} in matchday revenue.`);
-  }
-  const commercialIncome=byClub(state.club).reputation*65000;
-  const sponsorIncome=state.sponsorship ? state.sponsorship.annualValue/38 : 0;
   const staffWeekly=(state.staff?.manager?.wage||0)+(state.staff?.dof?.wage||0)+(state.staff?.physio?.wage||0);
   const operatingCosts=weeklyClubOperatingCosts();
 
-  // Four-week management reporting ledger.
+  // Previous model was calibrated over 38 matchweeks. Scale recurring commercial
+  // income to a 52-week calendar so annual revenue does not jump simply because time is daily.
+  const commercialIncome=byClub(state.club).reputation*65000*(38/52);
+  const sponsorIncome=state.sponsorship ? state.sponsorship.annualValue/52 : 0;
+
   if(!state.monthlyFinance) state.monthlyFinance=createEmptyMonthlyFinance();
-  state.monthlyFinance.matchdayRevenue+=homeIncome;
   state.monthlyFinance.commercialIncome+=commercialIncome;
   state.monthlyFinance.sponsorIncome+=sponsorIncome;
   state.monthlyFinance.playerWages+=playerWages;
   state.monthlyFinance.staffWages+=staffWeekly;
   state.monthlyFinance.operatingCosts+=operatingCosts.total;
 
-  state.seasonPL += homeIncome + commercialIncome + sponsorIncome - weeklyWages - operatingCosts.total;
+  state.seasonPL += commercialIncome+sponsorIncome-playerWages-staffWeekly-operatingCosts.total;
 
   applyStakeholderHappiness();
   updateIndividualMorale();
-  processInjuries();
-  maybeGenerateManagerSquadRequest();
-  if(typeof processTransferWeek==="function") processTransferWeek();
+}
+
+function simulateFixtureRound(round){
+  if(!round) return;
+
+  round.games.forEach(g=>{
+    const [hg,ag]=simulateGame(g.home,g.away);
+    state.results[`${round.week}-${g.home}-${g.away}`]={hg,ag,date:round.date};
+    applyResult(g.home,g.away,hg,ag);
+  });
+
+  const mine=round.games.find(g=>g.home===state.club||g.away===state.club);
+  if(!mine) return;
+  const res=state.results[`${round.week}-${mine.home}-${mine.away}`];
+  const myGoals=mine.home===state.club?res.hg:res.ag;
+  const opGoals=mine.home===state.club?res.ag:res.hg;
+  const opp=mine.home===state.club?mine.away:mine.home;
+  const outcome=myGoals>opGoals?"W":myGoals===opGoals?"D":"L";
+
+  trackPlayerMatchStats(myGoals,opGoals);
+  state.form.push(outcome);
+  state.form=state.form.slice(-5);
+
+  if(mine.home===state.club){
+    const md=projectedMatchday();
+    const matchdayCost=weeklyMatchdayStaffCost();
+    const netHomeIncome=Math.max(0,md.revenue-matchdayCost);
+
+    state.matchdayStats.revenue+=md.revenue;
+    state.matchdayStats.attendance+=md.attendance;
+    state.matchdayStats.homeGames+=1;
+
+    if(!state.monthlyFinance) state.monthlyFinance=createEmptyMonthlyFinance();
+    state.monthlyFinance.matchdayRevenue+=md.revenue;
+    state.monthlyFinance.operatingCosts+=matchdayCost;
+    state.seasonPL+=netHomeIncome;
+
+    const fanPriceEffect=pricingFanEffect();
+    state.happiness.fans=clamp(state.happiness.fans+fanPriceEffect,0,100);
+    addNews(`${md.attendance.toLocaleString("en-GB")} supporters attended the home match, generating ${money(md.revenue)} in matchday revenue.`);
+  }
 
   if(!state.monthlyResults) state.monthlyResults=[];
   state.monthlyResults.push({
-    week:state.week+1,
-    opponent:opp,
-    home:mine.home===state.club,
-    goalsFor:myGoals,
-    goalsAgainst:opGoals,
-    outcome
+    week:round.week,date:round.date,opponent:opp,home:mine.home===state.club,
+    goalsFor:myGoals,goalsAgainst:opGoals,outcome
   });
 
-  state.week++;
+  state.week=Math.max(state.week,round.week);
+  state.season.phase="season";
   addNews(`${state.club} ${myGoals}–${opGoals} ${opp}.`);
-  if(state.week>=38){ state.seasonComplete=true; archiveCurrentSeason(); }
-  const monthlyDue=state.week>0 && state.week%4===0;
-  let monthlySummary=null;
-  if(monthlyDue){
-    monthlySummary=archiveMonthlySummary();
-    resetMonthlyTracker();
-  }
+}
 
-  saveGame(false); renderAll();
-
-  if(state.seasonComplete) renderSeasonSummary();
-  else if(monthlySummary) renderMonthlySummary(monthlySummary);
+function advanceMatchweek(){
+  // Backwards-compatible alias used by older UI code/saves.
+  return advanceDay();
 }
 
 
@@ -1635,14 +1890,82 @@ function processFacilityYearEnd(){
 }
 
 function beginNextSeason(){
-  const archive=archiveCurrentSeason(); processPlayerYearEnd(); expireContractsAndHandleFreeAgents(); updateReputationFromSeason(archive.leagueFinish);
-  state.season.year+=1; state.season.number+=1; state.season.label=currentSeasonLabel(); state.week=0; state.seasonComplete=false; state.seasonSummaryViewed=false;
-  state.fixtures=generateFixtures(DB.clubs.map(x=>x.name)); state.table=blankTable(); state.results={}; state.form=[]; state.matchdayStats={revenue:0,attendance:0,homeGames:0}; state.seasonPL=0; state.transferFinance={spent:0,received:0}; state.managerChangesThisSeason=0; state.managerPressureNotified=false; state.managerRequests=[]; state.managerRequestCooldowns={}; state.managerSquadVacancies=[]; state.transferReviewsRun={}; state.incomingTransferOffers=[]; state.transferNegotiations={}; state.aiTransferPlans={};
-  resetSeasonPlayerStats(); Object.keys(state.happiness).forEach(k=>state.happiness[k]=stakeholderSummerReset(state.happiness[k])); state.budget=nextSeasonBudgetForUser(archive); resetAIClubFinancesForNewSeason();
-  if(state.sponsorship){ if(state.sponsorship.seasonsRemaining==null) state.sponsorship.seasonsRemaining=state.sponsorship.years||1; state.sponsorship.seasonsRemaining=Math.max(0,state.sponsorship.seasonsRemaining-1); if(state.sponsorship.seasonsRemaining<=0){ addNews(`${state.sponsorship.name}'s sponsorship agreement has expired.`); state.sponsorship=null; state.sponsorOffers=[]; } else { state.sponsorOffers=[]; state.sponsorship.totalValue=state.sponsorship.annualValue*state.sponsorship.seasonsRemaining; } } else state.sponsorOffers=[];
-  state.pricingLocked=false; if(!state.pricing) state.pricing=defaultPricing(state.club); state.managerBacking=Math.round((state.managerBacking||70)*.75+70*.25);
-  if(typeof runAITransferReview==="function")runAITransferReview(); if(typeof maybeGenerateManagerSquadRequest==="function")maybeGenerateManagerSquadRequest();
-  q("seasonSummary")?.classList.add("hide"); renderAll(); openSeasonSetup(); saveGame(false);
+  // The season review no longer teleports straight to MW1.
+  // Closing it enters a playable off-season on the current calendar.
+  archiveCurrentSeason();
+  state.season.phase="offseason";
+  state.seasonComplete=false;
+  state.seasonSummaryViewed=true;
+  q("seasonSummary")?.classList.add("hide");
+  setModalScrollLock(false);
+  addNews(`The ${currentSeasonLabel()} season is complete. The club has entered the off-season.`);
+  saveGame(false);
+  renderAll();
+}
+
+function performSeasonRollover(){
+  const archive=state.careerHistory?.seasons?.find(x=>x.year===currentSeasonStartYear()) || archiveCurrentSeason();
+  const offSeasonCarryPL=(state.seasonPL||0)-(archive.seasonProfitLoss||0);
+
+  processPlayerYearEnd();
+  if(typeof processFacilityYearEnd==="function") processFacilityYearEnd();
+  expireContractsAndHandleFreeAgents();
+  updateReputationFromSeason(archive.leagueFinish);
+
+  state.season.year+=1;
+  state.season.number+=1;
+  state.season.label=`${state.season.year}/${String((state.season.year+1)%100).padStart(2,"0")}`;
+  state.season.phase="preseason";
+  state.week=0;
+  state.seasonComplete=false;
+  state.seasonSummaryViewed=false;
+
+  state.fixtures=generateFixtures(DB.clubs.map(x=>x.name),state.season.year);
+  state.table=blankTable();
+  state.results={};
+  state.form=[];
+  state.matchdayStats={revenue:0,attendance:0,homeGames:0};
+  state.seasonPL=offSeasonCarryPL;
+  state.transferFinance={spent:0,received:0};
+  state.managerChangesThisSeason=0;
+  state.managerPressureNotified=false;
+  state.managerRequests=[];
+  state.managerRequestCooldowns={};
+  state.managerRequestsByWeek={};
+  state.managerRoleFulfilledUntil={};
+  state.managerSquadVacancies=[];
+  state.transferReviewsRun={};
+  state.incomingTransferOffers=[];
+  state.transferNegotiations={};
+  state.aiTransferPlans={};
+
+  resetSeasonPlayerStats();
+  resetMonthlyTracker();
+  state.calendar.monthlyMonthKey=currentGameDateISO().slice(0,7);
+
+  Object.keys(state.happiness).forEach(k=>state.happiness[k]=stakeholderSummerReset(state.happiness[k]));
+  state.budget=nextSeasonBudgetForUser(archive);
+  resetAIClubFinancesForNewSeason();
+
+  if(state.sponsorship){
+    if(state.sponsorship.seasonsRemaining==null) state.sponsorship.seasonsRemaining=state.sponsorship.years||1;
+    state.sponsorship.seasonsRemaining=Math.max(0,state.sponsorship.seasonsRemaining-1);
+    if(state.sponsorship.seasonsRemaining<=0){
+      addNews(`${state.sponsorship.name}'s sponsorship agreement has expired.`);
+      state.sponsorship=null;
+      state.sponsorOffers=[];
+    }else{
+      state.sponsorOffers=[];
+      state.sponsorship.totalValue=state.sponsorship.annualValue*state.sponsorship.seasonsRemaining;
+    }
+  }else state.sponsorOffers=[];
+
+  state.pricingLocked=false;
+  if(!state.pricing) state.pricing=defaultPricing(state.club);
+  state.managerBacking=Math.round((state.managerBacking||70)*.75+70*.25);
+
+  addNews(`The ${currentSeasonLabel()} season has begun. The board has confirmed a transfer budget of ${money(state.budget)}.`);
+  openSeasonSetup();
 }
 
 function tableArray(){
@@ -1760,7 +2083,7 @@ function renderMatchday(){
   if(ticketDiff>20) advice=`Tickets are ${ticketDiff}% above the board's market benchmark. Revenue per supporter is high, but demand and fan sentiment are at risk.`;
   else if(ticketDiff<-15) advice=`Tickets are ${Math.abs(ticketDiff)}% below the market benchmark. Fans will approve, although the club may be leaving significant revenue on the table.`;
   else advice=`Pricing is broadly in line with the club's market position. Recommended adult ticket benchmark: ${money(rec.ticket)}.`;
-  q("pricingAdvice").textContent=(state.pricingLocked ? "Pricing is locked for the 2025/26 season. " : "")+advice;
+  q("pricingAdvice").textContent=(state.pricingLocked ? `Pricing is locked for the ${currentSeasonLabel()} season. ` : "")+advice;
 
   if(q("sponsorSummary")){
     if(state.sponsorship){
@@ -2058,10 +2381,10 @@ function init(){
   });
   q("advanceBtn")?.addEventListener("click",()=>{
     try{
-      advanceMatchweek();
+      advanceDay();
     }catch(err){
-      console.error("Advance Matchweek failed:",err);
-      addNews(`A simulation error prevented the matchweek from advancing: ${err?.message||"Unknown error"}.`);
+      console.error("Continue failed:",err);
+      addNews(`A simulation error prevented the calendar from advancing: ${err?.message||"Unknown error"}.`);
       saveGame(false);
       renderDashboard();
       renderInbox();
