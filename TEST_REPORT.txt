@@ -1,41 +1,30 @@
-v0.15.1 SAVE-MANAGEMENT PRETEST
+v0.15.2 MANAGER PROFILE TEST REPORT
 
-Static validation:
 PASS — game.js syntax
 PASS — transfers.js syntax
-PASS — no duplicate HTML element IDs
-PASS — old single Continue Saved Career control removed
-PASS — save manifest and separate slot keys present
-PASS — five-save limit enforced
-PASS — each new career receives its own save ID
-PASS — manual save available
-PASS — last-save status UI present
-PASS — pagehide autosave hook present
-PASS — visibility-change autosave hook present
-PASS — JSON export uses a versioned Football CEO wrapper
-PASS — JSON import accepts wrapped saves and older raw-state saves
-PASS — imported careers receive a fresh local slot ID
-PASS — legacy footballCEO2526 storage key migration present
-PASS — delete removes only the selected save slot
-PASS — returning to New Career no longer deletes the active save
+PASS — all 20 approved starting managers have explicit profiles
+PASS — random/hash-based formation assignment removed
+PASS — manager preferred formation drives XI/depth logic
+PASS — Unai Emery preferred formation is 4-2-3-1
+PASS — Emery alternatives include 4-4-2 and 4-2-2-2
+PASS — 4-2-2-2 and 3-5-2 formation definitions added
+PASS — prospect recruitment role supported
+PASS — GK depth requires one credible senior understudy, not two
+PASS — youth trust feeds prospect-request logic
+PASS — depth demand feeds cover requirements
+PASS — recruitment aggression feeds manager request appetite
+PASS — manager profile is visible on Staff screen
+PASS — manager candidate cards expose profile information
+PASS — old saved random formations are overridden by manager profiles
 
-Storage design:
-Manifest key: footballCEO_saves_v1
-Slot keys: footballCEO_save_<unique id>
-Legacy key retained as an emergency fallback after migration.
+Important current limitation:
+Possession, pressing, verticality and tactical flexibility are stored and shown to the user,
+but the current player database does not yet contain enough style attributes for those values
+to influence target selection properly. They are deliberately available for the next tactical/
+player-profile layer rather than being faked against unrelated attributes.
 
-Important browser limitation:
-localStorage is tied to the exact website origin and browser profile. A career saved at
-mattheyho.github.io will not automatically appear at a Netlify preview, local file, private
-browsing session, or another browser/device. Exported JSON backups are the protection against
-Safari storage clearing and against moving between origins.
-
-Recommended test:
-1. Start Aston Villa career and Continue 2–3 days.
-2. Press manual Save; verify last-saved time updates.
-3. Return to Careers; verify Villa save card remains.
-4. Start Arsenal as a second save.
-5. Return to Careers and load Villa; verify original game date/state returns.
-6. Export Villa JSON and confirm it appears in Downloads/Files.
-7. Delete Villa locally, import the JSON, and load it again.
-8. Close Safari completely, reopen the same GitHub Pages URL, and verify both careers remain.
+Villa goalkeeper expected behaviour:
+With a strong starting GK plus one credible senior backup, the manager should no longer request
+another established backup purely because a second backup slot is absent. If no suitable young
+high-potential goalkeeper is already present, a manager with sufficient youth/depth preference
+may instead generate a PROSPECT request. This is the intended Martínez/Bizot fix.

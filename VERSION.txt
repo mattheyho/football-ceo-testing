@@ -1,14 +1,17 @@
-Football CEO v0.15.1 — Save Management
+Football CEO v0.15.2 — Manager Profiles
 
-- Up to 5 independent local career save slots
-- Autosave remains active after game actions / Continue
-- Best-effort autosave when Safari tab is hidden or closed
-- Visible last-saved status in the club masthead
-- Manual Save button
-- Saved Careers list on the start screen
-- Load, export and delete controls for each local career
-- JSON export backups for Files/iCloud
-- JSON import/restore
-- Existing legacy footballCEO2526 local save is migrated automatically when possible
-- Starting a New Career no longer deletes the current career
-- Save data remains scoped to the current browser + GitHub Pages origin
+- Removed random manager formation assignment.
+- Added persistent real-world-inspired profiles for all 20 starting Premier League managers.
+- Added preferred and alternative formations.
+- Added 0-100 manager attributes:
+  possession, pressing, verticality, flexibility,
+  recruitment aggression, youth trust and squad-depth demand.
+- Preferred formation now drives manager XI selection and squad-depth analysis.
+- Recruitment aggression affects request appetite.
+- Youth trust enables development-prospect requests.
+- Depth demand changes senior-cover expectations.
+- Goalkeeper logic now treats one credible senior backup as sufficient.
+- Managers can request a young prospect instead of an unnecessary established third goalkeeper.
+- Current manager profile is visible on the Staff screen.
+- Manager candidates show formation/pressing/youth/flexibility information.
+- Existing v0.15.1 saves migrate automatically: legacy random manager formations are overwritten by the profile.

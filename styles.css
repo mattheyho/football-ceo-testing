@@ -911,3 +911,32 @@ html.modal-open,body.modal-open{overflow:hidden!important;height:100%!important}
   .save-manager-row{align-items:flex-start;flex-direction:column}
   .save-manager-actions{width:100%;justify-content:flex-start}
 }
+
+
+/* v0.15.2 manager profiles */
+.manager-profile-panel{
+  margin-top:12px;
+  border-top:1px solid var(--line);
+  padding-top:12px;
+}
+.manager-profile-head{
+  display:flex;align-items:flex-start;justify-content:space-between;gap:10px;margin-bottom:7px
+}
+.manager-profile-kicker{
+  font-size:8px;letter-spacing:1.2px;font-weight:900;color:var(--villa-sky);margin-bottom:3px
+}
+.manager-profile-head>b{font-size:20px}
+.manager-profile-head .pill{max-width:62%;white-space:normal;text-align:right}
+.manager-profile-summary{margin:7px 0 12px;line-height:1.45}
+.manager-profile-attributes{display:grid;grid-template-columns:1fr 1fr;gap:10px 14px}
+.manager-profile-row{min-width:0}
+.manager-profile-label{display:flex;justify-content:space-between;gap:8px;font-size:10px;margin-bottom:4px}
+.manager-profile-label b{color:var(--villa-sky)}
+.manager-profile-bar{height:5px;background:rgba(255,255,255,.09);border-radius:99px;overflow:hidden}
+.manager-profile-bar span{display:block;height:100%;background:var(--villa-sky);border-radius:99px}
+.manager-profile-note{margin-top:12px}
+@media(max-width:560px){
+  .manager-profile-attributes{grid-template-columns:1fr}
+  .manager-profile-head{flex-direction:column}
+  .manager-profile-head .pill{max-width:100%;text-align:left}
+}

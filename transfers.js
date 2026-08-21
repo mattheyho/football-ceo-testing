@@ -286,9 +286,11 @@ function buildManagerShortlist(position,role="starter"){
   const roleFloor =
     role==="starter" ? Math.max(currentStarter-1,standards.starter-2) :
     role==="competition" ? Math.max(standards.competition-3,currentStarter-5) :
+    role==="prospect" ? 58 :
     Math.max(standards.backup-4,64);
 
   const roleCeiling =
+    role==="prospect" ? Math.max(72,currentStarter-5) :
     role==="backup" ? Math.max(roleFloor+8,currentStarter-2) :
     role==="competition" ? Math.max(roleFloor+6,currentStarter+1) :
     99;
@@ -297,6 +299,10 @@ function buildManagerShortlist(position,role="starter"){
     const o=x.player.overall||0;
     if(role==="starter") return o>=roleFloor;
     if(role==="competition") return o>=roleFloor && o<=roleCeiling;
+    if(role==="prospect"){
+      const potential=x.player.potential||o;
+      return x.player.age<=22 && o>=roleFloor && o<=roleCeiling && potential>=Math.max(standards.competition,currentStarter-2);
+    }
     return o>=roleFloor && o<=roleCeiling;
   });
 
@@ -308,10 +314,14 @@ function buildManagerShortlist(position,role="starter"){
     let scoreA=(oa*2.5)+(a.interest*.18)+(a.player.potential||oa)*.18-(a.asking/1e6*.08);
     let scoreB=(ob*2.5)+(b.interest*.18)+(b.player.potential||ob)*.18-(b.asking/1e6*.08);
 
-    // For backup requests, penalise overqualified/overpriced players.
+    // Backups should not be overqualified; prospects are scored primarily on upside.
     if(role==="backup"){
       scoreA-=Math.max(0,oa-currentStarter+1)*1.4;
       scoreB-=Math.max(0,ob-currentStarter+1)*1.4;
+    }
+    if(role==="prospect"){
+      scoreA+=(a.player.potential||oa)*1.5-a.player.age*1.2;
+      scoreB+=(b.player.potential||ob)*1.5-b.player.age*1.2;
     }
     return scoreB-scoreA;
   })[0];
@@ -340,8 +350,8 @@ function buildManagerShortlist(position,role="starter"){
     || pool.find(x=>!used.has(x.player.id) && x.player.age<=23);
 
   const out=[];
-  if(ideal) out.push({...ideal,role:"Ideal target"});
-  if(cheaper&&!out.some(x=>x.player.id===cheaper.player.id)) out.push({...cheaper,role:"Cheaper alternative"});
+  if(ideal) out.push({...ideal,role:role==="prospect"?"Best prospect":"Ideal target"});
+  if(cheaper&&!out.some(x=>x.player.id===cheaper.player.id)) out.push({...cheaper,role:role==="prospect"?"Value prospect":"Cheaper alternative"});
   if(prospect&&!out.some(x=>x.player.id===prospect.player.id)) out.push({...prospect,role:"Young prospect"});
   return out.slice(0,3);
 }
@@ -476,11 +486,16 @@ function maybeGenerateManagerSquadRequest(){
     return r.type===o.type && String(r.playerId)===String(o.playerId);
   }));
 
+  const requestThreshold=managerProfileForClub(state.club).recruitmentAggression>=80 ? 22 :
+    managerProfileForClub(state.club).recruitmentAggression>=65 ? 28 : 34;
+  options=options.filter(o=>o.type!=="sign" || o.priority>=requestThreshold/4 || o.vacancy);
+
   if(!options.length) return;
 
   // Deterministic manager appetite: some weeks one request, some weeks two.
   // Aggressive/high-pressure situations make two more likely.
-  let maxRequests=1;
+  const managerProfile=managerProfileForClub(state.club);
+  let maxRequests=managerProfile.recruitmentAggression>=82 ? 2 : 1;
   const unresolvedRecruitment=openRequests.filter(r=>r.type==="sign").length;
   const majorNeeds=needs.filter(n=>n.role==="starter" && n.score>=60).length;
   const overhaulPressure=performancePressure>=2 || majorNeeds>=2 || (state.managerSquadVacancies||[]).filter(v=>!v.filled).length>=2;
@@ -540,7 +555,8 @@ function maybeGenerateManagerSquadRequest(){
       const roleLabel={
         starter:"new starting",
         competition:"new first-team competition",
-        backup:"new backup"
+        backup:"new backup",
+        prospect:"young prospect"
       }[pick.squadRole] || "new";
 
       wording=`${manager.name} wants a ${roleLabel} ${positionLabel(pick.position)} for the ${managerFormationForClub(state.club)}. A three-player shortlist is ready for review.${pick.reason?` ${pick.reason}`:""}`;
@@ -1039,24 +1055,172 @@ const MANAGER_FORMATIONS={
   "4-2-3-1":{slots:["GK","RB","CB","CB","LB","DM","DM","RW","AM","LW","ST"]},
   "4-3-3":{slots:["GK","RB","CB","CB","LB","DM","CM","CM","RW","LW","ST"]},
   "4-4-2":{slots:["GK","RB","CB","CB","LB","RM","CM","CM","LM","ST","ST"]},
+  "4-2-2-2":{slots:["GK","RB","CB","CB","LB","DM","DM","AM","AM","ST","ST"]},
   "3-4-2-1":{slots:["GK","CB","CB","CB","RM","CM","CM","LM","AM","AM","ST"]},
-  "3-4-3":{slots:["GK","CB","CB","CB","RM","CM","CM","LM","RW","LW","ST"]}
+  "3-4-3":{slots:["GK","CB","CB","CB","RM","CM","CM","LM","RW","LW","ST"]},
+  "3-5-2":{slots:["GK","CB","CB","CB","RM","CM","DM","CM","LM","ST","ST"]}
 };
 
-function managerFormationForClub(club){
-  if(!state.managerTactics) state.managerTactics={};
-  if(!state.managerTactics[club]){
-    const rep=byClub(club)?.reputation||70;
-    const managerName=club===state.club ? state.staff?.manager?.name : (byClub(club)?.manager||"");
-    const seed=String(club)+String(managerName);
-    let hash=0;
-    for(let i=0;i<seed.length;i++) hash=((hash<<5)-hash+seed.charCodeAt(i))|0;
-    const formations=Object.keys(MANAGER_FORMATIONS);
-    let chosen=formations[Math.abs(hash)%formations.length];
-    if(rep>=86 && Math.abs(hash)%2===0) chosen="4-3-3";
-    state.managerTactics[club]={formation:chosen};
+// Real-world-inspired manager profiles for the 20 managers in the 2025/26 database.
+// Formation, recruitment aggression, youth trust and depth demand currently affect AI.
+// Possession, pressing, verticality and flexibility are exposed to the user now and are
+// deliberately stored for future player-style recruitment and tactical systems.
+const MANAGER_PROFILES={
+  "Mikel Arteta":{
+    preferredFormation:"4-3-3",alternatives:["4-2-3-1"],
+    possession:92,pressing:88,verticality:52,flexibility:78,
+    recruitmentAggression:84,youthTrust:68,depthDemand:92,
+    summary:"Positional, possession-dominant football with aggressive counter-pressing and elite depth expectations."
+  },
+  "Unai Emery":{
+    preferredFormation:"4-2-3-1",alternatives:["4-4-2","4-2-2-2"],
+    possession:68,pressing:74,verticality:76,flexibility:90,
+    recruitmentAggression:80,youthTrust:58,depthDemand:82,
+    summary:"Highly adaptable, detail-heavy coach who favours a back four, double pivot, central combinations and quick progression."
+  },
+  "Andoni Iraola":{
+    preferredFormation:"4-2-3-1",alternatives:["4-4-2"],
+    possession:58,pressing:96,verticality:90,flexibility:70,
+    recruitmentAggression:72,youthTrust:72,depthDemand:72,
+    summary:"Relentless front-foot pressing, athleticism and rapid vertical attacks."
+  },
+  "Keith Andrews":{
+    preferredFormation:"4-2-3-1",alternatives:["4-4-2"],
+    possession:58,pressing:70,verticality:82,flexibility:65,
+    recruitmentAggression:65,youthTrust:58,depthDemand:72,
+    summary:"Compact and pragmatic, mixing controlled build-up with direct transitions and counter-attacking."
+  },
+  "Fabian Hürzeler":{
+    preferredFormation:"4-2-3-1",alternatives:["3-4-2-1","3-4-3"],
+    possession:84,pressing:78,verticality:58,flexibility:90,
+    recruitmentAggression:70,youthTrust:86,depthDemand:76,
+    summary:"Progressive possession coach with complex rotations, flexible structures and strong trust in younger players."
+  },
+  "Scott Parker":{
+    preferredFormation:"4-2-3-1",alternatives:["4-3-3"],
+    possession:76,pressing:62,verticality:48,flexibility:40,
+    recruitmentAggression:58,youthTrust:60,depthDemand:70,
+    summary:"Structured and organised, favouring controlled possession and a stable double-pivot framework."
+  },
+  "Enzo Maresca":{
+    preferredFormation:"4-3-3",alternatives:["4-2-3-1"],
+    possession:94,pressing:84,verticality:42,flexibility:68,
+    recruitmentAggression:84,youthTrust:76,depthDemand:92,
+    summary:"Highly positional possession football with patient build-up, technical demands and strong squad-depth expectations."
+  },
+  "Oliver Glasner":{
+    preferredFormation:"3-4-2-1",alternatives:["4-2-3-1"],
+    possession:50,pressing:84,verticality:82,flexibility:58,
+    recruitmentAggression:72,youthTrust:62,depthDemand:78,
+    summary:"Back-three specialist built around duels, counter-pressing and incisive transition attacks."
+  },
+  "David Moyes":{
+    preferredFormation:"4-2-3-1",alternatives:["4-3-3"],
+    possession:42,pressing:48,verticality:84,flexibility:55,
+    recruitmentAggression:65,youthTrust:35,depthDemand:60,
+    summary:"Experienced and pragmatic, favouring physical reliability, direct progression and proven senior options."
+  },
+  "Marco Silva":{
+    preferredFormation:"4-2-3-1",alternatives:["4-4-2"],
+    possession:62,pressing:62,verticality:76,flexibility:68,
+    recruitmentAggression:70,youthTrust:58,depthDemand:74,
+    summary:"Purposeful 4-2-3-1 football with progressive passing, wide rotations and balanced pressing."
+  },
+  "Daniel Farke":{
+    preferredFormation:"4-2-3-1",alternatives:["4-3-3"],
+    possession:88,pressing:76,verticality:52,flexibility:58,
+    recruitmentAggression:68,youthTrust:72,depthDemand:72,
+    summary:"Possession-first coach who wants his side to control matches, build patiently and attack from positional superiority."
+  },
+  "Arne Slot":{
+    preferredFormation:"4-2-3-1",alternatives:["4-3-3"],
+    possession:80,pressing:84,verticality:74,flexibility:76,
+    recruitmentAggression:68,youthTrust:72,depthDemand:86,
+    summary:"Controlled possession combined with aggressive pressing and purposeful vertical progression."
+  },
+  "Pep Guardiola":{
+    preferredFormation:"4-3-3",alternatives:["4-2-3-1"],
+    possession:99,pressing:94,verticality:48,flexibility:100,
+    recruitmentAggression:94,youthTrust:70,depthDemand:96,
+    summary:"Extreme positional control, technical quality and tactical fluidity, with exceptionally high squad standards."
+  },
+  "Ruben Amorim":{
+    preferredFormation:"3-4-2-1",alternatives:["3-4-3"],
+    possession:82,pressing:90,verticality:64,flexibility:35,
+    recruitmentAggression:86,youthTrust:84,depthDemand:84,
+    summary:"Committed back-three coach with aggressive pressing, wing-back dependency and strong faith in young players."
+  },
+  "Eddie Howe":{
+    preferredFormation:"4-3-3",alternatives:["4-2-3-1","4-4-2"],
+    possession:64,pressing:92,verticality:86,flexibility:80,
+    recruitmentAggression:82,youthTrust:66,depthDemand:88,
+    summary:"High-intensity pressing and quick transitions, with strong athletic and squad-depth demands."
+  },
+  "Nuno Espírito Santo":{
+    preferredFormation:"4-2-3-1",alternatives:["3-4-3","3-5-2"],
+    possession:38,pressing:52,verticality:92,flexibility:72,
+    recruitmentAggression:68,youthTrust:45,depthDemand:68,
+    summary:"Compact defensive organisation and rapid counter-attacking, with flexibility between back-four and back-three systems."
+  },
+  "Régis Le Bris":{
+    preferredFormation:"4-3-3",alternatives:["4-2-3-1","4-4-2"],
+    possession:62,pressing:84,verticality:82,flexibility:84,
+    recruitmentAggression:64,youthTrust:90,depthDemand:70,
+    summary:"Youth-oriented, energetic and adaptable, using aggressive pressing and fast attacks after regains."
+  },
+  "Thomas Frank":{
+    preferredFormation:"4-2-3-1",alternatives:["3-5-2","4-3-3"],
+    possession:64,pressing:86,verticality:82,flexibility:94,
+    recruitmentAggression:78,youthTrust:74,depthDemand:80,
+    summary:"Highly adaptable opponent-specific coach who blends pressing, direct attacks and multiple structures."
+  },
+  "Graham Potter":{
+    preferredFormation:"3-4-2-1",alternatives:["4-2-3-1","3-5-2"],
+    possession:84,pressing:76,verticality:56,flexibility:100,
+    recruitmentAggression:68,youthTrust:82,depthDemand:78,
+    summary:"Exceptionally flexible possession coach who values rotations, multi-functional players and youth."
+  },
+  "Vítor Pereira":{
+    preferredFormation:"3-4-2-1",alternatives:["3-4-3"],
+    possession:50,pressing:68,verticality:72,flexibility:38,
+    recruitmentAggression:70,youthTrust:48,depthDemand:70,
+    summary:"Tactically stable back-three coach with direct progression and a strong preference for structural consistency."
   }
-  return state.managerTactics[club].formation;
+};
+
+const DEFAULT_MANAGER_PROFILE={
+  preferredFormation:"4-2-3-1",alternatives:["4-3-3"],
+  possession:65,pressing:65,verticality:65,flexibility:60,
+  recruitmentAggression:65,youthTrust:60,depthDemand:70,
+  summary:"Balanced managerial profile. A bespoke profile has not yet been added for this coach."
+};
+
+function managerNameForClub(club){
+  return club===state.club ? state.staff?.manager?.name : (byClub(club)?.manager||"");
+}
+
+function managerProfileByName(name){
+  return MANAGER_PROFILES[name] || DEFAULT_MANAGER_PROFILE;
+}
+
+function managerProfileForClub(club){
+  return managerProfileByName(managerNameForClub(club));
+}
+
+
+function managerFormationForClub(club){
+  const managerName=managerNameForClub(club);
+  const profile=managerProfileByName(managerName);
+  if(!state.managerTactics) state.managerTactics={};
+
+  // Migration: old saves may contain a randomly assigned formation. The manager
+  // profile now takes precedence and overwrites that legacy random assignment.
+  state.managerTactics[club]={
+    managerName,
+    formation:profile.preferredFormation,
+    alternatives:[...(profile.alternatives||[])]
+  };
+  return profile.preferredFormation;
 }
 
 function formationSlotAliases(slot){
@@ -1122,6 +1286,8 @@ function formationSlotToRecruitmentGroup(slot){
 function managerSquadNeedsFromFormation(club){
   const depth=managerDepthChart(club);
   const rep=byClub(club)?.reputation||72;
+  const profile=managerProfileForClub(club);
+
   const starterStandard=clamp(Math.round(70+(rep-70)*0.42),72,88);
   const competitionStandard=clamp(starterStandard-3,69,85);
   const backupStandard=clamp(starterStandard-8,64,81);
@@ -1136,7 +1302,24 @@ function managerSquadNeedsFromFormation(club){
     const weakestStarter=starters[starters.length-1]?.overall||0;
     const bestBackup=backups[0]?.overall||0;
 
+    // One credible senior understudy is sufficient for a single GK slot.
+    // Other positions scale depth expectations with how many slots the formation uses
+    // and with the manager's profile.
+    const seniorBackupsRequired = slot==="GK"
+      ? 1
+      : Math.max(1,Math.min(2,requiredStarters + (profile.depthDemand>=88?1:0)));
+
+    const credibleSeniorBackups=backups.filter(p=>(p.overall||0)>=backupStandard-6).length;
+
+    const prospectCandidates=clubSquadPlayers(club).filter(p=>{
+      if(!playerFitsFormationSlot(p,slot)) return false;
+      if(p.age>22) return false;
+      const potential=p.potential||p.overall||0;
+      return potential>=Math.max(competitionStandard,starterStandard-2);
+    });
+
     let role="none",score=0,reason="";
+
     if(filledStarters<requiredStarters){
       role="starter"; score=92;
       reason=`The ${depth.formation} requires ${requiredStarters} ${slot} role${requiredStarters>1?"s":""}, but only ${filledStarters} is currently filled.`;
@@ -1146,17 +1329,27 @@ function managerSquadNeedsFromFormation(club){
     }else if(bestBackup<competitionStandard-5){
       role="competition"; score=46+(competitionStandard-bestBackup)*4;
       reason=`The manager wants stronger competition behind the ${slot} starter${requiredStarters>1?"s":""}.`;
-    }else if(backups.length<2 || (backups[1]?.overall||0)<backupStandard-6){
-      role="backup"; score=30+(backups.length<2?12:0);
-      reason=`The ${slot} depth is thin for the manager's ${depth.formation}.`;
+    }else if(credibleSeniorBackups<seniorBackupsRequired){
+      role="backup";
+      score=26+(seniorBackupsRequired-credibleSeniorBackups)*10+(profile.depthDemand-70)*0.25;
+      reason=`The ${slot} depth is below ${managerNameForClub(club)}'s preferred senior cover level.`;
+    }else if(
+      profile.youthTrust>=68 &&
+      prospectCandidates.length===0 &&
+      (slot==="GK" || profile.depthDemand>=78)
+    ){
+      role="prospect";
+      score=20+(profile.youthTrust-60)*0.35+(profile.depthDemand-70)*0.15;
+      reason=`Senior ${slot} cover is adequate, but ${managerNameForClub(club)} would like a young development option for the future.`;
     }
 
     needs.push({
       position:formationSlotToRecruitmentGroup(slot),
-      tacticalSlot:slot, role, score:clamp(Math.round(score),0,100), reason,
+      tacticalSlot:slot,role,score:clamp(Math.round(score),0,100),reason,
       formation:depth.formation,
-      starter:starters[0]?.overall||0, second:bestBackup, depth:starters.length+backups.length,
-      standards:{starter:starterStandard,competition:competitionStandard,backup:backupStandard}
+      starter:starters[0]?.overall||0,second:bestBackup,depth:starters.length+backups.length,
+      standards:{starter:starterStandard,competition:competitionStandard,backup:backupStandard},
+      managerProfile:profile
     });
   });
 

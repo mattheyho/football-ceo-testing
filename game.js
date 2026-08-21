@@ -2580,6 +2580,63 @@ function confirmSeasonSetup(){
 
 let currentStaffMarketRole=null;
 
+
+function managerAttributeLabel(value){
+  if(value>=90) return "Elite";
+  if(value>=80) return "Very high";
+  if(value>=70) return "High";
+  if(value>=55) return "Balanced";
+  if(value>=40) return "Low";
+  return "Very low";
+}
+
+function renderManagerProfilePanel(manager){
+  const el=q("managerProfilePanel");
+  if(!el) return;
+  if(!manager){
+    el.innerHTML="";
+    return;
+  }
+  const p=typeof managerProfileByName==="function" ? managerProfileByName(manager.name) : null;
+  if(!p){
+    el.innerHTML="";
+    return;
+  }
+
+  const attrs=[
+    ["Possession",p.possession],
+    ["Pressing",p.pressing],
+    ["Verticality",p.verticality],
+    ["Flexibility",p.flexibility],
+    ["Recruitment",p.recruitmentAggression],
+    ["Youth trust",p.youthTrust],
+    ["Depth demand",p.depthDemand]
+  ];
+
+  el.innerHTML=`
+    <div class="manager-profile-head">
+      <div>
+        <div class="manager-profile-kicker">MANAGER PROFILE</div>
+        <b>${p.preferredFormation}</b>
+      </div>
+      <span class="pill">${p.alternatives?.length?`Alternatives: ${p.alternatives.join(" / ")}`:"Fixed shape"}</span>
+    </div>
+    <p class="muted small manager-profile-summary">${p.summary}</p>
+    <div class="manager-profile-attributes">
+      ${attrs.map(([label,value])=>`
+        <div class="manager-profile-row">
+          <div class="manager-profile-label"><span>${label}</span><b>${value}</b></div>
+          <div class="manager-profile-bar"><span style="width:${value}%"></span></div>
+          <div class="muted tiny">${managerAttributeLabel(value)}</div>
+        </div>
+      `).join("")}
+    </div>
+    <div class="notice small muted manager-profile-note">
+      Formation, recruitment appetite, youth trust and squad-depth demand currently affect manager AI. Tactical style ratings will also feed future player-profile recruitment.
+    </div>
+  `;
+}
+
 function renderStaff(){
   if(!state || !q("managerName")) return;
   ensureStaffState();
@@ -2587,9 +2644,12 @@ function renderStaff(){
   const mgr=state.staff.manager;
   q("managerName").textContent=mgr?.name || "Vacant";
   q("managerRating").textContent=mgr?.rating ?? "—";
+  const profile=typeof managerProfileByName==="function" && mgr ? managerProfileByName(mgr.name) : null;
   q("managerEffect").innerHTML=mgr
-    ? `<b>Reputation ${mgr.rating}/100</b><br><span class="muted small">Weekly wage: ${money(mgr.wage)}. Higher-rated managers are more costly to poach from rival clubs.</span>`
+    ? `<b>Reputation ${mgr.rating}/100 • ${profile?.preferredFormation||"4-2-3-1"}</b><br><span class="muted small">Weekly wage: ${money(mgr.wage)}. Tactical and recruitment preferences now follow the manager's profile.</span>`
     : `<span class="bad"><b>Position vacant.</b></span><br><span class="muted small">The team is operating under a caretaker until you appoint a manager.</span>`;
+
+  renderManagerProfilePanel(mgr);
 
   const dof=state.staff.dof;
   const mod=dofNegotiationModifier();
@@ -2637,10 +2697,12 @@ function openStaffMarket(role){
     const poachClub=role==="manager" ? managerClub(c.name) : null;
     const fee=role==="manager" ? managerCompensation(c) : 0;
     const wage=staffSalary(role,c.rating);
+    const mp=role==="manager" && typeof managerProfileByName==="function" ? managerProfileByName(c.name) : null;
     return `<div class="candidate">
       <div>
         <b>${c.name}</b>
         <div class="muted small">${poachClub ? poachClub : "Available candidate"}</div>
+        ${mp?`<div class="muted tiny">${mp.preferredFormation} • Press ${mp.pressing} • Youth ${mp.youthTrust} • Flex ${mp.flexibility}</div>`:""}
       </div>
       <div><span class="rating" title="Staff rating">${c.rating}</span></div>
       <div class="wage-mobile-hide">
@@ -2673,6 +2735,7 @@ function hireStaff(role,name){
       state.staffAssignments.managers[oldClub]="Caretaker Manager";
     }
     state.staffAssignments.managers[state.club]=candidate.name;
+    if(state.managerTactics) delete state.managerTactics[state.club];
   }
 
   state.staff[role]={...candidate,wage};
@@ -2711,6 +2774,7 @@ function fireStaff(role){
   if(role==="manager"){
     state.staffAssignments.managers[state.club]="Caretaker Manager";
     state.staff.manager=null;
+    if(state.managerTactics) delete state.managerTactics[state.club];
     state.happiness.manager=35;
     state.managerChangesThisSeason=(state.managerChangesThisSeason||0)+1;
     state.managerBacking=40;
