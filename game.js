@@ -110,8 +110,10 @@ function ensurePlayerState(){
   if(!state.playerStats) state.playerStats={};
   if(!state.playerMorale) state.playerMorale={};
   squad(state.club).forEach(p=>{
-    if(!state.playerStats[p.id]) state.playerStats[p.id]={appearances:0,goals:0,ratingTotal:0,ratedApps:0,lastRating:null};
+    if(!state.playerStats[p.id]) state.playerStats[p.id]={appearances:0,starts:0,goals:0,assists:0,ratingTotal:0,ratedApps:0,lastRating:null};
     const ps=state.playerStats[p.id];
+    if(ps.starts==null) ps.starts=0;
+    if(ps.assists==null) ps.assists=0;
     if(ps.ratingTotal==null) ps.ratingTotal=0;
     if(ps.ratedApps==null) ps.ratedApps=0;
     if(ps.lastRating===undefined) ps.lastRating=null;
@@ -161,53 +163,124 @@ function selectMatchSquad(){
   return healthy.slice(0,11);
 }
 
-function trackPlayerMatchStats(myGoals,oppGoals=0){
+function weightedPick(players,weightFn,excludeIds=new Set()){
+  const usable=players.filter(p=>!excludeIds.has(String(p.id)));
+  if(!usable.length) return null;
+  const weights=usable.map(p=>Math.max(0.1,weightFn(p)));
+  const total=weights.reduce((a,b)=>a+b,0);
+  let r=Math.random()*total;
+  for(let i=0;i<usable.length;i++){
+    r-=weights[i];
+    if(r<=0) return usable[i];
+  }
+  return usable[usable.length-1];
+}
+
+function trackPlayerMatchStats(myGoals,oppGoals=0,matchSelection=null){
   ensurePlayerState();
-  const starters=selectMatchSquad();
-  starters.forEach(p=>state.playerStats[p.id].appearances+=1);
 
-  const scorers=starters.filter(p=>!String(p.positions).includes("GK"));
+  const selection=matchSelection || (typeof managerSelectMatchdaySquad==="function"
+    ? managerSelectMatchdaySquad(state.club)
+    : {formation:"4-2-3-1",xi:selectMatchSquad().map((p,i)=>({slot:"",slotIndex:i,player:p,playerId:p.id})),bench:[]});
+
+  const starters=selection.xi.map(x=>x.player).filter(Boolean);
+  starters.forEach(p=>{
+    const s=state.playerStats[p.id];
+    s.appearances=(s.appearances||0)+1;
+    s.starts=(s.starts||0)+1;
+  });
+
   const goalsByPlayer={};
+  const assistsByPlayer={};
+  const goalEvents=[];
 
-  for(let g=0;g<myGoals;g++){
-    if(!scorers.length) break;
-    const weights=scorers.map(p=>{
-      let w=Math.max(1,(p.overall||70)-55);
-      const pos=String(p.positions);
-      if(pos.includes("ST")||pos.includes("CF")||pos.includes("LW")||pos.includes("RW")) w*=1.8;
-      else if(pos.includes("CAM")||pos.includes("LM")||pos.includes("RM")) w*=1.35;
-      else if(pos.includes("CB")||pos.includes("LB")||pos.includes("RB")) w*=0.45;
-      return w;
-    });
-    const total=weights.reduce((a,b)=>a+b,0);
-    let r=Math.random()*total, chosen=scorers[0];
-    for(let i=0;i<scorers.length;i++){
-      r-=weights[i];
-      if(r<=0){chosen=scorers[i];break;}
+  const scorerWeight=p=>{
+    let w=Math.max(1,(p.overall||70)-55);
+    const pos=String(p.positions||"");
+    if(pos.includes("ST")||pos.includes("CF")) w*=2.15;
+    else if(pos.includes("LW")||pos.includes("RW")) w*=1.75;
+    else if(pos.includes("CAM")||pos.includes("LM")||pos.includes("RM")) w*=1.35;
+    else if(pos.includes("CM")||pos.includes("CDM")) w*=0.78;
+    else if(pos.includes("CB")||pos.includes("LB")||pos.includes("RB")) w*=0.38;
+    else if(pos.includes("GK")) w*=0.02;
+    return w;
+  };
+
+  const assistWeight=p=>{
+    let w=Math.max(1,(p.overall||70)-58);
+    const pos=String(p.positions||"");
+    if(pos.includes("CAM")||pos.includes("RW")||pos.includes("LW")||pos.includes("RM")||pos.includes("LM")) w*=1.75;
+    else if(pos.includes("CM")) w*=1.45;
+    else if(pos.includes("RB")||pos.includes("LB")||pos.includes("RWB")||pos.includes("LWB")) w*=1.18;
+    else if(pos.includes("ST")||pos.includes("CF")) w*=1.05;
+    else if(pos.includes("CB")) w*=0.42;
+    else if(pos.includes("GK")) w*=0.08;
+    return w;
+  };
+
+  for(let i=0;i<myGoals;i++){
+    const scorer=weightedPick(starters,scorerWeight);
+    if(!scorer) break;
+
+    state.playerStats[scorer.id].goals=(state.playerStats[scorer.id].goals||0)+1;
+    goalsByPlayer[scorer.id]=(goalsByPlayer[scorer.id]||0)+1;
+
+    // Most goals get an assist; some are unassisted (rebounds, solo goals etc.).
+    let assister=null;
+    if(Math.random()<0.82){
+      assister=weightedPick(starters,assistWeight,new Set([String(scorer.id)]));
+      if(assister){
+        state.playerStats[assister.id].assists=(state.playerStats[assister.id].assists||0)+1;
+        assistsByPlayer[assister.id]=(assistsByPlayer[assister.id]||0)+1;
+      }
     }
-    state.playerStats[chosen.id].goals+=1;
-    goalsByPlayer[chosen.id]=(goalsByPlayer[chosen.id]||0)+1;
+
+    goalEvents.push({
+      scorerId:scorer.id,
+      scorerName:scorer.name,
+      assisterId:assister?.id||null,
+      assisterName:assister?.name||null
+    });
   }
 
-  // Match ratings: base performance is influenced by result, player quality,
-  // goals and small match-to-match variance. Kept in a familiar 4–10 range.
   const resultBase=myGoals>oppGoals?0.45:myGoals===oppGoals?0.05:-0.35;
-  starters.forEach(p=>{
+  const playerMatchData={};
+
+  selection.xi.forEach(x=>{
+    const p=x.player;
+    if(!p) return;
+
     const quality=((p.overall||75)-75)*0.018;
     const goalBonus=(goalsByPlayer[p.id]||0)*0.70;
+    const assistBonus=(assistsByPlayer[p.id]||0)*0.38;
     const variance=(Math.random()-.5)*1.15;
-    let rating=6.45+resultBase+quality+goalBonus+variance;
+    let rating=6.45+resultBase+quality+goalBonus+assistBonus+variance;
 
-    const pos=String(p.positions);
+    const pos=String(p.positions||"");
     if(pos.includes("GK") && oppGoals===0) rating+=0.30;
-    if((pos.includes("CB")||pos.includes("LB")||pos.includes("RB")) && oppGoals===0) rating+=0.20;
+    if((x.slot==="CB"||x.slot==="LB"||x.slot==="RB") && oppGoals===0) rating+=0.20;
 
     rating=clamp(Math.round(rating*10)/10,4.0,10.0);
     const s=state.playerStats[p.id];
     s.lastRating=rating;
     s.ratingTotal=(s.ratingTotal||0)+rating;
     s.ratedApps=(s.ratedApps||0)+1;
+
+    playerMatchData[p.id]={
+      playerId:p.id,name:p.name,slot:x.slot,slotIndex:x.slotIndex,
+      rating,goals:goalsByPlayer[p.id]||0,assists:assistsByPlayer[p.id]||0,
+      overall:p.overall||0,suitability:x.suitability??100
+    };
   });
+
+  return {
+    formation:selection.formation,
+    lineup:selection.xi.map(x=>x.player ? playerMatchData[x.player.id] : {
+      playerId:null,name:"Vacant",slot:x.slot,slotIndex:x.slotIndex,rating:null,goals:0,assists:0,suitability:0
+    }),
+    bench:(selection.bench||[]).map(p=>({playerId:p.id,name:p.name,overall:p.overall||0})),
+    goalEvents
+  };
 }
 
 function openPlayerProfile(id){
@@ -222,8 +295,10 @@ function openPlayerProfile(id){
   q("profileOverall").textContent=p.overall;
   q("profileMorale").textContent=morale;
   q("profileMorale").className="v "+playerMoraleClass(morale);
-  q("profileApps").textContent=stats.appearances;
-  q("profileGoals").textContent=stats.goals;
+  q("profileApps").textContent=stats.appearances||0;
+  if(q("profileStarts")) q("profileStarts").textContent=stats.starts||0;
+  q("profileGoals").textContent=stats.goals||0;
+  if(q("profileAssists")) q("profileAssists").textContent=stats.assists||0;
   if(q("profileAvgRating")) q("profileAvgRating").textContent=playerAverageRating(p.id)?.toFixed(2)||"—";
   q("profileJoined").textContent=p.joined || "Unknown";
   q("profileAge").textContent=p.age;
@@ -686,7 +761,9 @@ function resetMonthlyTracker(){
     Object.entries(state.playerStats).forEach(([id,s])=>{
       state.monthlyPlayerSnapshot[id]={
         appearances:s.appearances||0,
+        starts:s.starts||0,
         goals:s.goals||0,
+        assists:s.assists||0,
         ratingTotal:s.ratingTotal||0,
         ratedApps:s.ratedApps||0
       };
@@ -698,15 +775,12 @@ function monthlyPlayerPerformance(id){
   const now=state.playerStats?.[id]||{};
   const before=state.monthlyPlayerSnapshot?.[id]||{};
   const apps=(now.appearances||0)-(before.appearances||0);
+  const starts=(now.starts||0)-(before.starts||0);
   const goals=(now.goals||0)-(before.goals||0);
+  const assists=(now.assists||0)-(before.assists||0);
   const ratedApps=(now.ratedApps||0)-(before.ratedApps||0);
   const ratingTotal=(now.ratingTotal||0)-(before.ratingTotal||0);
-  return {
-    apps,
-    goals,
-    ratedApps,
-    avgRating:ratedApps>0?ratingTotal/ratedApps:null
-  };
+  return {apps,starts,goals,assists,ratedApps,avgRating:ratedApps>0?ratingTotal/ratedApps:null};
 }
 
 function monthlyPlayerOfPeriod(){
@@ -756,7 +830,7 @@ function buildMonthlySummary(monthKey=state.calendar?.monthlyMonthKey||currentGa
     monthLabel:monthLabelFromKey(monthKey),
     finance:f,operatingPL,transferPL,results,record:{w,d,l},injuries,
     playerOfMonth:player?{
-      id:player.player.id,name:player.player.name,apps:player.apps,goals:player.goals,avgRating:player.avgRating
+      id:player.player.id,name:player.player.name,apps:player.apps,starts:player.starts,goals:player.goals,assists:player.assists,avgRating:player.avgRating
     }:null
   };
 }
@@ -811,7 +885,7 @@ function renderMonthlySummary(summary=null){
 
   q("monthlyPOTM").innerHTML=summary.playerOfMonth
     ? `<div class="monthly-potm-name">${summary.playerOfMonth.name}</div>
-       <div class="muted">${summary.playerOfMonth.apps} apps • ${summary.playerOfMonth.goals} goals • ${summary.playerOfMonth.avgRating?.toFixed(2)||"—"} AVG</div>`
+       <div class="muted">${summary.playerOfMonth.apps} apps • ${summary.playerOfMonth.goals} goals • ${summary.playerOfMonth.assists||0} assists • ${summary.playerOfMonth.avgRating?.toFixed(2)||"—"} AVG</div>`
     : `<div class="muted">No player qualified.</div>`;
 
   q("monthlySummary").classList.remove("hide");
@@ -1568,6 +1642,9 @@ function showTab(id){
 }
 
 
+let pendingMonthlyAfterMatch=null;
+let pendingSeasonAfterMatch=false;
+
 function advanceDay(){
   ensureCalendarState();
 
@@ -1626,8 +1703,9 @@ function advanceDay(){
 
   // Fixtures are attached to real dates, independent of the Continue cadence.
   const round=fixtureRoundOnDate(nextDate);
+  let todaysMatchReport=null;
   if(round){
-    simulateFixtureRound(round);
+    todaysMatchReport=simulateFixtureRound(round);
 
     if(round.week>=38){
       state.seasonComplete=true;
@@ -1639,9 +1717,17 @@ function advanceDay(){
   saveGame(false);
   renderAll();
 
-  // Season review takes precedence over monthly reporting if both occur together.
-  if(state.seasonComplete) renderSeasonSummary();
-  else if(completedMonthlySummary) renderMonthlySummary(completedMonthlySummary);
+  // Every user match opens its stored lineup report first. Any season/monthly
+  // report waits until the user closes the match report.
+  if(todaysMatchReport){
+    pendingMonthlyAfterMatch=completedMonthlySummary;
+    pendingSeasonAfterMatch=state.seasonComplete;
+    renderMatchReport(todaysMatchReport);
+  }else if(state.seasonComplete){
+    renderSeasonSummary();
+  }else if(completedMonthlySummary){
+    renderMonthlySummary(completedMonthlySummary);
+  }
 }
 
 function renderAll(){
@@ -1828,7 +1914,7 @@ function renderSquad(){
 
   if(q("squadHead")){
     q("squadHead").innerHTML=squadView==="stats"
-      ? `<tr><th>Player</th><th>Pos</th><th>OVR</th><th>Morale</th><th class="num">Apps</th><th class="num">Goals</th><th class="num">AVG</th></tr>`
+      ? `<tr><th>Player</th><th>Pos</th><th>OVR</th><th>Morale</th><th class="num">Apps</th><th class="num">Starts</th><th class="num">G</th><th class="num">A</th><th class="num">AVG</th></tr>`
       : `<tr><th>Player</th><th>Age</th><th>Value</th><th>Wage</th><th>Contract</th><th>Status</th></tr>`;
   }
 
@@ -1842,7 +1928,9 @@ function renderSquad(){
           <td><span class="rating">${p.overall}</span></td>
           <td class="${playerMoraleClass(state.playerMorale[p.id])}">${state.playerMorale[p.id]}</td>
           <td class="num">${state.playerStats[p.id]?.appearances||0}</td>
+          <td class="num">${state.playerStats[p.id]?.starts||0}</td>
           <td class="num">${state.playerStats[p.id]?.goals||0}</td>
+          <td class="num">${state.playerStats[p.id]?.assists||0}</td>
           <td class="num">${playerAverageRating(p.id)?.toFixed(2)||"—"}</td>
         </tr>`;
       }
@@ -2117,7 +2205,11 @@ function processWeeklyClubCycle(){
 }
 
 function simulateFixtureRound(round){
-  if(!round) return;
+  if(!round) return null;
+
+  const matchSelection=typeof managerSelectMatchdaySquad==="function"
+    ? managerSelectMatchdaySquad(state.club)
+    : null;
 
   round.games.forEach(g=>{
     const [hg,ag]=simulateGame(g.home,g.away);
@@ -2133,7 +2225,20 @@ function simulateFixtureRound(round){
   const opp=mine.home===state.club?mine.away:mine.home;
   const outcome=myGoals>opGoals?"W":myGoals===opGoals?"D":"L";
 
-  trackPlayerMatchStats(myGoals,opGoals);
+  const matchReport=trackPlayerMatchStats(myGoals,opGoals,matchSelection);
+  res.matchReport={
+    ...matchReport,
+    date:round.date,
+    week:round.week,
+    home:mine.home,
+    away:mine.away,
+    userClub:state.club,
+    opponent:opp,
+    userHome:mine.home===state.club,
+    goalsFor:myGoals,
+    goalsAgainst:opGoals,
+    outcome
+  };
   state.form.push(outcome);
   state.form=state.form.slice(-5);
 
@@ -2165,6 +2270,8 @@ function simulateFixtureRound(round){
   state.week=Math.max(state.week,round.week);
   state.season.phase="season";
   addNews(`${state.club} ${myGoals}–${opGoals} ${opp}.`);
+
+  return res.matchReport;
 }
 
 function advanceMatchweek(){
@@ -2197,7 +2304,15 @@ function buildSeasonArchive(){
   const scr=typeof userSCRSnapshot==="function"?userSCRSnapshot():null;
   const top=seasonTopScorer();
   const playerStats={};
-  squad(state.club).forEach(p=>playerStats[p.id]={name:p.name,club:state.club,appearances:state.playerStats?.[p.id]?.appearances||0,goals:state.playerStats?.[p.id]?.goals||0,overall:p.overall});
+  squad(state.club).forEach(p=>{
+    const s=state.playerStats?.[p.id]||{};
+    playerStats[p.id]={
+      name:p.name,club:state.club,appearances:s.appearances||0,starts:s.starts||0,
+      goals:s.goals||0,assists:s.assists||0,
+      avgRating:(s.ratedApps||0)>0?(s.ratingTotal||0)/s.ratedApps:null,
+      overall:p.overall
+    };
+  });
   return {season:currentSeasonLabel(),year:currentSeasonStartYear(),seasonNumber:seasonDisplayNumber(),club:state.club,leagueFinish:finish,record,seasonProfitLoss:state.seasonPL||0,transferPL,transferSpent:state.transferFinance?.spent||0,transferReceived:state.transferFinance?.received||0,scr:scr?{ratio:scr.ratio,status:scr.status,revenue:scr.revenue,squadCost:scr.squadCost}:null,stakeholders:{...state.happiness},topScorer:top?{id:top.id,name:top.name,goals:state.playerStats?.[top.id]?.goals||0}:null,playerStats};
 }
 function archiveCurrentSeason(){
@@ -2355,16 +2470,145 @@ function renderTable(){
     <td>${x.l}</td><td>${x.gf}</td><td>${x.ga}</td><td>${x.gd>0?"+":""}${x.gd}</td><td><b>${x.pts}</b></td>
   </tr>`).join("");
 }
+
+const FORMATION_PITCH_COORDS={
+  "4-2-3-1":[
+    [50,91],[14,74],[38,77],[62,77],[86,74],
+    [38,58],[62,58],[18,38],[50,42],[82,38],[50,15]
+  ],
+  "4-3-3":[
+    [50,91],[14,74],[38,77],[62,77],[86,74],
+    [50,60],[32,48],[68,48],[18,25],[82,25],[50,14]
+  ],
+  "4-4-2":[
+    [50,91],[14,74],[38,77],[62,77],[86,74],
+    [14,50],[38,53],[62,53],[86,50],[37,20],[63,20]
+  ],
+  "4-2-2-2":[
+    [50,91],[14,74],[38,77],[62,77],[86,74],
+    [38,58],[62,58],[30,37],[70,37],[38,17],[62,17]
+  ],
+  "3-4-2-1":[
+    [50,91],[25,76],[50,79],[75,76],
+    [13,54],[39,57],[61,57],[87,54],[33,35],[67,35],[50,14]
+  ],
+  "3-4-3":[
+    [50,91],[25,76],[50,79],[75,76],
+    [13,54],[39,57],[61,57],[87,54],[18,25],[82,25],[50,14]
+  ],
+  "3-5-2":[
+    [50,91],[25,76],[50,79],[75,76],
+    [12,53],[36,57],[50,47],[64,57],[88,53],[37,18],[63,18]
+  ]
+};
+
+function matchRatingClass(rating){
+  if(rating==null) return "";
+  if(rating>=8) return "excellent";
+  if(rating>=7) return "good";
+  if(rating<6) return "poor";
+  return "";
+}
+
+function renderFormationPitch(report){
+  const coords=FORMATION_PITCH_COORDS[report.formation]||FORMATION_PITCH_COORDS["4-2-3-1"];
+  return `<div class="formation-pitch">
+    <div class="pitch-centre-line"></div>
+    <div class="pitch-centre-circle"></div>
+    <div class="pitch-box pitch-box-top"></div>
+    <div class="pitch-box pitch-box-bottom"></div>
+    ${report.lineup.map((x,i)=>{
+      const [left,top]=coords[i]||[50,50];
+      const events=[
+        x.goals?`<span title="${x.goals} goal${x.goals===1?"":"s"}">⚽${x.goals>1?`×${x.goals}`:""}</span>`:"",
+        x.assists?`<span title="${x.assists} assist${x.assists===1?"":"s"}">🎯${x.assists>1?`×${x.assists}`:""}</span>`:""
+      ].join("");
+      return `<button class="pitch-player ${x.playerId?"":"vacant"}" type="button"
+        style="left:${left}%;top:${top}%"
+        ${x.playerId?`data-player-id="${x.playerId}"`:"disabled"}>
+        <span class="pitch-player-name">${x.name}</span>
+        <span class="pitch-player-bottom">
+          <b class="pitch-rating ${matchRatingClass(x.rating)}">${x.rating?.toFixed(1)||"—"}</b>
+          <span class="pitch-events">${events}</span>
+        </span>
+      </button>`;
+    }).join("")}
+  </div>`;
+}
+
+function renderMatchReport(report){
+  if(!report || !q("matchReportModal")) return;
+  const score=report.userHome
+    ? `${report.goalsFor}–${report.goalsAgainst}`
+    : `${report.goalsAgainst}–${report.goalsFor}`;
+
+  q("matchReportTitle").textContent=`${report.home} ${score} ${report.away}`;
+  q("matchReportMeta").textContent=`${shortGameDate(report.date)} • MW ${report.week} • ${report.formation}`;
+  q("matchReportPitch").innerHTML=renderFormationPitch(report);
+
+  q("matchReportBench").innerHTML=report.bench?.length
+    ? report.bench.map(p=>`<button class="bench-player player-link" data-player-id="${p.playerId}" type="button"><span>${p.name}</span><b>${p.overall}</b></button>`).join("")
+    : `<span class="muted small">No bench stored.</span>`;
+
+  const events=report.goalEvents||[];
+  q("matchReportEvents").innerHTML=events.length
+    ? events.map((e,i)=>`<div class="match-event-row"><span>⚽ ${e.scorerName}</span><span class="muted">${e.assisterName?`🎯 ${e.assisterName}`:"Unassisted"}</span></div>`).join("")
+    : `<span class="muted small">No goals scored by ${state.club}.</span>`;
+
+  q("matchReportModal").classList.remove("hide");
+  setModalScrollLock(true);
+
+  q("matchReportModal").querySelectorAll("[data-player-id]").forEach(btn=>{
+    btn.addEventListener("click",()=>openPlayerProfile(btn.dataset.playerId));
+  });
+}
+
+function closeMatchReport(){
+  q("matchReportModal")?.classList.add("hide");
+  setModalScrollLock(false);
+
+  if(pendingSeasonAfterMatch){
+    pendingSeasonAfterMatch=false;
+    const monthly=pendingMonthlyAfterMatch;
+    pendingMonthlyAfterMatch=null;
+    // Season review has precedence at MW38; monthly archive remains stored.
+    renderSeasonSummary();
+    return;
+  }
+  if(pendingMonthlyAfterMatch){
+    const monthly=pendingMonthlyAfterMatch;
+    pendingMonthlyAfterMatch=null;
+    renderMonthlySummary(monthly);
+  }
+}
+
+function openStoredMatchReport(week,home,away){
+  const result=state.results?.[`${week}-${home}-${away}`];
+  if(result?.matchReport) renderMatchReport(result.matchReport);
+}
+
 function renderFixtures(){
   q("fixturesList").innerHTML=state.fixtures.map(r=>`<div class="fixture">
-    <div class="sectiontitle"><b>Matchweek ${r.week}</b><span class="pill">${r.week<=state.week?"Played":"Upcoming"}</span></div>
-    ${r.games.map(g=>{
-      const z=state.results[`${r.week}-${g.home}-${g.away}`];
-      return `<div style="display:grid;grid-template-columns:1fr auto 1fr;gap:10px;padding:5px 0">
-        <span style="text-align:right">${g.home}</span><b>${z?z.hg+" – "+z.ag:"vs"}</b><span>${g.away}</span>
+    <div class="sectiontitle">
+      <div><b>Matchweek ${r.week}</b><div class="muted small">${shortGameDate(r.date)}</div></div>
+      <span class="pill">${r.week<=state.week?"Played":"Upcoming"}</span>
+    </div>
+    ${r.games.map(game=>{
+      const z=state.results[`${r.week}-${game.home}-${game.away}`];
+      const userMatch=game.home===state.club||game.away===state.club;
+      return `<div class="fixture-result-row ${userMatch?"user-fixture":""}">
+        <div class="fixture-scoreline">
+          <span>${game.home}</span><b>${z?z.hg+" – "+z.ag:"vs"}</b><span>${game.away}</span>
+        </div>
+        ${z?.matchReport&&userMatch?`<button class="btn secondary lineup-history-btn" type="button"
+          data-week="${r.week}" data-home="${game.home.replaceAll('"','&quot;')}" data-away="${game.away.replaceAll('"','&quot;')}">View lineup</button>`:""}
       </div>`;
     }).join("")}
   </div>`).join("");
+
+  document.querySelectorAll(".lineup-history-btn").forEach(btn=>{
+    btn.addEventListener("click",()=>openStoredMatchReport(Number(btn.dataset.week),btn.dataset.home,btn.dataset.away));
+  });
 }
 function renderFinances(){
   if(!q("financeCards")) return;
@@ -2853,6 +3097,9 @@ function init(){
   q("fireDofBtn")?.addEventListener("click",()=>fireStaff("dof"));
   q("firePhysioBtn")?.addEventListener("click",()=>fireStaff("physio"));
   q("continueNextSeasonBtn")?.addEventListener("click",beginNextSeason);
+  q("closeMatchReportBtn")?.addEventListener("click",closeMatchReport);
+  q("continueMatchReportBtn")?.addEventListener("click",closeMatchReport);
+  q("matchReportModal")?.addEventListener("click",e=>{if(e.target===q("matchReportModal")) closeMatchReport();});
   q("closeMonthlySummaryBtn")?.addEventListener("click",closeMonthlySummary);
   q("continueMonthlySummaryBtn")?.addEventListener("click",closeMonthlySummary);
   q("monthlySummary")?.addEventListener("click",e=>{if(e.target===q("monthlySummary")) closeMonthlySummary();});

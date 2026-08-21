@@ -1227,42 +1227,168 @@ function formationSlotAliases(slot){
   return ({
     GK:["GK"], RB:["RB","RWB"], LB:["LB","LWB"], CB:["CB"],
     DM:["CDM","DM","CM"], CM:["CM","CDM","CAM"], AM:["CAM","AM","CM"],
-    RM:["RM","RW","RWB"], LM:["LM","LW","LWB"], RW:["RW","RM"],
-    LW:["LW","LM"], ST:["ST","CF"]
+    RM:["RM","RW","LM","LW","RWB"], LM:["LM","LW","RM","RW","LWB"],
+    RW:["RW","RM","LW","LM"], LW:["LW","LM","RW","RM"], ST:["ST","CF"]
   })[slot]||[slot];
 }
 
-function playerFitsFormationSlot(p,slot){
+function positionSuitability(p,slot){
   const tokens=playerPositionTokens(p);
-  return formationSlotAliases(slot).some(pos=>tokens.includes(pos));
+  const has=(...positions)=>positions.some(x=>tokens.includes(x));
+
+  if(slot==="GK") return has("GK")?100:0;
+
+  // Full-backs are intentionally side-specific. Opposite-side full-backs are
+  // emergency-only rather than normal equivalents.
+  if(slot==="RB"){
+    if(has("RB","RWB")) return 100;
+    if(has("CB","RM")) return 52;
+    if(has("LB","LWB")) return 18;
+    return 0;
+  }
+  if(slot==="LB"){
+    if(has("LB","LWB")) return 100;
+    if(has("CB","LM")) return 52;
+    if(has("RB","RWB")) return 18;
+    return 0;
+  }
+
+  if(slot==="CB"){
+    if(has("CB")) return 100;
+    if(has("RB","LB","RWB","LWB")) return 58;
+    if(has("CDM","DM")) return 50;
+    return 0;
+  }
+
+  if(slot==="DM"){
+    if(has("CDM","DM")) return 100;
+    if(has("CM")) return 86;
+    if(has("CB")) return 72;
+    if(has("CAM","AM")) return 55;
+    return 0;
+  }
+
+  if(slot==="CM"){
+    if(has("CM")) return 100;
+    if(has("CDM","DM","CAM","AM")) return 86;
+    if(has("RM","LM")) return 66;
+    return 0;
+  }
+
+  if(slot==="AM"){
+    if(has("CAM","AM")) return 100;
+    if(has("CM")) return 88;
+    if(has("RW","LW","RM","LM")) return 80;
+    if(has("ST","CF")) return 65;
+    return 0;
+  }
+
+  // Wide roles are deliberately flexible across flanks. A natural LM/RM or
+  // LW/RW can regularly play the opposite side without creating a false squad need.
+  if(slot==="RM"){
+    if(has("RM")) return 100;
+    if(has("RW")) return 96;
+    if(has("LM","LW")) return 82;
+    if(has("RWB")) return 70;
+    if(has("CAM","AM")) return 72;
+    return 0;
+  }
+  if(slot==="LM"){
+    if(has("LM")) return 100;
+    if(has("LW")) return 96;
+    if(has("RM","RW")) return 82;
+    if(has("LWB")) return 70;
+    if(has("CAM","AM")) return 72;
+    return 0;
+  }
+  if(slot==="RW"){
+    if(has("RW")) return 100;
+    if(has("RM")) return 96;
+    if(has("LW","LM")) return 82;
+    if(has("CAM","AM")) return 74;
+    return 0;
+  }
+  if(slot==="LW"){
+    if(has("LW")) return 100;
+    if(has("LM")) return 96;
+    if(has("RW","RM")) return 82;
+    if(has("CAM","AM")) return 74;
+    return 0;
+  }
+
+  if(slot==="ST"){
+    if(has("ST","CF")) return 100;
+    if(has("CAM","AM")) return 70;
+    if(has("RW","LW","RM","LM")) return 64;
+    return 0;
+  }
+
+  return tokens.includes(slot)?100:0;
+}
+
+function playerFitsFormationSlot(p,slot){
+  return positionSuitability(p,slot)>0;
 }
 
 function managerSelectXI(club){
   const formation=managerFormationForClub(club);
   const shape=MANAGER_FORMATIONS[formation]||MANAGER_FORMATIONS["4-2-3-1"];
   const available=clubSquadPlayers(club)
-    .filter(p=>club!==state.club || !state.injuries?.[p.id])
-    .sort((a,b)=>(b.overall||0)-(a.overall||0));
+    .filter(p=>club!==state.club || !state.injuries?.[p.id]);
 
   const used=new Set();
   const xi=[];
 
   shape.slots.forEach((slot,slotIndex)=>{
-    let candidates=available.filter(p=>!used.has(p.id) && playerFitsFormationSlot(p,slot));
-    if(!candidates.length){
-      const fallback=({
-        RB:["CB","RM"], LB:["CB","LM"], DM:["CM","CB"], CM:["DM","AM"],
-        AM:["CM","RW","LW"], RM:["RW","CM"], LM:["LW","CM"],
-        RW:["RM","AM"], LW:["LM","AM"], ST:["AM","RW","LW"]
-      })[slot]||[];
-      candidates=available.filter(p=>!used.has(p.id) && fallback.some(f=>playerFitsFormationSlot(p,f)));
-    }
-    const chosen=candidates[0]||null;
+    const candidates=available
+      .filter(p=>!used.has(p.id))
+      .map(p=>{
+        const suitability=positionSuitability(p,slot);
+        if(suitability<=0) return null;
+        const stats=club===state.club ? state.playerStats?.[p.id] : null;
+        const formBonus=stats?.lastRating ? (stats.lastRating-6.5)*0.8 : 0;
+        const score=(p.overall||0)*0.72+suitability*0.28+formBonus;
+        return {p,suitability,score};
+      })
+      .filter(Boolean)
+      .sort((a,b)=>b.score-a.score || (b.p.overall||0)-(a.p.overall||0));
+
+    const chosen=candidates[0]?.p||null;
     if(chosen) used.add(chosen.id);
-    xi.push({slot,slotIndex,playerId:chosen?.id||null,player:chosen||null,overall:chosen?.overall||0});
+    xi.push({
+      slot,slotIndex,playerId:chosen?.id||null,player:chosen||null,
+      overall:chosen?.overall||0,
+      suitability:chosen?positionSuitability(chosen,slot):0
+    });
   });
 
   return {formation,slots:shape.slots,xi};
+}
+
+function managerSelectMatchdaySquad(club){
+  const selection=managerSelectXI(club);
+  const used=new Set(selection.xi.filter(x=>x.playerId).map(x=>String(x.playerId)));
+  const remaining=clubSquadPlayers(club)
+    .filter(p=>club!==state.club || !state.injuries?.[p.id])
+    .filter(p=>!used.has(String(p.id)))
+    .sort((a,b)=>(b.overall||0)-(a.overall||0));
+
+  // Seven-player bench for the current prototype. We store it now even before
+  // substitutions are introduced so historical manager usage remains available.
+  const bench=[];
+  const wantedGroups=["GK","CB","RB","LB","DM","CM","AM","RW","LW","ST"];
+  wantedGroups.forEach(slot=>{
+    if(bench.length>=7) return;
+    const best=remaining
+      .filter(p=>!bench.some(b=>String(b.id)===String(p.id)))
+      .map(p=>({p,score:(p.overall||0)*0.75+positionSuitability(p,slot)*0.25}))
+      .filter(x=>positionSuitability(x.p,slot)>0)
+      .sort((a,b)=>b.score-a.score)[0]?.p;
+    if(best) bench.push(best);
+  });
+  remaining.forEach(p=>{if(bench.length<7 && !bench.some(b=>String(b.id)===String(p.id))) bench.push(p);});
+
+  return {...selection,bench:bench.slice(0,7)};
 }
 
 function managerDepthChart(club){
@@ -1271,10 +1397,20 @@ function managerDepthChart(club){
   selection.slots.forEach(slot=>{ if(!chart[slot]) chart[slot]={starters:[],backups:[]}; });
   selection.xi.forEach(x=>{ if(x.player) chart[x.slot].starters.push(x.player); });
 
-  const startingIds=new Set(selection.xi.filter(x=>x.playerId).map(x=>x.playerId));
-  const remaining=clubSquadPlayers(club).filter(p=>!startingIds.has(p.id)).sort((a,b)=>(b.overall||0)-(a.overall||0));
+  const startingIds=new Set(selection.xi.filter(x=>x.playerId).map(x=>String(x.playerId)));
+  const remaining=clubSquadPlayers(club).filter(p=>!startingIds.has(String(p.id)));
+
   Object.keys(chart).forEach(slot=>{
-    chart[slot].backups=remaining.filter(p=>playerFitsFormationSlot(p,slot)).slice(0,2);
+    chart[slot].backups=remaining
+      .map(p=>({p,suitability:positionSuitability(p,slot)}))
+      .filter(x=>x.suitability>=40)
+      .sort((a,b)=>{
+        const scoreA=(a.p.overall||0)*0.72+a.suitability*0.28;
+        const scoreB=(b.p.overall||0)*0.72+b.suitability*0.28;
+        return scoreB-scoreA;
+      })
+      .slice(0,2)
+      .map(x=>x.p);
   });
   return {formation:selection.formation,chart,xi:selection.xi};
 }

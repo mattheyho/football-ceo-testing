@@ -794,7 +794,9 @@
       <div class="metric"><div class="k">Overall</div><div class="v" id="profileOverall"></div></div>
       <div class="metric"><div class="k">Morale</div><div class="v" id="profileMorale"></div></div>
       <div class="metric"><div class="k">Appearances</div><div class="v" id="profileApps"></div></div>
+      <div class="metric"><div class="k">Starts</div><div class="v" id="profileStarts"></div></div>
       <div class="metric"><div class="k">Goals</div><div class="v" id="profileGoals"></div></div>
+      <div class="metric"><div class="k">Assists</div><div class="v" id="profileAssists"></div></div>
       <div class="metric"><div class="k">Avg rating</div><div class="v" id="profileAvgRating"></div></div>
     </div>
 
@@ -879,6 +881,36 @@
     </div>
     <div class="muted" id="managerShortlistIntro" style="margin:8px 0 14px"></div>
     <div id="managerShortlistOptions"></div>
+  </div>
+</div>
+
+
+<div id="matchReportModal" class="match-report-overlay hide">
+  <div class="match-report-card">
+    <div class="sectiontitle match-report-header">
+      <div>
+        <div class="eyebrow">MANAGER MATCH REPORT</div>
+        <h2 id="matchReportTitle" style="margin:4px 0 0">Match report</h2>
+        <div class="muted" id="matchReportMeta"></div>
+      </div>
+      <button id="closeMatchReportBtn" class="close-x" type="button">×</button>
+    </div>
+
+    <div class="match-report-scroll">
+      <div id="matchReportPitch"></div>
+
+      <div class="panel pad match-report-section">
+        <div class="sectiontitle"><h3 style="margin:0">Goals & assists</h3><span class="pill">Your team</span></div>
+        <div id="matchReportEvents"></div>
+      </div>
+
+      <div class="panel pad match-report-section">
+        <div class="sectiontitle"><h3 style="margin:0">Bench</h3><span class="pill">Unused</span></div>
+        <div id="matchReportBench" class="match-report-bench"></div>
+      </div>
+    </div>
+
+    <button id="continueMatchReportBtn" class="btn primary match-report-continue" type="button">Continue</button>
   </div>
 </div>
 

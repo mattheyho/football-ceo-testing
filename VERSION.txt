@@ -1,17 +1,20 @@
-Football CEO v0.15.2 — Manager Profiles
+Football CEO v0.15.3 — Matchday Selection & Lineups
 
-- Removed random manager formation assignment.
-- Added persistent real-world-inspired profiles for all 20 starting Premier League managers.
-- Added preferred and alternative formations.
-- Added 0-100 manager attributes:
-  possession, pressing, verticality, flexibility,
-  recruitment aggression, youth trust and squad-depth demand.
-- Preferred formation now drives manager XI selection and squad-depth analysis.
-- Recruitment aggression affects request appetite.
-- Youth trust enables development-prospect requests.
-- Depth demand changes senior-cover expectations.
-- Goalkeeper logic now treats one credible senior backup as sufficient.
-- Managers can request a young prospect instead of an unnecessary established third goalkeeper.
-- Current manager profile is visible on the Staff screen.
-- Manager candidates show formation/pressing/youth/flexibility information.
-- Existing v0.15.1 saves migrate automatically: legacy random manager formations are overwritten by the profile.
+- Manager now selects and stores an actual XI for every user fixture.
+- Selection uses the manager's preferred formation from v0.15.2.
+- Player selection scores overall quality plus positional suitability.
+- Full-back sides are strict:
+  RB/RWB strongly fit right-back; LB/LWB strongly fit left-back.
+  Opposite-side full-backs are emergency-only.
+- Wide positions remain deliberately flexible:
+  RM/RW can cover LM/LW and vice versa with a modest suitability penalty.
+- Match stats are now generated from the manager-selected XI rather than the top 11 OVR players.
+- Added Starts and Assists to player season statistics.
+- Match report stores formation, XI, player ratings, goals, assists, bench and goal events.
+- Post-match formation graphic appears after every user league match.
+- Goal icon: football.
+- Assist icon: dartboard/target.
+- Historical lineups can be reopened from Fixtures using View lineup.
+- Player profiles and Squad season stats now show Starts and Assists.
+- Season archive now stores starts, assists and average rating.
+- Bench is stored now for future substitution/manager-usage systems.

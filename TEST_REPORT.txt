@@ -1,30 +1,34 @@
-v0.15.2 MANAGER PROFILE TEST REPORT
+v0.15.3 MATCHDAY SELECTION TEST REPORT
 
 PASS — game.js syntax
 PASS — transfers.js syntax
-PASS — all 20 approved starting managers have explicit profiles
-PASS — random/hash-based formation assignment removed
-PASS — manager preferred formation drives XI/depth logic
-PASS — Unai Emery preferred formation is 4-2-3-1
-PASS — Emery alternatives include 4-4-2 and 4-2-2-2
-PASS — 4-2-2-2 and 3-5-2 formation definitions added
-PASS — prospect recruitment role supported
-PASS — GK depth requires one credible senior understudy, not two
-PASS — youth trust feeds prospect-request logic
-PASS — depth demand feeds cover requirements
-PASS — recruitment aggression feeds manager request appetite
-PASS — manager profile is visible on Staff screen
-PASS — manager candidate cards expose profile information
-PASS — old saved random formations are overridden by manager profiles
+PASS — no duplicate HTML IDs
+PASS — match engine uses managerSelectMatchdaySquad()
+PASS — every user match stores matchReport inside state.results
+PASS — matchReport stores formation, XI, bench, goals, assists and ratings
+PASS — post-match lineup modal is shown after user fixtures
+PASS — final-MW season review waits until match report is closed
+PASS — monthly report waits until match report is closed
+PASS — historical View lineup control exists on played user fixtures
+PASS — Starts added to player statistics
+PASS — Assists added to player statistics
+PASS — Starts/Assists displayed on Squad screen
+PASS — Starts/Assists displayed in player profile
+PASS — Starts/Assists included in season archive
+PASS — full-back opposite-side suitability is emergency-only
+PASS — wide players can cover the opposite flank
 
-Important current limitation:
-Possession, pressing, verticality and tactical flexibility are stored and shown to the user,
-but the current player database does not yet contain enough style attributes for those values
-to influence target selection properly. They are deliberately available for the next tactical/
-player-profile layer rather than being faked against unrelated attributes.
+Position-selection harness:
+PASS — natural RB selected at RB ahead of a substantially higher-rated LB
+PASS — natural LB selected at LB
+PASS — two natural RMs can fill RW + LW when no left winger exists
+PASS — RB/RWB natural suitability = 100
+PASS — opposite-side LB at RB suitability = 18
+PASS — RM at LM suitability = 82
+PASS — RW at LW suitability = 82
 
-Villa goalkeeper expected behaviour:
-With a strong starting GK plus one credible senior backup, the manager should no longer request
-another established backup purely because a second backup slot is absent. If no suitable young
-high-potential goalkeeper is already present, a manager with sufficient youth/depth preference
-may instead generate a PROSPECT request. This is the intended Martínez/Bizot fix.
+Important prototype limitation:
+There are no substitutions yet, so Apps and Starts will normally be identical for league matches.
+The bench is stored historically so substitutions can be added later without redesigning match records.
+
+The CEO does not control the lineup. Selection remains manager-controlled.
