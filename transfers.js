@@ -1234,90 +1234,112 @@ function formationSlotAliases(slot){
 
 function positionSuitability(p,slot){
   const tokens=playerPositionTokens(p);
+  const primary=tokens[0]||"";
   const has=(...positions)=>positions.some(x=>tokens.includes(x));
+  const primaryIs=(...positions)=>positions.includes(primary);
 
   if(slot==="GK") return has("GK")?100:0;
 
-  // Full-backs are intentionally side-specific. Opposite-side full-backs are
-  // emergency-only rather than normal equivalents.
+  // Full-backs are side-specific AND primary-position aware.
+  // A natural/primary full-back should beat a higher-rated player who merely
+  // has the role as a secondary position in the database.
   if(slot==="RB"){
-    if(has("RB","RWB")) return 100;
-    if(has("CB","RM")) return 52;
-    if(has("LB","LWB")) return 18;
+    if(primaryIs("RB","RWB")) return 100;
+    if(has("RB","RWB")) return 78;
+    if(primaryIs("CB","RM")) return 48;
+    if(has("CB","RM")) return 38;
+    if(primaryIs("LB","LWB")) return 14;
+    if(has("LB","LWB")) return 10;
     return 0;
   }
   if(slot==="LB"){
-    if(has("LB","LWB")) return 100;
-    if(has("CB","LM")) return 52;
-    if(has("RB","RWB")) return 18;
+    if(primaryIs("LB","LWB")) return 100;
+    if(has("LB","LWB")) return 78;
+    if(primaryIs("CB","LM")) return 48;
+    if(has("CB","LM")) return 38;
+    if(primaryIs("RB","RWB")) return 14;
+    if(has("RB","RWB")) return 10;
     return 0;
   }
 
   if(slot==="CB"){
-    if(has("CB")) return 100;
+    if(primaryIs("CB")) return 100;
+    if(has("CB")) return 88;
     if(has("RB","LB","RWB","LWB")) return 58;
     if(has("CDM","DM")) return 50;
     return 0;
   }
 
   if(slot==="DM"){
-    if(has("CDM","DM")) return 100;
-    if(has("CM")) return 86;
+    if(primaryIs("CDM","DM")) return 100;
+    if(has("CDM","DM")) return 92;
+    if(primaryIs("CM")) return 86;
+    if(has("CM")) return 80;
     if(has("CB")) return 72;
     if(has("CAM","AM")) return 55;
     return 0;
   }
 
   if(slot==="CM"){
-    if(has("CM")) return 100;
+    if(primaryIs("CM")) return 100;
+    if(has("CM")) return 92;
     if(has("CDM","DM","CAM","AM")) return 86;
     if(has("RM","LM")) return 66;
     return 0;
   }
 
   if(slot==="AM"){
-    if(has("CAM","AM")) return 100;
+    if(primaryIs("CAM","AM")) return 100;
+    if(has("CAM","AM")) return 94;
     if(has("CM")) return 88;
     if(has("RW","LW","RM","LM")) return 80;
     if(has("ST","CF")) return 65;
     return 0;
   }
 
-  // Wide roles are deliberately flexible across flanks. A natural LM/RM or
-  // LW/RW can regularly play the opposite side without creating a false squad need.
+  // Wide roles remain deliberately flexible across flanks.
   if(slot==="RM"){
-    if(has("RM")) return 100;
-    if(has("RW")) return 96;
+    if(primaryIs("RM")) return 100;
+    if(primaryIs("RW")) return 96;
+    if(has("RM","RW")) return 92;
+    if(primaryIs("LM","LW")) return 84;
     if(has("LM","LW")) return 82;
     if(has("RWB")) return 70;
     if(has("CAM","AM")) return 72;
     return 0;
   }
   if(slot==="LM"){
-    if(has("LM")) return 100;
-    if(has("LW")) return 96;
+    if(primaryIs("LM")) return 100;
+    if(primaryIs("LW")) return 96;
+    if(has("LM","LW")) return 92;
+    if(primaryIs("RM","RW")) return 84;
     if(has("RM","RW")) return 82;
     if(has("LWB")) return 70;
     if(has("CAM","AM")) return 72;
     return 0;
   }
   if(slot==="RW"){
-    if(has("RW")) return 100;
-    if(has("RM")) return 96;
+    if(primaryIs("RW")) return 100;
+    if(primaryIs("RM")) return 96;
+    if(has("RW","RM")) return 92;
+    if(primaryIs("LW","LM")) return 84;
     if(has("LW","LM")) return 82;
     if(has("CAM","AM")) return 74;
     return 0;
   }
   if(slot==="LW"){
-    if(has("LW")) return 100;
-    if(has("LM")) return 96;
+    if(primaryIs("LW")) return 100;
+    if(primaryIs("LM")) return 96;
+    if(has("LW","LM")) return 92;
+    if(primaryIs("RW","RM")) return 84;
     if(has("RW","RM")) return 82;
     if(has("CAM","AM")) return 74;
     return 0;
   }
 
   if(slot==="ST"){
-    if(has("ST","CF")) return 100;
+    if(primaryIs("ST","CF")) return 100;
+    if(has("ST","CF")) return 94;
     if(has("CAM","AM")) return 70;
     if(has("RW","LW","RM","LM")) return 64;
     return 0;

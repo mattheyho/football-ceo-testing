@@ -18,3 +18,10 @@ Football CEO v0.15.3 — Matchday Selection & Lineups
 - Player profiles and Squad season stats now show Starts and Assists.
 - Season archive now stores starts, assists and average rating.
 - Bench is stored now for future substitution/manager-usage systems.
+
+Patch v0.15.3a — Full-back Priority
+- Full-back selection now distinguishes primary and secondary positions.
+- Primary RB/RWB and LB/LWB receive strong priority.
+- A CB/midfielder with RB/LB as a secondary position no longer displaces a fit natural full-back simply due to higher OVR.
+- Wide-player cross-flank flexibility remains intentionally loose.
+- Villa regression test: Cash selected at RB and Digne at LB ahead of Konsa/McGinn when all are available.

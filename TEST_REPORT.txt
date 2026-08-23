@@ -32,3 +32,10 @@ There are no substitutions yet, so Apps and Starts will normally be identical fo
 The bench is stored historically so substitutions can be added later without redesigning match records.
 
 The CEO does not control the lineup. Selection remains manager-controlled.
+
+v0.15.3a REGRESSION
+PASS — transfers.js syntax
+PASS — primary-position-aware full-back suitability
+PASS — M. Cash (RB, RM / 79) selected at RB over E. Konsa (CB, RB / 82)
+PASS — L. Digne (LB, LM / 80) selected at LB over J. McGinn (LM, RM, CAM, LB / 81)
+PASS — wide roles retain opposite-flank flexibility
