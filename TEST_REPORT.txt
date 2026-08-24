@@ -1,52 +1,60 @@
-v0.15.6 REGRESSION TEST REPORT
+v0.16 FINANCIAL REGULATIONS TEST REPORT
 
+SYNTAX / INTEGRATION
 PASS — game.js syntax
 PASS — transfers.js syntax
 PASS — no duplicate HTML IDs
+PASS — v0.15.6a stakeholder / tutorial / match-lineup code retained
+PASS — Dashboard SCR metric added
+PASS — pre-season financial-plan UI added
 
-SPONSORS
-PASS — new sponsor calls resetSponsorRelationshipForNewDeal()
-PASS — sponsor relationship history is cleared on a new company
-PASS — fan-opposed new sponsor baseline = 61
-PASS — neutral/positive new sponsor baseline = 72
-PASS — multi-year current sponsor is not reset during an ongoing contract
+STARTING-RATIO HARNESS
+PASS — all 20 named Premier League profiles present
+PASS — all 20 test careers initialise exactly to their configured starting ratio
+PASS — Aston Villa initialises at 79.0%
+PASS — Newcastle United initialises at 78.0%
+PASS — Premier League regulatory limit = 70%
 
-STAKEHOLDER EQUILIBRIUM
-PASS — weekly driver target = 70 + (driver total × 3), clamped 10–92
-PASS — unchanged pressure stabilises instead of ratcheting indefinitely
-PASS — isolated sponsor-unpopular (-3) target = 61
-PASS — immediate stakeholderDecision / stakeholderChange behavior retained
+TRANSFER ACCOUNTING HARNESS
+PASS — £40m / £100k week / 5-year signing increases Villa SCR
+PASS — sale of an existing Villa player reduces Villa SCR
+PASS — new signing registers annual amortisation and estimated agent cost
+PASS — outgoing sale removes inherited/post-save regulated player costs
+PASS — post-save contract extension re-spreads remaining acquisition cost
 
-COMMERCIAL PREVIEW
-PASS — predicted attendance UI exists
-PASS — predicted occupancy UI exists
-PASS — predicted revenue UI exists
-PASS — renderSeasonSetup recalculates projection after every price adjustment
-PASS — projection uses current fan-happiness attendance multiplier
+TRANSFER UI
+PASS — incoming target dossier shows SCR impact
+PASS — agreed-fee stage shows SCR impact
+PASS — outgoing offer screen shows SCR impact
+PASS — star-player warning remains present
+PASS — transfer registration ban blocks purchases but not player sales
 
-STAR PLAYER INDICATOR
-PASS — one shared isClubStarPlayer() definition
-PASS — star sale supporter reaction uses that definition
-PASS — squad UI uses that definition
-PASS — player profile uses that definition
+RECRUITMENT
+PASS — manager shortlist uses per-need budget planning
+PASS — manager profile recruitment aggression affects spending allowance
+PASS — DoF financial weighting uses DoF rating
+PASS — SCR breach increases DoF preference for financially efficient young players
+PASS — manager does not recommend a target above total remaining budget
 
-FULL-BACK / PITCH REGRESSION
-PASS — manager selection: Matty Cash selected at RB
-PASS — manager selection: Lucas Digne selected at LB
-PASS — Konsa secondary RB does not displace Cash
-PASS — McGinn secondary LB does not displace Digne
-PASS — display mirror maps RB to pitch right and LB to pitch left
-PASS — display mirror maps RW to pitch right and LW to pitch left
-PASS — tactical slot labels are visible on post-match player tiles
+STAKEHOLDERS
+PASS — SCR-driven star sale receives reduced fan penalty
+PASS — SCR-driven key sale receives reduced manager penalty
+PASS — corrective sale improves Owner happiness
+PASS — transfer-request rejection while in breach receives reduced manager penalty
 
-Existing saves:
-- Compatible with v0.15.5 saves.
-- Historical match reports automatically render with the corrected left/right pitch orientation.
-- Existing sponsor happiness is left untouched until that contract expires; the NEXT new sponsor begins a fresh relationship.
+SANCTIONS HARNESS
+Villa 79% test:
+PASS — first assessment = Breach, 15% next-investment restriction, £4m test fine
+PASS — second consecutive assessment = stronger 28% investment restriction, £6m test fine
+PASS — third consecutive breach = £8m test fine + transfer registration ban
+PASS — breach streak resets on compliance
 
-v0.15.6a REGRESSION
-PASS — transfer negotiation warning uses shared star-player definition
-PASS — star warning appears before sale decision stats
-PASS — Apps / Starts / Goals / AVG shown in incoming offer screen
-PASS — transfers.js syntax
-PASS — game.js syntax
+FUTURE DIVISION SCAFFOLD
+PASS — Premier League 70%
+PASS — Championship 80%
+PASS — League One 90%
+PASS — League Two 90%
+
+IMPORTANT CALIBRATION NOTE
+Starting revenue and SCR values are gameplay-calibrated baselines rather than claims of exact audited club ratios.
+The hybrid system is designed so future user transactions become simulation-driven while inherited pre-save accounting gradually disappears.

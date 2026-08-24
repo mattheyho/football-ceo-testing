@@ -1189,3 +1189,28 @@ html.modal-open,body.modal-open{overflow:hidden!important;height:100%!important}
 @media(max-width:520px){
   .sale-decision-stats{grid-template-columns:repeat(2,minmax(0,1fr))}
 }
+
+
+/* v0.16 financial regulations */
+.financial-plan-panel{border-color:rgba(126,190,221,.26)}
+.financial-plan-metrics{
+  display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;margin-top:10px
+}
+.transfer-budget-slider-wrap{margin-top:14px}
+#transferBudgetPlanInput{width:100%;accent-color:var(--villa-sky)}
+.scr-breakdown{
+  display:grid;gap:6px;margin-top:10px;padding-top:10px;border-top:1px solid var(--line)
+}
+.scr-breakdown>div{display:flex;justify-content:space-between;gap:10px;font-size:10px}
+.scr-rule-note{margin-top:10px;line-height:1.45}
+.scr-sanction-note{margin-top:10px}
+.scr-card.scr-healthy{border-color:rgba(139,230,177,.35)}
+.scr-card.scr-tight{border-color:rgba(255,217,121,.35)}
+.scr-card.scr-breach,.scr-card.scr-severe{border-color:rgba(255,157,157,.45)}
+@media(max-width:520px){
+  .financial-plan-metrics{grid-template-columns:1fr}
+}
+
+@media(min-width:700px){
+  .dashboard-status-grid{grid-template-columns:repeat(3,minmax(0,1fr))}
+}

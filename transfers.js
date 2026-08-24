@@ -275,9 +275,74 @@ function realisticManagerTargetPool(position,limit=30){
     .slice(0,limit);
 }
 
+
+function recruitmentOpenNeeds(){
+  try{
+    return evaluateSquadNeeds(state.club).filter(n=>n.role!=="none");
+  }catch(e){
+    return [];
+  }
+}
+
+function recruitmentBudgetPerNeed(position){
+  const budget=Math.max(0,state.budget||0);
+  const needs=recruitmentOpenNeeds();
+  const meaningful=Math.max(1,Math.min(4,needs.length||1));
+  const base=budget/meaningful;
+  const profile=managerProfileForClub(state.club);
+  const aggression=(profile?.recruitmentAggression??70)/100;
+  // Manager can push above an equal share for a priority position, but should
+  // not treat the whole budget as one signing by default.
+  return Math.min(budget,base*(1.05+aggression*.35));
+}
+
+function recruitmentFinancialFit(option,position){
+  const p=option.player;
+  const asking=option.asking||0;
+  const wage=expectedTransferWage(p,state.club);
+  const perNeed=Math.max(1,recruitmentBudgetPerNeed(position));
+  const dofRating=state.staff?.dof?.rating||65;
+  const dofWeight=clamp((dofRating-60)/35,0.15,1);
+  const current=typeof userSCRSnapshot==="function"?userSCRSnapshot():null;
+  const projected=current&&typeof projectSCRAfterSigning==="function"
+    ?projectSCRAfterSigning(p,asking,wage,4)
+    :null;
+
+  let score=0;
+
+  // Budget planning: small premium for staying near/below the position's share;
+  // increasingly strong penalty for consuming multiple positions' budget.
+  const budgetRatio=asking/perNeed;
+  if(budgetRatio<=0.75) score+=5;
+  else if(budgetRatio<=1.05) score+=2;
+  else score-=Math.min(22,(budgetRatio-1)*15);
+
+  if(projected&&current){
+    const worsening=(projected.ratio-current.ratio)*100;
+    if(projected.ratio>current.limit){
+      score-=Math.max(3,worsening*(1.3+2.2*dofWeight));
+    }else if(projected.headroom>=0){
+      score+=2*dofWeight;
+    }
+
+    // When already in breach the DoF strongly favours lower annual-cost,
+    // higher-upside investments. The manager still cares more about immediate level.
+    if(current.ratio>current.limit){
+      score-=Math.max(0,worsening)*(1+2.5*dofWeight);
+      if(p.age<=23 && (p.potential||p.overall)>p.overall) score+=4*dofWeight;
+    }
+  }
+
+  if(p.age<=22 && (p.potential||0)>=p.overall+4) score+=2.5*dofWeight;
+  return score;
+}
+
 function buildManagerShortlist(position,role="starter"){
-  const pool=realisticManagerTargetPool(position,40);
-  if(!pool.length) return [];
+  const rawPool=realisticManagerTargetPool(position,40);
+  if(!rawPool.length) return [];
+  const affordable=rawPool.filter(x=>(x.asking||0)<=Math.max(0,state.budget||0));
+  if(!affordable.length) return [];
+  const pool=affordable;
 
   const need=evaluateSquadNeeds(state.club).find(n=>n.position===position);
   const standards=need?.standards || managerPositionStandard(position);
@@ -311,8 +376,8 @@ function buildManagerShortlist(position,role="starter"){
   // Option 1: ideal for the REQUESTED ROLE, not simply best player available.
   const ideal=[...usable].sort((a,b)=>{
     const oa=a.player.overall||0, ob=b.player.overall||0;
-    let scoreA=(oa*2.5)+(a.interest*.18)+(a.player.potential||oa)*.18-(a.asking/1e6*.08);
-    let scoreB=(ob*2.5)+(b.interest*.18)+(b.player.potential||ob)*.18-(b.asking/1e6*.08);
+    let scoreA=(oa*2.5)+(a.interest*.18)+(a.player.potential||oa)*.18-(a.asking/1e6*.08)+recruitmentFinancialFit(a,position);
+    let scoreB=(ob*2.5)+(b.interest*.18)+(b.player.potential||ob)*.18-(b.asking/1e6*.08)+recruitmentFinancialFit(b,position);
 
     // Backups should not be overqualified; prospects are scored primarily on upside.
     if(role==="backup"){
@@ -332,7 +397,7 @@ function buildManagerShortlist(position,role="starter"){
     .filter(x=>x.asking<=ideal.asking*.78)
     .sort((a,b)=>{
       const oa=a.player.overall||0, ob=b.player.overall||0;
-      return ((ob*2)-(b.asking/1e6*.28))-((oa*2)-(a.asking/1e6*.28));
+      return ((ob*2)-(b.asking/1e6*.28)+recruitmentFinancialFit(b,position))-((oa*2)-(a.asking/1e6*.28)+recruitmentFinancialFit(a,position));
     })[0]
     || usable.find(x=>x.player.id!==ideal?.player.id);
 
@@ -345,7 +410,7 @@ function buildManagerShortlist(position,role="starter"){
     .sort((a,b)=>{
       const pa=a.player.potential||a.player.overall;
       const pb=b.player.potential||b.player.overall;
-      return ((pb*2.5)+(b.interest*.15)-(b.asking/1e6*.08))-((pa*2.5)+(a.interest*.15)-(a.asking/1e6*.08));
+      return ((pb*2.5)+(b.interest*.15)-(b.asking/1e6*.08)+recruitmentFinancialFit(b,position))-((pa*2.5)+(a.interest*.15)-(a.asking/1e6*.08)+recruitmentFinancialFit(a,position));
     })[0]
     || pool.find(x=>!used.has(x.player.id) && x.player.age<=23);
 
@@ -630,15 +695,40 @@ function isClubStarPlayer(player,club=state.club){
 
 function recordStarSale(player,fee,fairValue,yearsAtClub=1){
   if(!isClubStarPlayer(player,state.club)) return;
+
   let fanHit=-3;
   if(yearsAtClub>=4) fanHit-=2;
   if(fee<fairValue*0.9) fanHit-=3;
   else if(fee>=fairValue*1.15) fanHit+=2;
 
+  const current=typeof userSCRSnapshot==="function"?userSCRSnapshot():null;
+  const projected=current&&typeof projectSCRAfterSale==="function"?projectSCRAfterSale(player,fee):null;
+  const forcedByRegulation=Boolean(
+    current && projected &&
+    current.ratio>current.limit &&
+    projected.ratio<current.ratio-0.005
+  );
+
+  if(forcedByRegulation){
+    // Fans and manager remain disappointed, but understand that the CEO is
+    // solving a genuine regulatory problem rather than selling by choice.
+    fanHit=Math.max(-2,Math.round(fanHit*0.35));
+  }
+
   if(typeof stakeholderChange==="function"){
-    stakeholderChange("fans",fanHit,`Sale of star player ${player.name}`,{notify:true});
-    if(fee>=fairValue*1.15) stakeholderChange("owners",1,`Strong fee received for ${player.name}`,{notify:true});
-    else if(fee<fairValue*0.9) stakeholderChange("owners",-2,`Poor value received for ${player.name}`,{notify:true});
+    stakeholderChange("fans",fanHit,
+      forcedByRegulation?`Necessary SCR-driven sale of star player ${player.name}`:`Sale of star player ${player.name}`,
+      {notify:true}
+    );
+
+    if(forcedByRegulation){
+      stakeholderChange("manager",-1,`Key player ${player.name} sold to improve SCR compliance`,{notify:true});
+      stakeholderChange("owners",projected.ratio<=current.limit?+5:+3,`Sale of ${player.name} improves financial compliance`,{notify:true});
+      addNews(`FINANCIAL CONTEXT: Supporters and the manager are disappointed to lose ${player.name}, but recognise that the sale materially improves the club's SCR position.`);
+    }else{
+      if(fee>=fairValue*1.15) stakeholderChange("owners",1,`Strong fee received for ${player.name}`,{notify:true});
+      else if(fee<fairValue*0.9) stakeholderChange("owners",-2,`Poor value received for ${player.name}`,{notify:true});
+    }
   }else{
     if(!state.transferSentiment) state.transferSentiment={fans:[],owners:[],players:[],manager:[]};
     state.transferSentiment.fans.push({label:`Sale of star player ${player.name}`,value:fanHit});
@@ -655,17 +745,28 @@ function recordMarqueeSigning(player){
 }
 
 function recordManagerTransferChoice(backedManager){
-  state.managerBacking=clamp((state.managerBacking??70)+(backedManager?8:-6),0,100);
+  const scr=typeof userSCRSnapshot==="function"?userSCRSnapshot():null;
+  const constrained=Boolean(scr && scr.ratio>scr.limit);
+  const backingDelta=backedManager?8:(constrained?-2:-6);
+  state.managerBacking=clamp((state.managerBacking??70)+backingDelta,0,100);
+
   if(typeof stakeholderChange==="function"){
     stakeholderChange(
       "manager",
-      backedManager?4:-4,
-      backedManager?"Backed manager's transfer target":"Rejected manager's preferred target",
+      backedManager?4:(constrained?-1:-4),
+      backedManager
+        ?"Backed manager's transfer target"
+        :constrained
+          ?"Transfer target rejected because of SCR pressure"
+          :"Rejected manager's preferred target",
       {notify:true}
     );
   }else{
     if(!state.transferSentiment) state.transferSentiment={fans:[],owners:[],players:[],manager:[]};
-    state.transferSentiment.manager.push({label:backedManager?"Backed manager's transfer target":"Rejected manager's preferred target",value:backedManager?4:-4});
+    state.transferSentiment.manager.push({
+      label:backedManager?"Backed manager's transfer target":"Rejected manager's preferred target",
+      value:backedManager?4:(constrained?-1:-4)
+    });
   }
 }
 
@@ -696,6 +797,7 @@ function submitContractOffer(){
       wage,
       endYear:currentSeasonStartYear()+years
     };
+    if(typeof restructureRegulatedAcquisitionOnExtension==="function") restructureRegulatedAcquisitionOnExtension(p,years);
     state.playerMorale[p.id]=state.playerMorale[p.id]==="Wants to leave"?"Unhappy":"Happy";
     addNews(`${p.name} has signed a new ${years}-year contract worth ${money(wage)}/week.`);
     q("contractNegotiation").classList.add("hide");
@@ -743,17 +845,7 @@ function deterministicClubNumber(club,salt="finance"){
 }
 
 function estimateClubFootballRevenue(club){
-  const c=byClub(club);
-  const rep=c?.reputation||70;
-  const ratings=DB.players.filter(p=>p.club===club).map(p=>p.overall).sort((a,b)=>b-a).slice(0,16);
-  const squadStrength=ratings.length?ratings.reduce((x,y)=>x+y,0)/ratings.length:70;
-  const variance=0.92+deterministicClubNumber(club,"revenue")*0.16;
-  const base=55_000_000;
-  const reputationValue=Math.max(0,rep-65)*8_250_000;
-  const strengthValue=Math.max(0,squadStrength-70)*3_000_000;
-  let finishFactor=1;
-  if(club===state?.club && state?.careerHistory?.seasons?.length){ const last=state.careerHistory.seasons[state.careerHistory.seasons.length-1]; finishFactor=last.leagueFinish<=4?1.12:last.leagueFinish<=7?1.07:last.leagueFinish<=12?1:last.leagueFinish<=16?.95:.90; }
-  return Math.round((base+reputationValue+strengthValue)*variance*finishFactor/1_000_000)*1_000_000;
+  return financialProfileForClub(club).revenue;
 }
 
 function currentClubWeeklyPlayerWages(club){
@@ -832,12 +924,12 @@ function aiProjectedSquadCost(club,extraFee=0,extraWeeklyWage=0){
 
   const annualWages=(f.weeklyWages+extraWeeklyWage)*52;
 
-  // Casual-player abstraction of transfer cost for SCR.
-  // No amortisation/book-value concepts are exposed in the game.
+  // AI clubs use an abstract annual acquisition cost. User-club accounting is
+  // more detailed, but AI clubs still face the same broad regulatory pressure.
   const positiveNetSpend=Math.max(0,aiNetTransferSpend(club)+extraFee);
   const transferCommitment=positiveNetSpend*0.20;
-
-  return annualWages+transferCommitment;
+  const inheritedBurden=(financialProfileForClub(club).revenue*financialProfileForClub(club).startingRatio)-annualWages;
+  return annualWages+Math.max(0,inheritedBurden)+transferCommitment;
 }
 
 function aiSCRRatio(club,extraFee=0,extraWeeklyWage=0){
@@ -848,15 +940,16 @@ function aiSCRRatio(club,extraFee=0,extraWeeklyWage=0){
 
 function aiSCRStatus(club,extraFee=0,extraWeeklyWage=0){
   const ratio=aiSCRRatio(club,extraFee,extraWeeklyWage);
-  if(ratio<=0.85) return "Green";
-  if(ratio<=1.15) return "Amber";
-  return "Red";
+  if(ratio<=0.60) return "Healthy";
+  if(ratio<=0.70) return "Tight";
+  if(ratio<=0.80) return "Breach";
+  return "Severe";
 }
 
 function aiSCRHeadroom(club){
   const f=aiFinance(club);
   if(!f) return 0;
-  return Math.max(0,f.footballRevenue*0.85-aiProjectedSquadCost(club));
+  return Math.max(0,f.footballRevenue*0.70-aiProjectedSquadCost(club));
 }
 
 function aiCanAffordTransfer(club,fee,weeklyWage){
@@ -867,8 +960,9 @@ function aiCanAffordTransfer(club,fee,weeklyWage){
   if(f.weeklyWages+weeklyWage>f.wageBudget) return {ok:false,reason:"Wage budget"};
 
   const projectedRatio=aiSCRRatio(club,fee,weeklyWage);
-  if(projectedRatio>1.15) return {ok:false,reason:"SCR red zone"};
-  if(projectedRatio>f.scrComfort) return {ok:false,reason:"Owner SCR tolerance"};
+  if(projectedRatio>0.82) return {ok:false,reason:"Financial regulation breach"};
+  const tolerance=Math.min(0.78,Math.max(0.68,f.scrComfort*0.78));
+  if(projectedRatio>tolerance) return {ok:false,reason:"Owner financial-regulation tolerance"};
 
   return {ok:true,reason:"Affordable",projectedSCR:projectedRatio};
 }
@@ -918,33 +1012,407 @@ function refreshAIClubFinance(club){
 }
 
 
+
+/* --------------------------------------------------------------------------
+   Football CEO Financial Regulations — v0.16
+   --------------------------------------------------------------------------
+   A game-wide squad-cost framework inspired by real football regulation.
+   It is intentionally not presented as UEFA/PSR accounting.
+
+   Hybrid model:
+   - every starting club has a calibrated starting ratio;
+   - pre-save transfer/accounting commitments are represented by an inherited
+     legacy burden distributed across the starting squad;
+   - transfers completed after the save begins are tracked individually using
+     fee + estimated agent cost spread over the player's contract;
+   - annual wages remain live and therefore contract changes immediately affect SCR.
+   -------------------------------------------------------------------------- */
+
+const FINANCIAL_REGULATION_PROFILES={
+  "Arsenal":{revenue:550_000_000,startingRatio:0.64,sponsorBaseline:40_000_000},
+  "Aston Villa":{revenue:330_000_000,startingRatio:0.79,sponsorBaseline:28_000_000},
+  "Bournemouth":{revenue:180_000_000,startingRatio:0.57,sponsorBaseline:13_000_000},
+  "Brentford":{revenue:190_000_000,startingRatio:0.53,sponsorBaseline:15_000_000},
+  "Brighton":{revenue:220_000_000,startingRatio:0.60,sponsorBaseline:18_000_000},
+  "Burnley":{revenue:155_000_000,startingRatio:0.61,sponsorBaseline:11_000_000},
+  "Chelsea":{revenue:500_000_000,startingRatio:0.73,sponsorBaseline:36_000_000},
+  "Crystal Palace":{revenue:205_000_000,startingRatio:0.62,sponsorBaseline:17_000_000},
+  "Everton":{revenue:230_000_000,startingRatio:0.68,sponsorBaseline:20_000_000},
+  "Fulham":{revenue:210_000_000,startingRatio:0.59,sponsorBaseline:18_000_000},
+  "Leeds United":{revenue:220_000_000,startingRatio:0.69,sponsorBaseline:18_000_000},
+  "Liverpool":{revenue:620_000_000,startingRatio:0.61,sponsorBaseline:44_000_000},
+  "Manchester City":{revenue:700_000_000,startingRatio:0.58,sponsorBaseline:52_000_000},
+  "Manchester United":{revenue:650_000_000,startingRatio:0.69,sponsorBaseline:46_000_000},
+  "Newcastle United":{revenue:380_000_000,startingRatio:0.78,sponsorBaseline:30_000_000},
+  "Nottingham Forest":{revenue:230_000_000,startingRatio:0.71,sponsorBaseline:18_000_000},
+  "Sunderland":{revenue:175_000_000,startingRatio:0.63,sponsorBaseline:13_000_000},
+  "Tottenham Hotspur":{revenue:560_000_000,startingRatio:0.61,sponsorBaseline:40_000_000},
+  "West Ham United":{revenue:290_000_000,startingRatio:0.66,sponsorBaseline:24_000_000},
+  "Wolverhampton Wanderers":{revenue:210_000_000,startingRatio:0.69,sponsorBaseline:17_000_000}
+};
+
+function financialProfileForClub(club){
+  const c=byClub(club);
+  return FINANCIAL_REGULATION_PROFILES[club]||{
+    revenue:Math.round((110_000_000+Math.max(0,(c?.reputation||70)-65)*7_000_000)/1_000_000)*1_000_000,
+    startingRatio:0.64,
+    sponsorBaseline:14_000_000
+  };
+}
+
+function financialRegulationLimitForDivision(division="Premier League"){
+  const d=String(division||"").toLowerCase();
+  if(d.includes("champ")) return 0.80;
+  if(d.includes("league one")||d.includes("league 1")) return 0.90;
+  if(d.includes("league two")||d.includes("league 2")) return 0.90;
+  return 0.70;
+}
+
+function regulatedAnnualPayroll(club=state.club){
+  const players=DB.players.filter(p=>p.club===club);
+  const playerWages=players.reduce((sum,p)=>{
+    const weekly=club===state.club?(state.playerContracts?.[p.id]?.wage??p.wage??0):(p.wage||0);
+    return sum+weekly*52;
+  },0);
+
+  if(club!==state.club) return playerWages;
+  const footballStaff=[
+    state.staff?.manager?.wage||0,
+    state.staff?.dof?.wage||0,
+    state.staff?.physio?.wage||0
+  ].reduce((a,b)=>a+b,0)*52;
+  return playerWages+footballStaff;
+}
+
+function distributeLegacyRegulatedCost(club,total){
+  const players=DB.players.filter(p=>p.club===club);
+  const weights=players.map(p=>{
+    const annualWage=(state.playerContracts?.[p.id]?.wage??p.wage??0)*52;
+    const value=p.value||0;
+    return {id:p.id,weight:Math.max(1,value*.55+annualWage*2.5)};
+  });
+  const sum=weights.reduce((s,x)=>s+x.weight,0)||1;
+  const out={};
+  weights.forEach(x=>out[x.id]=Math.round(total*(x.weight/sum)));
+  return out;
+}
+
+function ensureFinancialRegulationState(){
+  if(!state) return null;
+  const profile=financialProfileForClub(state.club);
+  if(!state.financialRegulations){
+    const c=byClub(state.club);
+    const maxInvestment=Math.round(((c?.transferBudget||40_000_000)*1.25)/250000)*250000;
+    state.financialRegulations={
+      version:1,
+      division:"Premier League",
+      baseRevenue:profile.revenue,
+      sponsorBaseline:profile.sponsorBaseline,
+      startingRatio:profile.startingRatio,
+      legacyPlayerCosts:{},
+      newAcquisitions:{},
+      availableInvestment:maxInvestment,
+      pendingTransferBudget:Math.min(maxInvestment,state.budget??c?.transferBudget??maxInvestment),
+      budgetPlanSeason:null,
+      assessmentHistory:[],
+      consecutiveBreaches:0,
+      nextInvestmentMultiplier:1,
+      transferBanSeason:null,
+      calibrated:false
+    };
+  }
+
+  const fr=state.financialRegulations;
+  if(fr.version==null) fr.version=1;
+  if(!fr.division) fr.division="Premier League";
+  if(fr.baseRevenue==null) fr.baseRevenue=profile.revenue;
+  if(fr.sponsorBaseline==null) fr.sponsorBaseline=profile.sponsorBaseline;
+  if(fr.startingRatio==null) fr.startingRatio=profile.startingRatio;
+  if(!fr.legacyPlayerCosts) fr.legacyPlayerCosts={};
+  if(!fr.newAcquisitions) fr.newAcquisitions={};
+  if(!Array.isArray(fr.assessmentHistory)) fr.assessmentHistory=[];
+  if(fr.consecutiveBreaches==null) fr.consecutiveBreaches=0;
+  if(fr.nextInvestmentMultiplier==null) fr.nextInvestmentMultiplier=1;
+  if(fr.transferBanSeason===undefined) fr.transferBanSeason=null;
+
+  if(fr.availableInvestment==null){
+    const c=byClub(state.club);
+    fr.availableInvestment=Math.round(((c?.transferBudget||40_000_000)*1.25)/250000)*250000;
+  }
+  if(fr.pendingTransferBudget==null) fr.pendingTransferBudget=Math.min(fr.availableInvestment,state.budget||fr.availableInvestment);
+
+  if(!fr.calibrated){
+    const targetCost=fr.baseRevenue*fr.startingRatio;
+    const payroll=regulatedAnnualPayroll(state.club);
+    const inherited=Math.max(0,targetCost-payroll);
+    fr.legacyPlayerCosts=distributeLegacyRegulatedCost(state.club,inherited);
+    fr.calibrated=true;
+  }
+  return fr;
+}
+
+function baselineSponsorForSCR(){
+  const fr=ensureFinancialRegulationState();
+  return fr?.sponsorBaseline||0;
+}
+
 function userFootballRevenue(){
-  return estimateClubFootballRevenue(state.club);
+  const fr=ensureFinancialRegulationState();
+  if(!fr) return 1;
+
+  // Base revenue represents the inherited football business at save start.
+  // Sponsorship changes then move revenue relative to the club's calibrated baseline.
+  const sponsorValue=state.sponsorship?.annualValue??fr.sponsorBaseline;
+  const sponsorDelta=sponsorValue-fr.sponsorBaseline;
+
+  // Matchday pricing/supporter sentiment can grow or shrink annual revenue.
+  // The baseline is captured once from the starting pricing model.
+  let matchdayDelta=0;
+  if(typeof projectedMatchday==="function"){
+    const annualProjected=projectedMatchday().revenue*19;
+    if(fr.baselineMatchdayRevenue==null) fr.baselineMatchdayRevenue=annualProjected;
+    matchdayDelta=annualProjected-fr.baselineMatchdayRevenue;
+  }
+
+  const competitionRevenue=fr.competitionRevenue||0; // future Europe/cups hook
+  const otherAdjustments=fr.otherRevenueAdjustments||0;
+  return Math.max(20_000_000,Math.round(fr.baseRevenue+sponsorDelta+matchdayDelta+competitionRevenue+otherAdjustments));
+}
+
+function userLegacyRegulatedCost(){
+  const fr=ensureFinancialRegulationState();
+  if(!fr) return 0;
+  const currentIds=new Set(DB.players.filter(p=>p.club===state.club).map(p=>String(p.id)));
+  return Object.entries(fr.legacyPlayerCosts||{}).reduce((sum,[id,cost])=>currentIds.has(String(id))?sum+(cost||0):sum,0);
+}
+
+function userNewAcquisitionCost(){
+  const fr=ensureFinancialRegulationState();
+  if(!fr) return 0;
+  const currentIds=new Set(DB.players.filter(p=>p.club===state.club).map(p=>String(p.id)));
+  return Object.entries(fr.newAcquisitions||{}).reduce((sum,[id,x])=>{
+    if(!currentIds.has(String(id)) || (x.yearsRemaining??0)<=0) return sum;
+    return sum+(x.annualAmortisation||0)+(x.annualAgentCost||0);
+  },0);
 }
 
 function userProjectedSquadCost(){
-  const sq=DB.players.filter(p=>p.club===state.club);
-  const weeklyPlayerWages=sq.reduce((sum,p)=>sum+(state.playerContracts?.[p.id]?.wage??p.wage??0),0);
-  const managerWage=state.staff?.manager?.wage||0;
-  const annualFootballWages=(weeklyPlayerWages+managerWage)*52;
-  const netSpend=Math.max(0,(state.transferFinance?.spent||0)-(state.transferFinance?.received||0));
-  const transferCommitment=netSpend*0.20;
+  return regulatedAnnualPayroll(state.club)+userLegacyRegulatedCost()+userNewAcquisitionCost();
+}
 
-  return annualFootballWages+transferCommitment;
+function financialRegulationStatus(ratio,limit=financialRegulationLimitForDivision(ensureFinancialRegulationState()?.division)){
+  if(ratio<=0.60) return "Healthy";
+  if(ratio<=limit) return "Tight";
+  if(ratio<=0.80) return "Breach";
+  return "Severe";
 }
 
 function userSCRSnapshot(){
+  const fr=ensureFinancialRegulationState();
   const revenue=userFootballRevenue();
-  const squadCost=userProjectedSquadCost();
+  const payroll=regulatedAnnualPayroll(state.club);
+  const inherited=userLegacyRegulatedCost();
+  const acquisitions=userNewAcquisitionCost();
+  const squadCost=payroll+inherited+acquisitions;
   const ratio=revenue>0?squadCost/revenue:0;
-  const greenLimit=revenue*0.85;
-  const maxLimit=revenue*1.15;
+  const limit=financialRegulationLimitForDivision(fr?.division);
+  const headroom=revenue*limit-squadCost;
+
   return {
-    revenue,squadCost,ratio,
-    status:ratio<=0.85?"Green":ratio<=1.15?"Amber":"Red",
-    greenHeadroom:greenLimit-squadCost,
-    maximumHeadroom:maxLimit-squadCost
+    revenue,squadCost,ratio,limit,
+    status:financialRegulationStatus(ratio,limit),
+    headroom,
+    greenHeadroom:headroom, // backward-compatible property
+    payroll,
+    inherited,
+    acquisitions,
+    compliant:ratio<=limit
   };
+}
+
+function estimatedAgentCost(fee){
+  return Math.round((Math.max(0,fee)*0.05)/250000)*250000;
+}
+
+function projectSCRAfterSigning(player,fee,weeklyWage,years=4){
+  const current=userSCRSnapshot();
+  years=Math.max(1,Number(years||4));
+  const annualTransfer=(Math.max(0,fee)+estimatedAgentCost(fee))/years;
+  const annualWage=Math.max(0,weeklyWage||0)*52;
+  const squadCost=current.squadCost+annualTransfer+annualWage;
+  return {
+    ...current,
+    currentRatio:current.ratio,
+    ratio:squadCost/current.revenue,
+    squadCost,
+    annualImpact:annualTransfer+annualWage,
+    annualTransfer,
+    annualWage,
+    status:financialRegulationStatus(squadCost/current.revenue,current.limit),
+    headroom:current.revenue*current.limit-squadCost
+  };
+}
+
+function regulatedPlayerAnnualCost(player){
+  const fr=ensureFinancialRegulationState();
+  if(!player||!fr) return 0;
+  const wage=(state.playerContracts?.[player.id]?.wage??player.wage??0)*52;
+  const legacy=fr.legacyPlayerCosts?.[player.id]||0;
+  const acq=fr.newAcquisitions?.[player.id];
+  const newCost=acq?(acq.annualAmortisation||0)+(acq.annualAgentCost||0):0;
+  return wage+legacy+newCost;
+}
+
+function projectSCRAfterSale(player,fee=0){
+  const current=userSCRSnapshot();
+  const saving=regulatedPlayerAnnualCost(player);
+  const squadCost=Math.max(0,current.squadCost-saving);
+  return {
+    ...current,
+    currentRatio:current.ratio,
+    ratio:squadCost/current.revenue,
+    squadCost,
+    annualSaving:saving,
+    status:financialRegulationStatus(squadCost/current.revenue,current.limit),
+    headroom:current.revenue*current.limit-squadCost
+  };
+}
+
+function registerRegulatedSigning(player,fee,weeklyWage,years=4){
+  const fr=ensureFinancialRegulationState();
+  if(!fr||!player) return;
+  years=Math.max(1,Number(years||4));
+  const agentCost=estimatedAgentCost(fee);
+  fr.newAcquisitions[player.id]={
+    playerId:player.id,
+    playerName:player.name,
+    fee:Math.max(0,fee||0),
+    agentCost,
+    originalYears:years,
+    yearsRemaining:years,
+    annualAmortisation:Math.max(0,fee||0)/years,
+    annualAgentCost:agentCost/years,
+    signedSeason:typeof currentSeasonStartYear==="function"?currentSeasonStartYear():2025
+  };
+  delete fr.legacyPlayerCosts[player.id];
+}
+
+function registerRegulatedSale(player){
+  const fr=ensureFinancialRegulationState();
+  if(!fr||!player) return;
+  delete fr.legacyPlayerCosts[player.id];
+  delete fr.newAcquisitions[player.id];
+}
+
+function restructureRegulatedAcquisitionOnExtension(player,newYears){
+  const fr=ensureFinancialRegulationState();
+  const acq=fr?.newAcquisitions?.[player?.id];
+  if(!acq) return;
+  newYears=Math.max(1,Number(newYears||1));
+  const remainingTransfer=(acq.annualAmortisation||0)*Math.max(1,acq.yearsRemaining||1);
+  const remainingAgent=(acq.annualAgentCost||0)*Math.max(1,acq.yearsRemaining||1);
+  acq.yearsRemaining=newYears;
+  acq.annualAmortisation=remainingTransfer/newYears;
+  acq.annualAgentCost=remainingAgent/newYears;
+}
+
+function financialTransferBanActive(){
+  const fr=ensureFinancialRegulationState();
+  if(!fr?.transferBanSeason) return false;
+  const season=typeof currentSeasonStartYear==="function"?currentSeasonStartYear():2025;
+  return Number(fr.transferBanSeason)===Number(season);
+}
+
+function rollFinancialRegulationsSeason(){
+  const fr=ensureFinancialRegulationState();
+  if(!fr) return;
+
+  // Inherited commitments fade as pre-save contracts/amortisation run off.
+  Object.keys(fr.legacyPlayerCosts||{}).forEach(id=>{
+    fr.legacyPlayerCosts[id]=Math.round((fr.legacyPlayerCosts[id]||0)*0.76);
+    if(fr.legacyPlayerCosts[id]<100_000) delete fr.legacyPlayerCosts[id];
+  });
+
+  Object.entries(fr.newAcquisitions||{}).forEach(([id,x])=>{
+    x.yearsRemaining=Math.max(0,(x.yearsRemaining??1)-1);
+    if(x.yearsRemaining<=0) delete fr.newAcquisitions[id];
+  });
+
+  fr.competitionRevenue=0;
+  fr.otherRevenueAdjustments=0;
+  fr.baselineMatchdayRevenue=null;
+  fr.budgetPlanSeason=null;
+}
+
+function processFinancialRegulationAssessment(){
+  const fr=ensureFinancialRegulationState();
+  if(!fr) return null;
+  const snap=userSCRSnapshot();
+  const season=typeof currentSeasonLabel==="function"?currentSeasonLabel():"Season";
+  const result={
+    season,
+    ratio:snap.ratio,
+    limit:snap.limit,
+    status:snap.status,
+    fine:0,
+    investmentMultiplier:1,
+    transferBan:false
+  };
+
+  if(snap.ratio<=snap.limit){
+    fr.consecutiveBreaches=0;
+    fr.nextInvestmentMultiplier=1;
+    addNews(`FINANCIAL REGULATIONS: ${state.club} passed the annual assessment at ${(snap.ratio*100).toFixed(1)}% against a ${(snap.limit*100).toFixed(0)}% limit.`);
+  }else{
+    fr.consecutiveBreaches=(fr.consecutiveBreaches||0)+1;
+    const repeat=fr.consecutiveBreaches;
+    const revenue=snap.revenue;
+
+    if(snap.ratio<=0.75){
+      result.status="Warning";
+      result.fine=repeat>1?revenue*(0.004*repeat):0;
+      result.investmentMultiplier=repeat>1?0.90:1;
+    }else if(snap.ratio<=0.85){
+      result.status="Breach";
+      result.fine=revenue*(0.012+Math.max(0,repeat-1)*0.006);
+      result.investmentMultiplier=repeat>=2?0.72:0.85;
+      if(repeat>=3) result.transferBan=true;
+    }else{
+      result.status="Severe";
+      result.fine=revenue*(0.025+Math.max(0,repeat-1)*0.010);
+      result.investmentMultiplier=repeat>=2?0.55:0.68;
+      if(repeat>=2 || snap.ratio>0.90) result.transferBan=true;
+    }
+
+    result.fine=Math.round(result.fine/250000)*250000;
+    fr.nextInvestmentMultiplier=Math.min(fr.nextInvestmentMultiplier??1,result.investmentMultiplier);
+
+    if(result.fine>0){
+      state.seasonPL=(state.seasonPL||0)-result.fine;
+    }
+    if(result.transferBan){
+      fr.transferBanSeason=(typeof currentSeasonStartYear==="function"?currentSeasonStartYear():2025)+1;
+    }
+
+    if(typeof stakeholderDecision==="function"){
+      stakeholderDecision({
+        owners:result.status==="Warning"?-2:result.status==="Breach"?-5:-8,
+        sponsors:result.status==="Severe"?-3:result.status==="Breach"?-1:0
+      },`Financial regulation ${result.status.toLowerCase()}`,{notify:true});
+    }
+
+    const sanctionBits=[
+      result.fine?`${money(result.fine)} fine`:null,
+      result.investmentMultiplier<1?`${Math.round((1-result.investmentMultiplier)*100)}% reduction to next season's available investment`:null,
+      result.transferBan?"next-season transfer registration ban":null
+    ].filter(Boolean);
+
+    addNews(`FINANCIAL REGULATIONS: ${state.club} recorded ${(snap.ratio*100).toFixed(1)}% against the ${(snap.limit*100).toFixed(0)}% limit — ${result.status.toUpperCase()}.${sanctionBits.length?` Sanctions: ${sanctionBits.join(" • ")}.`:""}`);
+  }
+
+  fr.assessmentHistory.unshift(result);
+  fr.assessmentHistory=fr.assessmentHistory.slice(0,8);
+  return result;
 }
 
 function aiFinanceSnapshot(club){
@@ -1011,10 +1479,17 @@ function isTransferWindowOpen(dateISO=(typeof currentGameDateISO==="function"?cu
 
 function transferWindowStatusHTML(){
   const w=transferWindowStatus();
+  const banned=typeof financialTransferBanActive==="function" && financialTransferBanActive();
+  if(banned) return `<div class="transfer-box" style="border:1px solid #e5c2c2"><b>TRANSFER REGISTRATION BAN</b><br><span class="muted small">Financial-regulation sanctions prevent permanent incoming transfers this season.</span></div>`;
   return `<div class="transfer-box" style="border:1px solid ${w.open?"#b7e3c4":"#e5c2c2"}"><b>${w.open?"TRANSFER WINDOW OPEN":"TRANSFER WINDOW CLOSED"}</b><br><span class="muted small">${w.open?`${w.name} • Deadline: ${w.deadline}`:`Next window: ${w.next}`}</span></div>`;
 }
 
 function blockClosedWindow(action="complete this transfer"){
+  const incomingAction=!String(action).toLowerCase().includes("respond to");
+  if(incomingAction && typeof financialTransferBanActive==="function" && financialTransferBanActive()){
+    addNews(`FINANCIAL REGULATIONS: ${action.charAt(0).toUpperCase()+action.slice(1)} is blocked by the club's transfer registration ban.`);
+    return true;
+  }
   const w=transferWindowStatus();
   if(w.open) return false;
   addNews(`The transfer window is closed. ${action.charAt(0).toUpperCase()+action.slice(1)} is unavailable until ${w.next}.`);
@@ -1744,6 +2219,35 @@ function ensureTransferPlayerModal(){
   modal.querySelector("#closeTransferFile").addEventListener("click",closeTransferPlayerFile);
 }
 
+
+function financialRegulationTransferPreviewHTML(player,fee,weeklyWage,years=4,mode="buy"){
+  if(typeof userSCRSnapshot!=="function") return "";
+  const current=userSCRSnapshot();
+  const projected=mode==="sell"
+    ? projectSCRAfterSale(player,fee)
+    : projectSCRAfterSigning(player,fee,weeklyWage,years);
+
+  const improves=projected.ratio<current.ratio;
+  const delta=(projected.ratio-current.ratio)*100;
+  const label=mode==="sell"?"Projected SCR after sale":"Projected SCR after signing";
+  const annual=mode==="sell"
+    ? `${money(projected.annualSaving||0)} annual regulated cost removed`
+    : `${money(projected.annualImpact||0)} annual regulated cost added`;
+
+  return `<div class="transfer-box financial-regulation-preview">
+    <div class="financial-regulation-preview-head">
+      <b>Financial regulation impact</b>
+      <span class="scr-mini-status ${projected.ratio<=current.limit?"good":"bad"}">${projected.status}</span>
+    </div>
+    <div class="financial-regulation-ratios">
+      <span>Current <b>${(current.ratio*100).toFixed(1)}%</b></span>
+      <span>→</span>
+      <span>${label.replace("Projected SCR ","")} <b>${(projected.ratio*100).toFixed(1)}%</b></span>
+    </div>
+    <div class="muted small">${annual} • Regulatory limit: ${Math.round(current.limit*100)}%${mode==="sell"&&current.ratio>current.limit&&improves?" • This sale helps restore compliance.":""}</div>
+  </div>`;
+}
+
 function openTransferPlayerFile(id,context={}){
   ensureContractState();
   const p=DB.players.find(x=>String(x.id)===String(id));
@@ -1775,6 +2279,7 @@ function openTransferPlayerFile(id,context={}){
       <b>Recruitment view</b><br>
       <span class="muted small">Expected wage demand: around ${money(d.wage)}/wk. Lower player interest increases the wage premium needed to complete a deal.</span>
     </div>
+    ${financialRegulationTransferPreviewHTML(p,d.asking,d.wage,4,"buy")}
     ${transferWindowStatusHTML()}
     <div id="transferNegotiationArea"></div>
     <div class="transfer-actions">
@@ -1839,6 +2344,7 @@ function renderTransferNegotiation(id){
         <button class="btn primary" id="submitSigningTerms">Offer contract</button>
       </div>
       <div class="muted small" style="margin-top:8px">Agent expectation: around ${money(demand)}/wk • Player interest: ${interestLabel(playerInterestScore(p,state.club))}.</div>
+      ${financialRegulationTransferPreviewHTML(p,n.agreedFee,demand,4,"buy")}
     </div>`;
     q("submitSigningTerms").addEventListener("click",()=>submitNewSigningTerms(p.id));
     return;
@@ -2064,6 +2570,7 @@ function submitNewSigningTerms(id){
 
   state.playerContracts[p.id]={wage,endYear:currentSeasonStartYear()+years};
   p.wage=wage;
+  if(typeof registerRegulatedSigning==="function") registerRegulatedSigning(p,n.agreedFee,wage,years);
   state.playerMorale[p.id]="Happy";
   if(!state.playerStats[p.id]) state.playerStats[p.id]={appearances:0,goals:0};
   state.playerListStatus[p.id]="None";
@@ -2169,6 +2676,7 @@ function openIncomingTransferOffer(id){
       <div class="transfer-metric"><span>DOF view</span><b>${v.dof}</b></div>
     </div>
     ${playerSaleDecisionStatsHTML(v.p)}
+    ${financialRegulationTransferPreviewHTML(v.p,offer.fee,0,4,"sell")}
     <div class="transfer-actions">
       <button class="btn primary" id="acceptIncomingOffer">Accept</button>
       <button class="btn secondary" id="rejectIncomingOffer">Reject</button>
@@ -2235,6 +2743,7 @@ function resolveIncomingTransferOffer(id,action,counter=0){
     }
 
     registerManagerSquadVacancy(p,oldClub);
+    if(typeof registerRegulatedSale==="function") registerRegulatedSale(p);
     state.budget+=offer.fee;
     if(state.transferFinance) state.transferFinance.received=(state.transferFinance.received||0)+offer.fee;
     if(state.monthlyFinance) state.monthlyFinance.transferReceived=(state.monthlyFinance.transferReceived||0)+offer.fee;

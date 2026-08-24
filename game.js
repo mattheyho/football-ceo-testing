@@ -1516,6 +1516,7 @@ function createCareer(club){
     results:{},
     news:[{week:0,date:"2025-08-01",text:`You have been appointed CEO of ${club}. ${c.manager} remains in charge of first-team football.`}]
   };
+  if(typeof ensureFinancialRegulationState==="function") ensureFinancialRegulationState();
   // Build the initial recruitment picture before the first matchweek so the
   // manager and AI clubs enter the season with real squad priorities.
   if(typeof runAITransferReview==="function") runAITransferReview();
@@ -1549,6 +1550,7 @@ function enterGame(){
   if(!state.transferSentiment) state.transferSentiment={fans:[],owners:[],players:[],manager:[]};
   if(!state.transferFinance) state.transferFinance={spent:0,received:0};
   if(!state.aiClubFinances) state.aiClubFinances={};
+  if(typeof ensureFinancialRegulationState==="function") ensureFinancialRegulationState();
   if(typeof ensureAIClubFinances==="function") ensureAIClubFinances();
   ensureStakeholderState();
   if(!state.pricing) state.pricing=defaultPricing(state.club);
@@ -2151,6 +2153,13 @@ function renderDashboard(){
   if(pl){
     pl.textContent=money(state.seasonPL);
     pl.className=(state.seasonPL>0?"good":state.seasonPL<0?"bad":"");
+  }
+
+  if(q("dashboardSCRMetric")){
+    const scr=userSCRSnapshot();
+    q("dashboardSCRMetric").textContent=`${(scr.ratio*100).toFixed(1)}%`;
+    q("dashboardSCRMetric").className=scr.ratio>scr.limit?"bad":scr.ratio>0.60?"warn":"good";
+    q("dashboardSCRStatus").textContent=`${scr.status} • ${Math.round(scr.limit*100)}% limit`;
   }
 
   if(q("formStrip")){
@@ -2783,6 +2792,7 @@ function beginNextSeason(){
 
 function performSeasonRollover(){
   const archive=state.careerHistory?.seasons?.find(x=>x.year===currentSeasonStartYear()) || archiveCurrentSeason();
+  if(typeof processFinancialRegulationAssessment==="function") processFinancialRegulationAssessment();
   const offSeasonCarryPL=(state.seasonPL||0)-(archive.seasonProfitLoss||0);
 
   processPlayerYearEnd();
@@ -2822,7 +2832,16 @@ function performSeasonRollover(){
   state.calendar.monthlyMonthKey=currentGameDateISO().slice(0,7);
 
   Object.keys(state.happiness).forEach(k=>state.happiness[k]=stakeholderSummerReset(state.happiness[k]));
-  state.budget=nextSeasonBudgetForUser(archive);
+
+  const fr=ensureFinancialRegulationState();
+  const grossAvailable=nextSeasonBudgetForUser(archive);
+  const sanctionMultiplier=fr.nextInvestmentMultiplier??1;
+  fr.availableInvestment=Math.max(5_000_000,Math.round((grossAvailable*sanctionMultiplier)/250000)*250000);
+  fr.pendingTransferBudget=Math.round((fr.availableInvestment*.70)/5_000_000)*5_000_000;
+  fr.nextInvestmentMultiplier=1;
+  state.budget=fr.pendingTransferBudget;
+  if(typeof rollFinancialRegulationsSeason==="function") rollFinancialRegulationsSeason();
+
   resetAIClubFinancesForNewSeason();
 
   if(state.sponsorship){
@@ -2842,7 +2861,7 @@ function performSeasonRollover(){
   if(!state.pricing) state.pricing=defaultPricing(state.club);
   state.managerBacking=Math.round((state.managerBacking||70)*.75+70*.25);
 
-  addNews(`The ${currentSeasonLabel()} season has begun. The board has confirmed a transfer budget of ${money(state.budget)}.`);
+  addNews(`The ${currentSeasonLabel()} season has begun. ${money(state.financialRegulations?.availableInvestment||state.budget)} is available for football investment; you must now set the transfer budget.`);
   openSeasonSetup();
 }
 
@@ -3005,24 +3024,52 @@ function renderFixtures(){
 }
 function renderFinances(){
   if(!q("financeCards")) return;
+  ensureFinancialRegulationState();
   const sq=squad(state.club);
   const wages=sq.reduce((s,p)=>s+(state.playerContracts?.[p.id]?.wage??p.wage??0),0);
   const vals=sq.reduce((s,p)=>s+(p.value||0),0);
   const staffWages=(state.staff?.manager?.wage||0)+(state.staff?.dof?.wage||0)+(state.staff?.physio?.wage||0);
   const transferNet=(state.transferFinance?.received||0)-(state.transferFinance?.spent||0);
-  const scr=typeof userSCRSnapshot==="function"?userSCRSnapshot():null;
-  q("financeCards").innerHTML=`${scr?`<div class="scr-card scr-${scr.status.toLowerCase()}">
-    <div class="sectiontitle"><div><div class="k">Squad Cost Ratio (SCR)</div><div class="scr-value">${(scr.ratio*100).toFixed(1)}%</div></div><span class="scr-status">${scr.status}</span></div>
-    <div class="progress scr-progress"><span style="width:${Math.min(100,(scr.ratio/1.15)*100)}%"></span></div>
-    <div class="scr-scale"><span>0%</span><span>85% green limit</span><span>115% max</span></div>
+  const scr=userSCRSnapshot();
+  const fr=state.financialRegulations;
+  const pct=scr.ratio*100;
+  const limitPct=scr.limit*100;
+  const progress=Math.min(100,(scr.ratio/0.95)*100);
+  const statusClass=scr.status.toLowerCase();
+
+  q("financeCards").innerHTML=`
+  <div class="scr-card scr-${statusClass}">
+    <div class="sectiontitle">
+      <div>
+        <div class="k">Financial Regulations — Squad Cost Ratio</div>
+        <div class="scr-value">${pct.toFixed(1)}%</div>
+      </div>
+      <span class="scr-status">${scr.status}</span>
+    </div>
+    <div class="progress scr-progress"><span style="width:${progress}%"></span></div>
+    <div class="scr-scale"><span>0%</span><span>${Math.round(limitPct)}% regulatory limit</span><span>90%+</span></div>
+
     <div class="grid3 scr-metrics">
       <div><span>Football revenue</span><b>${money(scr.revenue)}</b></div>
-      <div><span>Projected squad cost</span><b>${money(scr.squadCost)}</b></div>
-      <div><span>85% headroom</span><b class="${scr.greenHeadroom<0?"bad":"good"}">${money(scr.greenHeadroom)}</b></div>
+      <div><span>Regulated squad cost</span><b>${money(scr.squadCost)}</b></div>
+      <div><span>${scr.headroom>=0?"Headroom":"Reduction required"}</span><b class="${scr.headroom>=0?"good":"bad"}">${money(Math.abs(scr.headroom))}</b></div>
     </div>
-    <div class="muted small" style="margin-top:8px">Green ≤85% • Amber 85–115% • Red above 115%</div>
-  </div>`:""}<div class="grid3">
-    <div class="metric"><div class="k">Transfer budget</div><div class="v">${money(state.budget)}</div></div>
+
+    <div class="scr-breakdown">
+      <div><span>Annual football payroll</span><b>${money(scr.payroll)}</b></div>
+      <div><span>Inherited pre-save commitments</span><b>${money(scr.inherited)}</b></div>
+      <div><span>Post-save transfer & agent costs</span><b>${money(scr.acquisitions)}</b></div>
+    </div>
+
+    <div class="muted small scr-rule-note">
+      Healthy ≤60% • Tight 60–${Math.round(limitPct)}% • Breach above ${Math.round(limitPct)}% • Severe above 80%.
+      Annual assessment sanctions escalate for repeat breaches.
+    </div>
+    ${financialTransferBanActive()?`<div class="notice bad scr-sanction-note"><b>TRANSFER REGISTRATION BAN ACTIVE</b><br>Permanent incoming transfers cannot be registered this season.</div>`:""}
+  </div>
+
+  <div class="grid3">
+    <div class="metric"><div class="k">Transfer budget</div><div class="v">${money(state.budget)}</div><div class="muted small">${money(fr.availableInvestment||0)} was available to allocate</div></div>
     <div class="metric"><div class="k">Squad value</div><div class="v">${money(vals)}</div></div>
     <div class="metric"><div class="k">Player wages</div><div class="v">${money(wages)}/wk</div></div>
   </div>
@@ -3034,6 +3081,7 @@ function renderFinances(){
     <div class="metric"><div class="k">Facility running costs</div><div class="v">${money(totalFacilityAnnualCost())}</div><div class="muted small">Training, medical, academy & recruitment</div></div>
     <div class="metric"><div class="k">Transfer P/L</div><div class="v ${transferNet>0?"good":transferNet<0?"bad":""}">${money(transferNet)}</div><div class="muted small">${money(state.transferFinance?.received||0)} received • ${money(state.transferFinance?.spent||0)} spent</div></div>
   </div>`;
+
   const top=[...sq].sort((a,b)=>(state.playerContracts?.[b.id]?.wage??b.wage)-(state.playerContracts?.[a.id]?.wage??a.wage)).slice(0,12);
   const max=(state.playerContracts?.[top[0]?.id]?.wage??top[0]?.wage)||1;
   q("wageList").innerHTML=top.map(p=>{
@@ -3133,13 +3181,98 @@ function openSeasonSetup(){
   renderSeasonSetup();
 }
 
+
+function transferBudgetPlanBounds(){
+  const fr=ensureFinancialRegulationState();
+  const available=Math.max(5_000_000,fr?.availableInvestment||state.budget||5_000_000);
+  const min=Math.min(available,Math.max(5_000_000,Math.round((available*.25)/5_000_000)*5_000_000));
+  return {min,max:available};
+}
+
+function setPendingTransferBudget(value){
+  const fr=ensureFinancialRegulationState();
+  const {min,max}=transferBudgetPlanBounds();
+  value=Math.round(clamp(Number(value||0),min,max)/5_000_000)*5_000_000;
+  fr.pendingTransferBudget=value;
+  renderSeasonSetup();
+}
+
+function applyCEOTransferBudgetPlan(){
+  const fr=ensureFinancialRegulationState();
+  if(!fr) return;
+  const seasonKey=currentSeasonLabel();
+  const selected=Math.min(fr.availableInvestment||0,Math.max(0,fr.pendingTransferBudget??state.budget??0));
+  state.budget=selected;
+
+  if(fr.budgetPlanSeason===seasonKey) return;
+  fr.budgetPlanSeason=seasonKey;
+
+  const available=Math.max(1,fr.availableInvestment||selected||1);
+  const share=selected/available;
+  const scr=userSCRSnapshot();
+  const underPressure=scr.ratio>scr.limit;
+
+  if(share>=0.85){
+    stakeholderDecision(
+      {manager:+2,owners:underPressure?-3:-1},
+      underPressure?"Aggressive transfer budget despite financial pressure":"Ambitious transfer budget",
+      {notify:true}
+    );
+  }else if(share<=0.45){
+    stakeholderDecision(
+      {manager:underPressure?-1:-3,owners:underPressure?+3:+2},
+      underPressure?"Conservative budget to restore financial compliance":"Conservative transfer budget",
+      {notify:true}
+    );
+  }else if(share<0.65){
+    stakeholderDecision(
+      {manager:underPressure?0:-1,owners:+1},
+      underPressure?"Controlled recruitment budget under financial pressure":"Cautious transfer budget",
+      {notify:true}
+    );
+  }
+
+  if(underPressure && share<0.70){
+    addNews(`${state.staff?.manager?.name||"The manager"} accepts that the transfer budget has been constrained while the club works toward financial compliance.`);
+  }else if(share>=0.85){
+    addNews(`${state.staff?.manager?.name||"The manager"} has welcomed the club's ambitious recruitment budget of ${money(selected)}.`);
+  }
+}
+
 function renderSeasonSetup(){
   if(!state) return;
   const p=state.pricing, rec=recommendedPricing(state.club);
+  const fr=ensureFinancialRegulationState();
+  const scr=userSCRSnapshot();
   q("setupTicketPrice").textContent=money(p.ticket);
   q("setupConcessionPrice").textContent=money(p.concession);
   q("setupHospitalityPrice").textContent=money(p.hospitality);
   q("setupFoodPrice").textContent=money(p.food);
+
+  if(q("setupAvailableInvestment")) q("setupAvailableInvestment").textContent=money(fr.availableInvestment||0);
+  if(q("setupTransferBudgetValue")) q("setupTransferBudgetValue").textContent=money(fr.pendingTransferBudget??state.budget??0);
+  if(q("setupSCRValue")) q("setupSCRValue").textContent=`${(scr.ratio*100).toFixed(1)}%`;
+  if(q("setupSCRLimit")) q("setupSCRLimit").textContent=`${Math.round(scr.limit*100)}% limit`;
+  if(q("setupSCRHeadroom")){
+    q("setupSCRHeadroom").textContent=`${scr.headroom>=0?"+":""}${money(scr.headroom)} annual headroom`;
+    q("setupSCRHeadroom").className=`small ${scr.headroom>=0?"good":"bad"}`;
+  }
+  if(q("transferBudgetPlanInput")){
+    const bounds=transferBudgetPlanBounds();
+    q("transferBudgetPlanInput").min=String(bounds.min);
+    q("transferBudgetPlanInput").max=String(bounds.max);
+    q("transferBudgetPlanInput").value=String(fr.pendingTransferBudget??state.budget??bounds.max);
+  }
+  if(q("setupBudgetAdvice")){
+    const share=(fr.pendingTransferBudget??state.budget??0)/Math.max(1,fr.availableInvestment||1);
+    q("setupBudgetAdvice").textContent=scr.ratio>scr.limit
+      ? `The club is currently above its financial-regulation limit. A conservative allocation will be better understood by the manager and owners.`
+      : share>=0.85
+        ? `An ambitious allocation gives recruitment staff significant freedom, but spending still needs to fit SCR.`
+        : share<=0.45
+          ? `A conservative allocation protects finances but may frustrate the manager if regulatory headroom is healthy.`
+          : `A balanced allocation gives recruitment staff room to address several squad needs.`;
+  }
 
   const projected=projectedMatchday();
   const capacity=STADIUMS[state.club]?.capacity||0;
@@ -3240,6 +3373,7 @@ function confirmSeasonSetup(){
     }
   }
 
+  applyCEOTransferBudgetPlan();
   state.pricingLocked=true;
   updateStakeholderDrivers();
   updateStakeholderMeta();
@@ -3531,18 +3665,18 @@ const TUTORIAL_PAGES=[
     title:"Set up the commercial side",
     icon:"£",
     body:`
-      <p>Pre-season starts with two CEO decisions: <b>matchday pricing</b> and your club's <b>main sponsor</b>.</p>
+      <p>Pre-season starts with three CEO decisions: <b>matchday pricing</b>, your club's <b>main sponsor</b> and how much available investment to allocate as the <b>transfer budget</b>.</p>
       <div class="tutorial-rule-grid">
         <div class="tutorial-rule">
-          <span class="tutorial-rule-head">Pricing</span>
-          <b>Higher prices can increase revenue, but supporters may react badly.</b>
+          <span class="tutorial-rule-head">Pricing & sponsorship</span>
+          <b>Grow revenue without losing the support of fans and commercial partners.</b>
         </div>
         <div class="tutorial-rule">
-          <span class="tutorial-rule-head">Sponsorship</span>
-          <b>Compare value, contract length and supporter reaction.</b>
+          <span class="tutorial-rule-head">Financial regulations</span>
+          <b>Keep regulated squad costs within the club's SCR limit while building the team.</b>
         </div>
       </div>
-      <p class="tutorial-callout">These decisions are locked for the season, so choose the balance that fits how you want to run the club.</p>
+      <p class="tutorial-callout">A large transfer budget gives the manager and DoF more recruitment freedom, but actual signings must still fit the club's financial-regulation position.</p>
     `
   }
 ];
@@ -3677,6 +3811,7 @@ function init(){
   q("seasonTicketDiscount")?.addEventListener("change",e=>{
     state.seasonTicketDiscount=Number(e.target.value);
   });
+  q("transferBudgetPlanInput")?.addEventListener("input",e=>setPendingTransferBudget(Number(e.target.value)));
   q("confirmSeasonSetup")?.addEventListener("click",confirmSeasonSetup);
   q("browseManagersBtn")?.addEventListener("click",()=>openStaffMarket("manager"));
   q("browseDofBtn")?.addEventListener("click",()=>openStaffMarket("dof"));

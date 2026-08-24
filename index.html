@@ -405,6 +405,11 @@
         <strong id="seasonPL">£0</strong>
         <small>Club finances</small>
       </button>
+      <button class="dash-stat-card nav-card" data-go-tab="finances" type="button">
+        <span class="dash-stat-label">Squad Cost Ratio</span>
+        <strong id="dashboardSCRMetric">—</strong>
+        <small id="dashboardSCRStatus">Financial regulations</small>
+      </button>
     </div>
 
     <div class="dashboard-nav-grid" aria-label="Club management">
@@ -814,6 +819,29 @@
         <div class="muted small" style="margin-bottom:10px">Offers reflect club profile and recent sporting performance. Higher-value deals may come with reputational consequences.</div>
         <div id="sponsorOptions"></div>
       </div>
+    </div>
+
+
+    <div class="panel pad financial-plan-panel" style="margin-top:14px">
+      <div class="sectiontitle">
+        <div>
+          <h3 style="margin:0">Season financial plan</h3>
+          <div class="muted small">You are the CEO — decide how much of the club's available investment to allocate to transfers.</div>
+        </div>
+        <span class="pill" id="setupSCRLimit">70% limit</span>
+      </div>
+
+      <div class="financial-plan-metrics">
+        <div class="metric"><div class="k">Available investment</div><div class="v" id="setupAvailableInvestment">—</div></div>
+        <div class="metric"><div class="k">Transfer budget</div><div class="v" id="setupTransferBudgetValue">—</div></div>
+        <div class="metric"><div class="k">Current SCR</div><div class="v" id="setupSCRValue">—</div><div id="setupSCRHeadroom" class="small"></div></div>
+      </div>
+
+      <div class="transfer-budget-slider-wrap">
+        <input id="transferBudgetPlanInput" type="range" step="5000000">
+        <div class="muted small">The manager and Director of Football will plan recruitment around this budget rather than treating it as money for a single signing.</div>
+      </div>
+      <div id="setupBudgetAdvice" class="notice small muted" style="margin-top:10px"></div>
     </div>
 
     <div class="notice small muted" style="margin-top:14px">

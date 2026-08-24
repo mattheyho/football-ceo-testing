@@ -1,44 +1,109 @@
-Football CEO v0.15.6 — Commercial & Matchday Fixes
+Football CEO v0.16 — Financial Regulations
 
-Built on v0.15.5 CEO Briefing.
+Built on v0.15.6a.
 
-SPONSORS
-- A new sponsor now starts a completely new sponsor relationship.
-- Previous sponsor happiness and sponsor history do not carry over to the new company.
-- New neutral/positive sponsor starts at 72 happiness.
-- New fan-opposed sponsor starts at 61 happiness.
-- Multi-year deals still retain their relationship during the same contract.
+CORE RULE
+- Football CEO now uses a universal Squad Cost Ratio (SCR) financial-regulation system.
+- Premier League limit: 70%.
+- Future Championship scaffold: 80%.
+- Future League One / League Two scaffold: 90%.
+- Status bands:
+  Healthy <= 60%
+  Tight >60% to regulatory limit
+  Breach above regulatory limit to 80%
+  Severe above 80%
 
-STAKEHOLDER DRIFT
-- Persistent drivers no longer subtract/add the same happiness forever.
-- Weekly drivers now create a relationship equilibrium.
-- Happiness moves toward that equilibrium and stabilises if circumstances stay unchanged.
-- Immediate CEO decisions still cause immediate happiness changes.
-- Example: "Sponsor unpopular with supporters" (-3) naturally settles around 61 rather than causing -1 every week indefinitely.
+STARTING POSITIONS
+All 20 current Premier League clubs have gameplay-calibrated starting SCR positions:
+Arsenal 64%
+Aston Villa 79%
+Bournemouth 57%
+Brentford 53%
+Brighton 60%
+Burnley 61%
+Chelsea 73%
+Crystal Palace 62%
+Everton 68%
+Fulham 59%
+Leeds United 69%
+Liverpool 61%
+Manchester City 58%
+Manchester United 69%
+Newcastle United 78%
+Nottingham Forest 71%
+Sunderland 63%
+Tottenham Hotspur 61%
+West Ham United 66%
+Wolverhampton Wanderers 69%
 
-COMMERCIAL SETUP
-- Added live predicted home attendance.
-- Added live predicted occupancy.
-- Added live predicted match revenue.
-- Projections update immediately when ticket/concession/hospitality/food prices change.
-- Projection includes current supporter happiness and shows when fan unhappiness is reducing demand.
+HYBRID ACCOUNTING
+- Starting ratio is created by live annual football payroll plus a calibrated inherited legacy cost.
+- Legacy cost represents pre-save amortisation / acquisition commitments without needing historic accounting for every player.
+- The legacy burden is distributed across the existing squad so selling a player removes their share of inherited cost.
+- Remaining inherited costs decay by 24% each season as old commitments run off.
+- New transfers from the save start are tracked individually:
+  transfer fee / contract term
+  + estimated agent cost (5% of fee) / contract term
+  + annual wages.
+- Contract extensions for post-save signings re-spread remaining regulated acquisition cost over the new contract.
+- Selling a post-save signing removes their remaining annual acquisition cost and wage from the projected ratio.
 
-STAR PLAYERS
-- Club's top five players by OVR (value tie-break) are flagged as STAR players.
-- Squad screen shows a ★ STAR badge.
-- Player profile shows ★ STAR PLAYER plus a warning that a sale may cause supporter unrest.
-- Transfer-sale fan reaction uses the exact same star definition as the UI.
+REVENUE
+- Every current club has a calibrated football-revenue baseline.
+- Main sponsorship moves revenue relative to the club's baseline sponsor value.
+- Matchday pricing / supporter demand can move projected annual matchday revenue.
+- Hooks exist for future cup / European competition revenue.
 
-MATCH LINEUP LEFT/RIGHT DISPLAY
-- Fixed the post-match pitch viewing orientation.
-- RB/RM/RW now display on the right side of the pitch.
-- LB/LM/LW now display on the left side.
-- Added the tactical slot (RB, LB, RW, etc.) to each pitch player tile.
-- The underlying v0.15.3a selection logic remains strict for natural full-backs.
+CEO TRANSFER BUDGET
+- CEO now sets the transfer budget in the pre-season commercial/financial setup.
+- The game shows Available Investment and allows the CEO to allocate part of it.
+- The old configured transfer budget remains the default first-season allocation.
+- Maximum available first-season investment is 125% of the old configured budget.
+- Manager / Owner happiness reacts to aggressive or conservative allocations.
+- When SCR is already over the limit, the manager is more understanding of a conservative budget.
 
+RECRUITMENT AI
+- Manager / DoF recommendations now plan around the remaining transfer budget.
+- Recruitment spreads budget across multiple identified squad needs rather than assuming the full budget is for one signing.
+- Manager recruitment aggression affects how far above an equal share they will push for a priority signing.
+- DoF rating increases the importance of SCR impact, value and young-player upside.
+- When already in breach, strong DoFs favour lower annual-cost / higher-upside investments.
+- Managers no longer suggest permanent targets that exceed the total remaining transfer budget.
 
-Patch v0.15.6a — Star Player Transfer Warning
-- Incoming transfer-offer / negotiation screen now displays ★ STAR PLAYER when applicable.
-- Warning explicitly states that selling the player may cause supporter unrest.
-- Sale decision stats now show Apps, Starts, Goals and AVG rating.
-- Uses the same isClubStarPlayer() definition as the Squad screen, Player Profile and actual supporter-reaction logic.
+TRANSFER SCREENS
+- Incoming signing dossier shows Current SCR -> Projected SCR.
+- Agreed-fee / contract stage also shows projected regulated cost.
+- Incoming offers for your players show Current SCR -> Projected SCR after sale.
+- The screen shows the annual regulated cost added or removed.
+
+CONTEXT-AWARE STAKEHOLDERS
+- Star sales that materially improve an existing SCR breach receive a reduced fan penalty.
+- Manager penalty is also reduced when a key player must be sold to restore compliance.
+- Owners reward financially necessary corrective sales.
+- Rejecting a manager transfer target while above the SCR limit creates a much smaller manager penalty.
+
+ANNUAL ASSESSMENT / SANCTIONS
+- Compliance is assessed at the season rollover rather than punishing temporary in-season fluctuations.
+- <= limit: compliant, breach streak resets.
+- 70-75%: warning; repeat offences can reduce next-season investment and create a fine.
+- 75-85%: breach; fines and next-season investment restrictions increase with repeat offences.
+- >85%: severe breach; larger fines and stronger investment restrictions.
+- Repeat serious breaches can trigger a next-season transfer registration ban.
+- Transfer bans block incoming permanent transfers but do NOT block selling players.
+- Repeat offences escalate via consecutive-breach history.
+
+VISIBILITY
+- SCR is now a headline Dashboard metric.
+- Finance screen shows:
+  football revenue
+  regulated squad cost
+  headroom / reduction required
+  annual football payroll
+  inherited pre-save commitments
+  post-save transfer & agent costs
+  current sanctions.
+- Tutorial now explains financial regulations and CEO transfer-budget allocation.
+
+NOTE
+These are Football CEO gameplay regulations inspired by real football financial controls.
+They are not presented as exact UEFA SCR or Premier League PSR accounting.
