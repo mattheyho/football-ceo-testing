@@ -477,15 +477,310 @@ function squadWageFairness(){
   return clamp(1-avg/10,0,1);
 }
 
+
+const STAKEHOLDER_GROUPS=["fans","owners","players","manager","sponsors"];
+const STAKEHOLDER_LABELS={fans:"Fans",owners:"Owners",players:"Players",manager:"Manager",sponsors:"Sponsors"};
+const STAKEHOLDER_THRESHOLDS=[
+  {min:80,key:"veryHappy",label:"Very happy"},
+  {min:60,key:"happy",label:"Happy"},
+  {min:40,key:"neutral",label:"Neutral"},
+  {min:25,key:"unhappy",label:"Unhappy"},
+  {min:10,key:"veryUnhappy",label:"Very unhappy"},
+  {min:0,key:"crisis",label:"Crisis"}
+];
+
+function stakeholderBand(score){
+  const v=clamp(Number(score??70),0,100);
+  return STAKEHOLDER_THRESHOLDS.find(x=>v>=x.min)||STAKEHOLDER_THRESHOLDS[STAKEHOLDER_THRESHOLDS.length-1];
+}
+
+function ensureStakeholderState(){
+  if(!state) return;
+  if(!state.happiness) state.happiness={};
+  const defaults={fans:74,owners:72,players:76,manager:80,sponsors:70};
+  STAKEHOLDER_GROUPS.forEach(key=>{
+    if(state.happiness[key]==null) state.happiness[key]=defaults[key];
+  });
+
+  if(!state.happinessDrivers) state.happinessDrivers={};
+  STAKEHOLDER_GROUPS.forEach(key=>{
+    if(!Array.isArray(state.happinessDrivers[key])) state.happinessDrivers[key]=[];
+  });
+
+  if(!state.stakeholderHistory) state.stakeholderHistory={};
+  STAKEHOLDER_GROUPS.forEach(key=>{
+    if(!Array.isArray(state.stakeholderHistory[key])) state.stakeholderHistory[key]=[];
+  });
+
+  if(!state.stakeholderThresholdState) state.stakeholderThresholdState={};
+  STAKEHOLDER_GROUPS.forEach(key=>{
+    if(!state.stakeholderThresholdState[key]) state.stakeholderThresholdState[key]=stakeholderBand(state.happiness[key]).key;
+  });
+
+  if(!state.stakeholderMeta) state.stakeholderMeta={};
+  if(state.stakeholderMeta.fanProtests==null) state.stakeholderMeta.fanProtests=0;
+  if(state.stakeholderMeta.lastFanProtestDate===undefined) state.stakeholderMeta.lastFanProtestDate=null;
+  if(state.stakeholderMeta.lastFanProtestWeek!==undefined && !state.stakeholderMeta.lastFanProtestDate){
+    // Old package compatibility: don't try to convert old matchweek exactly.
+    delete state.stakeholderMeta.lastFanProtestWeek;
+  }
+  if(state.stakeholderMeta.sponsorTerminationRisk==null) state.stakeholderMeta.sponsorTerminationRisk=false;
+  if(!state.stakeholderMeta.ceoJobStatus) state.stakeholderMeta.ceoJobStatus="Secure";
+  if(state.stakeholderMeta.managerResignationRisk==null) state.stakeholderMeta.managerResignationRisk=false;
+  if(state.stakeholderMeta.playerUnrestRisk==null) state.stakeholderMeta.playerUnrestRisk=false;
+
+  if(!state.clubReputationOverrides) state.clubReputationOverrides={};
+}
+
+function stakeholderValue(key){
+  ensureStakeholderState();
+  return clamp(Number(state.happiness?.[key]??70),0,100);
+}
+
+function addStakeholderHistory(key,delta,reason,kind="change"){
+  ensureStakeholderState();
+  if(!delta || !state.stakeholderHistory[key]) return;
+  state.stakeholderHistory[key].unshift({
+    date:typeof currentGameDateISO==="function"?currentGameDateISO():state.calendar?.date||null,
+    week:state.week||0,
+    delta,
+    reason:reason||"Club events and stakeholder pressure",
+    kind
+  });
+  state.stakeholderHistory[key]=state.stakeholderHistory[key].slice(0,12);
+}
+
+function strongestStakeholderDriver(key){
+  const drivers=state.happinessDrivers?.[key]||[];
+  if(!drivers.length) return "Club events and stakeholder pressure";
+  return [...drivers].sort((a,b)=>Math.abs(b.value||0)-Math.abs(a.value||0))[0].label;
+}
+
+function updateStakeholderMeta(){
+  ensureStakeholderState();
+  const owners=stakeholderValue("owners");
+  state.stakeholderMeta.ceoJobStatus=
+    owners>=80?"Untouchable":
+    owners>=60?"Secure":
+    owners>=40?"Stable":
+    owners>=25?"Under pressure":
+    owners>=10?"At risk":"Critical";
+  state.stakeholderMeta.sponsorTerminationRisk=stakeholderValue("sponsors")<10;
+  state.stakeholderMeta.managerResignationRisk=stakeholderValue("manager")<10;
+  state.stakeholderMeta.playerUnrestRisk=stakeholderValue("players")<25;
+}
+
+function notifyStakeholderThresholdChange(key,previousScore=null){
+  ensureStakeholderState();
+  const now=stakeholderValue(key);
+  const current=stakeholderBand(now);
+  const previousKey=previousScore==null
+    ? state.stakeholderThresholdState[key]
+    : stakeholderBand(previousScore).key;
+
+  if(previousKey===current.key){
+    state.stakeholderThresholdState[key]=current.key;
+    return;
+  }
+
+  const old=STAKEHOLDER_THRESHOLDS.find(x=>x.key===previousKey);
+  state.stakeholderThresholdState[key]=current.key;
+  const worsened=old ? current.min<old.min : false;
+  const improved=old ? current.min>old.min : false;
+
+  if(worsened){
+    const messages={
+      fans:{
+        unhappy:"SUPPORTER CONCERN: Fan happiness has fallen below 40%. Home attendance is now likely to decline.",
+        veryUnhappy:"SUPPORTER UNREST: Fan happiness has fallen below 25%. Home-match protests are now possible.",
+        crisis:"SUPPORTER CRISIS: Fan happiness is below 10%. Severe attendance and reputation damage are possible."
+      },
+      owners:{
+        unhappy:"BOARD SCRUTINY: Owner confidence has fallen below 40%. The board is increasing scrutiny of the CEO.",
+        veryUnhappy:"CEO UNDER PRESSURE: Owner confidence is below 25%. Your position is now at risk.",
+        crisis:"CEO CRISIS: Owner confidence is below 10%. Dismissal is a serious future risk."
+      },
+      players:{
+        unhappy:"DRESSING-ROOM CONCERN: Squad happiness has fallen below 40%. Individual unrest is more likely.",
+        veryUnhappy:"DRESSING-ROOM UNREST: Squad happiness is below 25%. Player exit requests may become more common.",
+        crisis:"DRESSING-ROOM CRISIS: Squad happiness is below 10%."
+      },
+      manager:{
+        unhappy:"MANAGER FRUSTRATION: Your relationship with the manager has fallen below 40%.",
+        veryUnhappy:"MANAGER FUTURE: Manager happiness is below 25%. They may begin to question their future.",
+        crisis:"MANAGER RELATIONSHIP CRISIS: Happiness is below 10%. A resignation risk is now active."
+      },
+      sponsors:{
+        unhappy:"SPONSOR CONCERN: Sponsor happiness has fallen below 40%. Future renewal terms may suffer.",
+        veryUnhappy:"COMMERCIAL WARNING: Sponsor happiness is below 25%. Extra commercial opportunities may be withdrawn.",
+        crisis:"SPONSOR CRISIS: Sponsor happiness is below 10%. Early termination risk is now active."
+      }
+    };
+    const msg=messages[key]?.[current.key];
+    if(msg) addNews(msg);
+  }else if(improved && current.min>=40){
+    addNews(`${STAKEHOLDER_LABELS[key].toUpperCase()}: Relationship has recovered to ${current.label.toLowerCase()} (${Math.round(now)}%).`);
+  }
+}
+
+function stakeholderChange(key,delta,reason,{notify=true,save=false,render=false}={}){
+  ensureStakeholderState();
+  if(!STAKEHOLDER_GROUPS.includes(key)) return null;
+  const before=stakeholderValue(key);
+  const after=clamp(before+Number(delta||0),0,100);
+  state.happiness[key]=after;
+  const actual=after-before;
+  if(actual) addStakeholderHistory(key,actual,reason,"decision");
+  updateStakeholderMeta();
+  if(notify) notifyStakeholderThresholdChange(key,before);
+  if(save && typeof saveGame==="function") saveGame(false);
+  if(render && typeof renderDashboard==="function") renderDashboard();
+  return after;
+}
+
+function stakeholderDecision(effects,reason,options={}){
+  Object.entries(effects||{}).forEach(([key,delta])=>stakeholderChange(key,delta,reason,{...options,save:false,render:false}));
+  updateStakeholderMeta();
+  if(options.save && typeof saveGame==="function") saveGame(false);
+  if(options.render && typeof renderDashboard==="function") renderDashboard();
+}
+
+function averageHomeOccupancy(){
+  const stats=state.matchdayStats;
+  const stadium=STADIUMS?.[state.club];
+  if(!stats?.homeGames || !stadium?.capacity) return null;
+  return (stats.attendance/stats.homeGames)/stadium.capacity;
+}
+
+function recentFanProtest(){
+  ensureStakeholderState();
+  const date=state.stakeholderMeta.lastFanProtestDate;
+  if(!date) return false;
+  return dateDiffDays(date,currentGameDateISO())<=60;
+}
+
+function fanAttendanceMultiplier(){
+  const fans=stakeholderValue("fans");
+  if(fans>=40) return 1;
+  if(fans>=25) return 0.90+((fans-25)/15)*0.09;
+  if(fans>=10) return 0.78+((fans-10)/15)*0.11;
+  return 0.62+(fans/10)*0.16;
+}
+
+function savedClubReputation(club=state.club){
+  ensureStakeholderState();
+  return state.clubReputationOverrides?.[club] ?? byClub(club)?.reputation ?? 70;
+}
+
+function setSavedClubReputation(value,club=state.club){
+  ensureStakeholderState();
+  const v=clamp(Math.round(value),50,99);
+  state.clubReputationOverrides[club]=v;
+  const c=byClub(club);
+  if(c) c.reputation=v;
+  return v;
+}
+
+function applySavedClubReputations(){
+  if(!state?.clubReputationOverrides) return;
+  Object.entries(state.clubReputationOverrides).forEach(([club,rep])=>{
+    const c=byClub(club);
+    if(c) c.reputation=rep;
+  });
+}
+
+function processFanProtestAfterHomeMatch(matchDate=currentGameDateISO()){
+  ensureStakeholderState();
+  const fans=stakeholderValue("fans");
+  if(fans>=25) return false;
+
+  const last=state.stakeholderMeta.lastFanProtestDate;
+  if(last && dateDiffDays(last,matchDate)<21) return false;
+
+  const chance=fans<10?0.50:0.22;
+  if(Math.random()>=chance) return false;
+
+  state.stakeholderMeta.lastFanProtestDate=matchDate;
+  state.stakeholderMeta.fanProtests=(state.stakeholderMeta.fanProtests||0)+1;
+  setSavedClubReputation(savedClubReputation()-1);
+  stakeholderDecision({
+    sponsors:-6,
+    owners:-4,
+    players:-1
+  },"Supporter protest at a home match",{notify:true});
+
+  addNews("SUPPORTER PROTEST: Fans protested against the club's leadership at the home match. Club reputation has fallen and commercial partners are unhappy.");
+  return true;
+}
+
+function stakeholderMoodExplanation(key,score){
+  const band=stakeholderBand(score);
+  const copy={
+    fans:{
+      veryHappy:"Support is strong and demand is resilient.",
+      happy:"Supporters are broadly positive.",
+      neutral:"Support is mixed; no major behavioural effect.",
+      unhappy:"Attendances begin to soften and criticism increases.",
+      veryUnhappy:"Protests can occur and commercial partners become concerned.",
+      crisis:"Hostile supporter mood; severe attendance and reputation risk."
+    },
+    owners:{
+      veryHappy:"The CEO has strong board backing.",
+      happy:"The board is broadly satisfied.",
+      neutral:"The board is monitoring performance.",
+      unhappy:"Scrutiny is increasing.",
+      veryUnhappy:"The CEO is under serious pressure.",
+      crisis:"The CEO's position is in immediate danger."
+    },
+    players:{
+      veryHappy:"Dressing-room morale is excellent.",
+      happy:"The squad is settled.",
+      neutral:"Morale is mixed but manageable.",
+      unhappy:"Individual dissatisfaction becomes more likely.",
+      veryUnhappy:"Player unrest and exit requests become much more likely.",
+      crisis:"The dressing room is in crisis."
+    },
+    manager:{
+      veryHappy:"The manager strongly supports club leadership.",
+      happy:"The working relationship is healthy.",
+      neutral:"The relationship is functional.",
+      unhappy:"The manager is frustrated with club leadership.",
+      veryUnhappy:"The manager may question their future.",
+      crisis:"A breakdown in the relationship is possible."
+    },
+    sponsors:{
+      veryHappy:"Commercial partners are enthusiastic about the relationship.",
+      happy:"The sponsor relationship is healthy.",
+      neutral:"The relationship is stable.",
+      unhappy:"Future renewal value may weaken.",
+      veryUnhappy:"Commercial warnings and fewer extra opportunities are likely.",
+      crisis:"Early termination risk is active if poor conditions persist."
+    }
+  };
+  return copy[key]?.[band.key]||band.label;
+}
+
+// Public foundation for later decision/random-event systems.
+globalThis.FootballCEOStakeholders={
+  groups:[...STAKEHOLDER_GROUPS],
+  thresholds:STAKEHOLDER_THRESHOLDS.map(x=>({...x})),
+  ensure:ensureStakeholderState,
+  getValue:stakeholderValue,
+  getBand:key=>stakeholderBand(stakeholderValue(key)),
+  change:stakeholderChange,
+  decision:stakeholderDecision,
+  attendanceMultiplier:fanAttendanceMultiplier
+};
+
 function updateStakeholderDrivers(){
   if(!state) return;
-  if(!state.happinessDrivers) state.happinessDrivers={fans:[],owners:[],players:[],manager:[]};
+  ensureStakeholderState();
+
   const pos=clubLeaguePosition(state.club);
   const target=byClub(state.club).target||10;
   const ppg=recentPointsPerGame();
   const priceP=pricingPressure();
 
-  // FANS
   const fans=[];
   if(state.form?.length){
     if(ppg>=2.2) fans.push({label:"Excellent recent form",value:4});
@@ -493,83 +788,115 @@ function updateStakeholderDrivers(){
     else if(ppg<=0.8) fans.push({label:"Poor recent form",value:-4});
     else if(ppg<=1.2) fans.push({label:"Underwhelming recent form",value:-2});
   }
-
   if(state.week>=5){
     if(pos<=Math.max(1,target-2)) fans.push({label:"Above league expectation",value:3});
     else if(pos>=Math.min(20,target+4)) fans.push({label:"Below league expectation",value:-4});
   }
-
-  // High prices are tolerated more when results are strong, but backlash accelerates when form drops.
   if(priceP>0.22){
-    const v=ppg>=2.0?-1:ppg>=1.4?-3:-6;
-    fans.push({label:"Very high supporter pricing",value:v});
+    fans.push({label:"Very high supporter pricing",value:ppg>=2.0?-1:ppg>=1.4?-3:-6});
   }else if(priceP>0.10){
-    const v=ppg>=2.0?0:ppg>=1.3?-2:-4;
-    fans.push({label:"High supporter pricing",value:v});
+    fans.push({label:"High supporter pricing",value:ppg>=2.0?0:ppg>=1.3?-2:-4});
   }else if(priceP<-0.12){
     fans.push({label:"Supporter-friendly pricing",value:2});
   }
-
   if(state.sponsorship?.fanOpposed) fans.push({label:"Controversial sponsorship",value:-4});
-
-  // Transfer hooks already work if future transfer code records events here.
   (state.transferSentiment?.fans||[]).slice(-2).forEach(x=>fans.push(x));
   state.happinessDrivers.fans=fans;
 
-  // OWNERS
   const owners=[];
   const seasonPL=state.seasonPL||0;
-  const expectedTolerance=state.ownerProfile?.lossTolerance ?? 15_000_000;
+  const expectedTolerance=state.ownerProfile?.lossTolerance??15_000_000;
   if(seasonPL>5_000_000) owners.push({label:"Healthy season profit",value:4});
   else if(seasonPL>0) owners.push({label:"Club in profit",value:2});
-  else if(seasonPL < -expectedTolerance*1.5) owners.push({label:"Losses exceed owner tolerance",value:-6});
-  else if(seasonPL < -expectedTolerance) owners.push({label:"Financial losses",value:-4});
-  else if(seasonPL < 0) owners.push({label:"Manageable operating loss",value:-1});
-
+  else if(seasonPL<-expectedTolerance*1.5) owners.push({label:"Losses exceed owner tolerance",value:-6});
+  else if(seasonPL<-expectedTolerance) owners.push({label:"Financial losses",value:-4});
+  else if(seasonPL<0) owners.push({label:"Manageable operating loss",value:-1});
   if((state.staffSpend||0)>10_000_000) owners.push({label:"High staff compensation costs",value:-2});
   (state.transferSentiment?.owners||[]).slice(-2).forEach(x=>owners.push(x));
   state.happinessDrivers.owners=owners;
 
-  // PLAYERS
   const players=[];
   const wageFairness=squadWageFairness();
   if(wageFairness>0.82) players.push({label:"Fair wage structure",value:3});
   else if(wageFairness<0.55) players.push({label:"Perceived wage unfairness",value:-4});
-
   const managerChanges=state.managerChangesThisSeason||0;
   if(managerChanges===0) players.push({label:"Managerial stability",value:2});
   else if(managerChanges===1) players.push({label:"Recent manager change",value:-2});
   else players.push({label:"Managerial instability",value:-5});
-
-  const trainingRating=typeof facilityRating==="function" ? facilityRating("training") : Math.round(byClub(state.club).reputation-4);
+  const trainingRating=typeof facilityRating==="function"?facilityRating("training"):Math.round(byClub(state.club).reputation-4);
   const squadStandard=Math.round(strength(state.club));
   const facilityGap=trainingRating-squadStandard;
   if(facilityGap>=3) players.push({label:"Excellent training facilities",value:2});
   else if(facilityGap<=-8) players.push({label:"Training facilities below squad standard",value:-4});
   else if(facilityGap<=-4) players.push({label:"Training facilities need improvement",value:-2});
-
   state.happinessDrivers.players=players;
 
-  // MANAGER
   const manager=[];
-  const backing=state.managerBacking ?? 70;
+  const backing=state.managerBacking??70;
   if(backing>=80) manager.push({label:"Strong board backing",value:4});
   else if(backing>=65) manager.push({label:"Board support",value:2});
   else if(backing<45) manager.push({label:"Feels unsupported",value:-5});
   else if(backing<60) manager.push({label:"Wants more backing",value:-2});
-
-  // Off-pitch fan anger bleeds into manager relationship.
   const offPitchFanNeg=fans.filter(x=>["Very high supporter pricing","High supporter pricing","Controversial sponsorship"].includes(x.label)).reduce((s,x)=>s+x.value,0);
   if(offPitchFanNeg<=-6) manager.push({label:"Fan anger creating pressure",value:-3});
   else if(offPitchFanNeg<=-3) manager.push({label:"Supporter tension",value:-1});
-
-  // Underperformance makes supporters want manager out; this creates an opposite pressure on CEO/manager relationship.
-  if(state.week>=6 && pos>=target+5 && ppg<1.1){
-    manager.push({label:"Under pressure from supporters",value:-3});
-  }
-
+  if(state.week>=6 && pos>=target+5 && ppg<1.1) manager.push({label:"Under pressure from supporters",value:-3});
   (state.transferSentiment?.manager||[]).slice(-2).forEach(x=>manager.push(x));
   state.happinessDrivers.manager=manager;
+
+  const sponsors=[];
+  if(!state.sponsorship){
+    sponsors.push({label:"No active main sponsor",value:-1});
+  }else{
+    if(state.sponsorship.fanOpposed) sponsors.push({label:"Sponsor unpopular with supporters",value:-3});
+    else sponsors.push({label:"Sponsor accepted by supporters",value:1});
+
+    if(state.week>=5){
+      if(pos<=Math.max(1,target-2)) sponsors.push({label:"Strong league exposure",value:3});
+      else if(pos>=Math.min(20,target+4)) sponsors.push({label:"Poor league performance",value:-3});
+    }
+
+    const rep=savedClubReputation();
+    if(rep>=88) sponsors.push({label:"Elite club profile",value:2});
+    else if(rep<72) sponsors.push({label:"Limited national profile",value:-1});
+
+    const occupancy=averageHomeOccupancy();
+    if(occupancy!=null){
+      if(occupancy>=0.95) sponsors.push({label:"Excellent home attendances",value:2});
+      else if(occupancy<0.75) sponsors.push({label:"Weak home attendances",value:-3});
+      else if(occupancy<0.85) sponsors.push({label:"Soft home attendances",value:-1});
+    }
+
+    if(recentFanProtest()) sponsors.push({label:"Recent supporter protest",value:-3});
+  }
+  state.happinessDrivers.sponsors=sponsors;
+
+  // Cross-stakeholder relationships. These are pressures, not immediate jumps.
+  const fanScore=stakeholderValue("fans");
+  const ownerScore=stakeholderValue("owners");
+  const playerScore=stakeholderValue("players");
+  const managerScore=stakeholderValue("manager");
+  const sponsorScore=stakeholderValue("sponsors");
+
+  if(fanScore<25){
+    state.happinessDrivers.sponsors.push({label:"Severe supporter unrest",value:-5});
+    state.happinessDrivers.owners.push({label:"Supporter unrest",value:-3});
+  }else if(fanScore<40){
+    state.happinessDrivers.sponsors.push({label:"Weak supporter sentiment",value:-3});
+    state.happinessDrivers.owners.push({label:"Supporter dissatisfaction",value:-1});
+  }else if(fanScore>=80){
+    state.happinessDrivers.sponsors.push({label:"Strong supporter sentiment",value:2});
+  }
+
+  if(managerScore<25) state.happinessDrivers.players.push({label:"Unsettled manager relationship",value:-3});
+  else if(managerScore>=80) state.happinessDrivers.players.push({label:"Stable football leadership",value:1});
+
+  if(playerScore<25) state.happinessDrivers.manager.push({label:"Dressing-room unrest",value:-3});
+
+  if(sponsorScore<25) state.happinessDrivers.owners.push({label:"Commercial partner concern",value:-2});
+  else if(sponsorScore>=80) state.happinessDrivers.owners.push({label:"Strong commercial relationships",value:1});
+
+  if(ownerScore<25) state.happinessDrivers.manager.push({label:"Board instability",value:-2});
 }
 
 
@@ -583,23 +910,28 @@ function applyHappinessDelta(current,delta){
 }
 
 function applyStakeholderHappiness(){
+  ensureStakeholderState();
   updateStakeholderDrivers();
-  const groups=["fans","owners","players","manager"];
-  groups.forEach(key=>{
-    const drivers=state.happinessDrivers[key]||[];
-    let total=drivers.reduce((s,d)=>s+d.value,0);
+  const before={};
+  STAKEHOLDER_GROUPS.forEach(key=>before[key]=stakeholderValue(key));
 
-    // Happiness moves gradually toward pressure rather than jumping wildly every week.
+  STAKEHOLDER_GROUPS.forEach(key=>{
+    const total=(state.happinessDrivers[key]||[]).reduce((s,d)=>s+(d.value||0),0);
     let delta=0;
     if(total>=6) delta=2;
     else if(total>=2) delta=1;
     else if(total<=-6) delta=-2;
     else if(total<=-2) delta=-1;
-
-    state.happiness[key]=clamp((state.happiness[key]??70)+delta,0,100);
+    if(delta) state.happiness[key]=clamp(stakeholderValue(key)+delta,0,100);
   });
 
-  // Fan dissatisfaction with football performance can create sack pressure.
+  STAKEHOLDER_GROUPS.forEach(key=>{
+    const delta=stakeholderValue(key)-before[key];
+    if(delta) addStakeholderHistory(key,delta,strongestStakeholderDriver(key),"weekly pressure");
+    notifyStakeholderThresholdChange(key,before[key]);
+  });
+  updateStakeholderMeta();
+
   const pos=clubLeaguePosition(state.club);
   const target=byClub(state.club).target||10;
   if(state.week>=8 && pos>=target+5 && state.happiness.fans<55 && state.staff?.manager){
@@ -632,24 +964,29 @@ function pricingDemand(){
 }
 
 function projectedMatchday(){
+  ensureStakeholderState();
   const stadium=STADIUMS[state.club];
-  const demand=pricingDemand();
+  const pricingOnlyDemand=pricingDemand();
+  const fanMultiplier=fanAttendanceMultiplier();
+  const demand=clamp(pricingOnlyDemand*fanMultiplier,0,1);
   const attendance=Math.round(stadium.capacity*demand);
 
-  // Simplified crowd composition.
   const adult=Math.round(attendance*0.76);
   const concessions=attendance-adult;
   const hospitalitySeats=Math.round(stadium.capacity*0.045);
-  const hospitalitySold=Math.min(hospitalitySeats,Math.round(hospitalitySeats*clamp(1.06-(state.pricing.hospitality/recommendedPricing(state.club).hospitality-1)*0.45,0.55,1)));
+  const hospitalitySold=Math.min(
+    hospitalitySeats,
+    Math.round(hospitalitySeats*clamp(1.06-(state.pricing.hospitality/recommendedPricing(state.club).hospitality-1)*0.45,0.55,1)*fanMultiplier)
+  );
   const generalAttendance=Math.max(0,attendance-hospitalitySold);
 
   const ticketRevenue=(Math.round(generalAttendance*0.76)*state.pricing.ticket)+
                       (Math.round(generalAttendance*0.24)*state.pricing.concession);
   const hospitalityRevenue=hospitalitySold*state.pricing.hospitality;
-  const foodTake=attendance*state.pricing.food*0.68; // not every attendee buys a full basket
+  const foodTake=attendance*state.pricing.food*0.68;
   const revenue=Math.round(ticketRevenue+hospitalityRevenue+foodTake);
 
-  return {demand,attendance,revenue,hospitalitySold};
+  return {demand,pricingOnlyDemand,fanHappinessAttendanceMultiplier:fanMultiplier,attendance,revenue,hospitalitySold};
 }
 
 
@@ -1115,7 +1452,7 @@ function createCareer(club){
     week:0,
     budget:c.transferBudget,
     wageBudget:c.wageBudget,
-    happiness:{fans:74,owners:72,players:76,manager:80},
+    happiness:{fans:74,owners:72,players:76,manager:80,sponsors:70},
     staff:staffInitialForClub(club),
     staffAssignments:null,
     injuries:{},
@@ -1137,11 +1474,16 @@ function createCareer(club){
     transferSentiment:{fans:[],owners:[],players:[],manager:[]},
     transferFinance:{spent:0,received:0},
     aiClubFinances:{},
-    happinessDrivers:{fans:[],owners:[],players:[],manager:[]},
+    happinessDrivers:{fans:[],owners:[],players:[],manager:[],sponsors:[]},
+    stakeholderHistory:{fans:[],owners:[],players:[],manager:[],sponsors:[]},
+    stakeholderThresholdState:{fans:"happy",owners:"happy",players:"happy",manager:"veryHappy",sponsors:"happy"},
+    stakeholderMeta:{fanProtests:0,lastFanProtestDate:null,sponsorTerminationRisk:false,managerResignationRisk:false,playerUnrestRisk:false,ceoJobStatus:"Secure"},
+    clubReputationOverrides:{},
     seasonPL:0,
     pricing:defaultPricing(club),
     seasonTicketDiscount:15,
     pricingLocked:false,
+    tutorialSeen:false,
     sponsorship:null,
     sponsorOffers:[],
     clubHistory:{recentFinishes:[Math.min(20,c.target+1),c.target]},
@@ -1190,15 +1532,19 @@ function enterGame(){
   if(!state.transferFinance) state.transferFinance={spent:0,received:0};
   if(!state.aiClubFinances) state.aiClubFinances={};
   if(typeof ensureAIClubFinances==="function") ensureAIClubFinances();
-  if(!state.happinessDrivers) state.happinessDrivers={fans:[],owners:[],players:[],manager:[]};
+  ensureStakeholderState();
   if(!state.pricing) state.pricing=defaultPricing(state.club);
   if(state.seasonTicketDiscount==null) state.seasonTicketDiscount=15;
   if(state.pricingLocked==null) state.pricingLocked=false;
+  if(state.tutorialSeen==null) state.tutorialSeen=true;
   if(!state.matchdayStats) state.matchdayStats={revenue:0,attendance:0,homeGames:0};
   if(!state.season) state.season={year:2025,label:"2025/26",number:1,phase:"preseason"};
   if(!state.season.phase) state.season.phase=state.seasonComplete?"complete":(state.week>0?"season":"preseason");
   if(!state.season.label) state.season.label=`${state.season.year}/${String((state.season.year+1)%100).padStart(2,"0")}`;
   ensureCalendarState();
+  ensureStakeholderState();
+  applySavedClubReputations();
+  updateStakeholderMeta();
   if(!state.careerHistory) state.careerHistory={seasons:[]};
   if(!state.scrHistory) state.scrHistory=[];
   if(state.seasonComplete==null) state.seasonComplete=false;
@@ -1211,7 +1557,10 @@ function enterGame(){
   showTab("dashboard");
   renderAll();
   updateSaveStatus();
-  if(!state.pricingLocked) openSeasonSetup();
+  if(!state.pricingLocked){
+    if(state.tutorialSeen===false) openTutorial(true);
+    else openSeasonSetup();
+  }
 }
 
 let storageAvailable=true;
@@ -1751,14 +2100,27 @@ function renderDashboard(){
     ? `Off-season • ${formatGameDate(currentGameDateISO(),{weekday:false})}`
     : `${formatGameDate(currentGameDateISO())}${state.week?` • After MW ${state.week}`:" • Pre-season"}`;
 
+  ensureStakeholderState();
+  updateStakeholderMeta();
   const people=[
-    ["Fans","fans"],["Owners","owners"],["Players","players"],["Manager","manager"]
+    ["Fans","fans"],["Owners","owners"],["Players","players"],["Manager","manager"],["Sponsors","sponsors"]
   ];
   q("happinessCards").innerHTML=people.map(([label,key])=>{
-    const v=Math.max(0,Math.min(100,state.happiness[key]));
-    return `<div class="happy-card">
-      <div class="happy-top"><span>${label}</span><span class="happy-value">${v}%</span></div>
+    const v=stakeholderValue(key);
+    const band=stakeholderBand(v);
+    const drivers=(state.happinessDrivers[key]||[]).slice(0,4);
+    const recent=(state.stakeholderHistory[key]||[]).slice(0,3);
+    return `<div class="happy-card stakeholder-card">
+      <div class="happy-top"><span>${label}</span><span class="happy-value">${Math.round(v)}%</span></div>
+      <div class="stakeholder-mood">${band.label}</div>
       <div class="happy-bar"><span style="width:${v}%"></span></div>
+      <div class="happiness-explainer">${stakeholderMoodExplanation(key,v)}</div>
+      <div class="driver-list">
+        ${drivers.length?drivers.map(d=>`<div class="driver"><span>${d.label}</span><span class="delta ${d.value>0?"pos":d.value<0?"neg":"neu"}">${d.value>0?"+":""}${d.value}</span></div>`).join(""):`<div class="happiness-explainer">No major current pressure.</div>`}
+      </div>
+      ${recent.length?`<div class="stakeholder-history"><div class="stakeholder-history-title">Recent changes</div>${recent.map(h=>`<div class="driver"><span>${h.reason}</span><span class="delta ${h.delta>0?"pos":"neg"}">${h.delta>0?"+":""}${h.delta}</span></div>`).join("")}</div>`:""}
+      ${key==="owners"?`<div class="stakeholder-status-line">CEO status: <b>${state.stakeholderMeta.ceoJobStatus}</b></div>`:""}
+      ${key==="sponsors"&&state.stakeholderMeta.sponsorTerminationRisk?`<div class="stakeholder-status-line bad"><b>Early termination risk active</b></div>`:""}
     </div>`;
   }).join("");
 
@@ -2257,8 +2619,9 @@ function simulateFixtureRound(round){
     state.seasonPL+=netHomeIncome;
 
     const fanPriceEffect=pricingFanEffect();
-    state.happiness.fans=clamp(state.happiness.fans+fanPriceEffect,0,100);
+    if(fanPriceEffect) stakeholderChange("fans",fanPriceEffect,"Matchday pricing experience",{notify:true});
     addNews(`${md.attendance.toLocaleString("en-GB")} supporters attended the home match, generating ${money(md.revenue)} in matchday revenue.`);
+    processFanProtestAfterHomeMatch(round.date);
   }
 
   if(!state.monthlyResults) state.monthlyResults=[];
@@ -2332,7 +2695,7 @@ function renderSeasonSummary(){
   q("summarySeasonTitle").textContent=`${a.season} Season Review`; q("summaryClubName").textContent=a.club; q("summaryFinish").textContent=ordinal(a.leagueFinish); q("summaryLeagueFinish").textContent=ordinal(a.leagueFinish);
   q("summaryRecord").textContent=`${a.record.w}W • ${a.record.d}D • ${a.record.l}L`; q("summaryProfitLoss").textContent=money(a.seasonProfitLoss); q("summaryProfitLoss").className="v "+(a.seasonProfitLoss>0?"good":a.seasonProfitLoss<0?"bad":"");
   q("summaryTransferPL").textContent=money(a.transferPL); q("summaryTransferPL").className="v "+(a.transferPL>0?"good":a.transferPL<0?"bad":""); q("summarySCR").textContent=a.scr?`${(a.scr.ratio*100).toFixed(1)}% ${a.scr.status}`:"—"; q("summaryTopScorer").textContent=a.topScorer?`${a.topScorer.name} • ${a.topScorer.goals}`:"—";
-  q("summaryStakeholders").innerHTML=[["Fans",a.stakeholders.fans],["Owners",a.stakeholders.owners],["Players",a.stakeholders.players],["Manager",a.stakeholders.manager]].map(([label,value])=>`<div class="summary-stakeholder"><div style="display:flex;justify-content:space-between"><span>${label}</span><b>${Math.round(value)}%</b></div><div class="happy-bar"><span style="width:${Math.max(0,Math.min(100,value))}%"></span></div></div>`).join("");
+  q("summaryStakeholders").innerHTML=[["Fans",a.stakeholders.fans],["Owners",a.stakeholders.owners],["Players",a.stakeholders.players],["Manager",a.stakeholders.manager],["Sponsors",a.stakeholders.sponsors??70]].map(([label,value])=>`<div class="summary-stakeholder"><div style="display:flex;justify-content:space-between"><span>${label}</span><b>${Math.round(value)}%</b></div><div class="happy-bar"><span style="width:${Math.max(0,Math.min(100,value))}%"></span></div></div>`).join("");
   q("summarySeasonNumber").textContent=`Season ${a.seasonNumber}`; q("summarySeasonNotes").innerHTML=`<div class="notice"><b>League:</b> ${ordinal(a.leagueFinish)} place.</div><div class="notice"><b>Financial:</b> ${money(a.seasonProfitLoss)} season P/L; ${money(a.transferPL)} transfer P/L.</div><div class="notice"><b>SCR:</b> ${a.scr?`${(a.scr.ratio*100).toFixed(1)}% — ${a.scr.status}`:"Unavailable"}.</div>`;
   q("seasonSummary").classList.remove("hide"); state.seasonSummaryViewed=true; saveGame(false);
 }
@@ -2362,7 +2725,13 @@ function nextSeasonBudgetForUser(a){
 function resetAIClubFinancesForNewSeason(){
   if(typeof ensureAIClubFinances!=="function")return; const old=state.aiClubFinances||{}; state.aiClubFinances={}; ensureAIClubFinances(); Object.entries(state.aiClubFinances).forEach(([club,f])=>{const prev=old[club];if(prev)f.transferBudget+=Math.max(0,prev.transferBudget||0)*.15;});
 }
-function updateReputationFromSeason(finish){ const c=byClub(state.club); if(!c)return; const target=c.target||10; let d=finish<=target-3?2:finish<=target-1?1:finish>=target+5?-2:finish>=target+3?-1:0; c.reputation=clamp((c.reputation||70)+d,60,99); }
+function updateReputationFromSeason(finish){
+  const c=byClub(state.club);
+  if(!c)return;
+  const target=c.target||10;
+  const d=finish<=target-3?2:finish<=target-1?1:finish>=target+5?-2:finish>=target+3?-1:0;
+  setSavedClubReputation(savedClubReputation()+d);
+}
 
 function processFacilityYearEnd(){
   if(!state.facilities) return;
@@ -2797,25 +3166,32 @@ function adjustSetupPrice(key,step){
 
 function confirmSeasonSetup(){
   if(!selectedSponsorId) return;
+  ensureStakeholderState();
   state.seasonTicketDiscount=Number(q("seasonTicketDiscount").value);
-  const chosen=state.sponsorship ? null : state.sponsorOffers.find(s=>s.id===selectedSponsorId);
-  if(chosen) state.sponsorship={...chosen,seasonsRemaining:chosen.years};
-
-  if(chosen?.fanOpposed){
-    state.happiness.fans=clamp(state.happiness.fans-3,0,100);
-    addNews(`Supporters have criticised the club's new sponsorship agreement with ${chosen.name}.`);
-  }else if(chosen){
-    state.happiness.fans=clamp(state.happiness.fans+1,0,100);
-    addNews(`${chosen.name} has been announced as the club's main sponsor.`);
-  }
+  const chosen=state.sponsorship?null:state.sponsorOffers.find(s=>s.id===selectedSponsorId);
 
   if(chosen){
+    state.sponsorship={...chosen,seasonsRemaining:chosen.years};
+
+    // This only happens when a NEW agreement is signed. Multi-year sponsors retain
+    // their relationship score across summers instead of resetting every season.
+    if(chosen.fanOpposed){
+      stakeholderDecision({fans:-3,sponsors:-6},"New sponsor is unpopular with supporters",{notify:true});
+      addNews(`Supporters have criticised the club's new sponsorship agreement with ${chosen.name}.`);
+    }else{
+      stakeholderDecision({fans:+1,sponsors:+2},"Positive launch of new sponsorship agreement",{notify:true});
+      addNews(`${chosen.name} has been announced as the club's main sponsor.`);
+    }
+
     const avgOffer=state.sponsorOffers.reduce((s,x)=>s+x.annualValue,0)/Math.max(1,state.sponsorOffers.length);
-    if(chosen.annualValue>avgOffer*1.08) state.happiness.owners=clamp(state.happiness.owners+2,0,100);
+    if(chosen.annualValue>avgOffer*1.08){
+      stakeholderChange("owners",+2,"Strong commercial value from new sponsorship",{notify:true});
+    }
   }
 
   state.pricingLocked=true;
   updateStakeholderDrivers();
+  updateStakeholderMeta();
   q("seasonSetup").classList.add("hide");
   saveGame(false);
   renderAll();
@@ -2987,10 +3363,14 @@ function hireStaff(role,name){
   state.seasonPL-=fee;
 
   if(role==="manager"){
+    const oldManagerHappiness=stakeholderValue("manager");
     state.happiness.manager=75;
+    addStakeholderHistory("manager",75-oldManagerHappiness,`Appointment of ${candidate.name}`,"decision");
+    notifyStakeholderThresholdChange("manager",oldManagerHappiness);
+    updateStakeholderMeta();
     state.managerBacking=70;
     state.managerChangesThisSeason=(state.managerChangesThisSeason||0)+1;
-    state.happiness.players=clamp(state.happiness.players+(candidate.rating-(old?.rating||70)>=5?2:0),0,100);
+    if(candidate.rating-(old?.rating||70)>=5) stakeholderChange("players",2,"High-quality managerial appointment",{notify:true});
     addNews(`${candidate.name} has been appointed manager${fee?` after ${money(fee)} compensation was paid`:""}.`);
   }else if(role==="dof"){
     addNews(`${candidate.name} has joined as Director of Football.`);
@@ -3019,11 +3399,14 @@ function fireStaff(role){
     state.staffAssignments.managers[state.club]="Caretaker Manager";
     state.staff.manager=null;
     if(state.managerTactics) delete state.managerTactics[state.club];
+    const oldManagerHappiness=stakeholderValue("manager");
     state.happiness.manager=35;
+    addStakeholderHistory("manager",35-oldManagerHappiness,`Dismissal of ${person.name}`,"decision");
+    notifyStakeholderThresholdChange("manager",oldManagerHappiness);
+    updateStakeholderMeta();
     state.managerChangesThisSeason=(state.managerChangesThisSeason||0)+1;
     state.managerBacking=40;
-    state.happiness.players=clamp(state.happiness.players-3,0,100);
-    state.happiness.fans=clamp(state.happiness.fans-1,0,100);
+    stakeholderDecision({players:-3,fans:-1},`Dismissal of ${person.name}`,{notify:true});
   }else{
     state.staff[role]=null;
   }
@@ -3035,6 +3418,152 @@ function fireStaff(role){
   renderFinances();
 }
 
+
+
+let tutorialPage=0;
+let tutorialIsFirstRun=false;
+
+const TUTORIAL_PAGES=[
+  {
+    kicker:"WELCOME TO THE BOARDROOM",
+    title:"You are the CEO",
+    icon:"CEO",
+    body:`
+      <p>You run the football club — but you are <b>not the manager</b>.</p>
+      <div class="tutorial-rule-grid">
+        <div class="tutorial-rule">
+          <span class="tutorial-rule-head">You control</span>
+          <b>Transfers, contracts, budgets, staff, facilities, pricing and sponsorship.</b>
+        </div>
+        <div class="tutorial-rule">
+          <span class="tutorial-rule-head">The manager controls</span>
+          <b>Tactics, formation and the team selected for every match.</b>
+        </div>
+      </div>
+      <p class="tutorial-callout">Your job is to build a successful club around the manager — and decide when to back them, challenge them or replace them.</p>
+    `
+  },
+  {
+    kicker:"EVERY DECISION HAS A COST",
+    title:"Keep five groups onside",
+    icon:"5",
+    body:`
+      <p>Your decisions affect <b>Fans, Owners, Players, the Manager and Sponsors</b>.</p>
+      <div class="tutorial-stakeholders">
+        <span>Fans</span><span>Owners</span><span>Players</span><span>Manager</span><span>Sponsors</span>
+      </div>
+      <p>A choice can make one group happy and upset another. Selling a star may please the Owners financially but anger the Fans. A lucrative sponsor may damage supporter sentiment.</p>
+      <p class="tutorial-callout"><b>Below 40%</b>, relationships begin to create problems. Severe fan unhappiness can reduce attendances and even trigger protests.</p>
+    `
+  },
+  {
+    kicker:"THE SEASON MOVES DAY BY DAY",
+    title:"You make decisions. Time does the rest.",
+    icon:"→",
+    body:`
+      <p><b>Continue</b> advances the calendar by one day. Transfers, injuries, finances, manager requests and fixtures all happen around that calendar.</p>
+      <div class="tutorial-rule-grid">
+        <div class="tutorial-rule">
+          <span class="tutorial-rule-head">Matchday</span>
+          <b>The manager chooses the XI automatically.</b>
+        </div>
+        <div class="tutorial-rule">
+          <span class="tutorial-rule-head">After the match</span>
+          <b>Review the formation, player ratings, goals and assists.</b>
+        </div>
+      </div>
+      <p>Use those lineups and season stats to understand who the manager actually trusts before making decisions on contracts and transfers.</p>
+    `
+  },
+  {
+    kicker:"YOUR FIRST DECISION",
+    title:"Set up the commercial side",
+    icon:"£",
+    body:`
+      <p>Pre-season starts with two CEO decisions: <b>matchday pricing</b> and your club's <b>main sponsor</b>.</p>
+      <div class="tutorial-rule-grid">
+        <div class="tutorial-rule">
+          <span class="tutorial-rule-head">Pricing</span>
+          <b>Higher prices can increase revenue, but supporters may react badly.</b>
+        </div>
+        <div class="tutorial-rule">
+          <span class="tutorial-rule-head">Sponsorship</span>
+          <b>Compare value, contract length and supporter reaction.</b>
+        </div>
+      </div>
+      <p class="tutorial-callout">These decisions are locked for the season, so choose the balance that fits how you want to run the club.</p>
+    `
+  }
+];
+
+function renderTutorialPage(){
+  const page=TUTORIAL_PAGES[tutorialPage]||TUTORIAL_PAGES[0];
+  if(q("tutorialKicker")) q("tutorialKicker").textContent=page.kicker;
+  if(q("tutorialTitle")) q("tutorialTitle").textContent=page.title;
+  if(q("tutorialIcon")) q("tutorialIcon").textContent=page.icon;
+  if(q("tutorialBody")) q("tutorialBody").innerHTML=page.body;
+  if(q("tutorialCounter")) q("tutorialCounter").textContent=`${tutorialPage+1} / ${TUTORIAL_PAGES.length}`;
+
+  const dots=q("tutorialDots");
+  if(dots){
+    dots.innerHTML=TUTORIAL_PAGES.map((_,i)=>`<span class="${i===tutorialPage?"active":""}"></span>`).join("");
+  }
+
+  const back=q("tutorialBackBtn");
+  if(back) back.disabled=tutorialPage===0;
+
+  const next=q("tutorialNextBtn");
+  if(next){
+    const last=tutorialPage===TUTORIAL_PAGES.length-1;
+    next.textContent=last?(tutorialIsFirstRun?"Start pre-season →":"Close"):"Next →";
+  }
+
+  const skip=q("tutorialSkipBtn");
+  if(skip) skip.classList.toggle("hide",!tutorialIsFirstRun);
+}
+
+function openTutorial(firstRun=false){
+  tutorialIsFirstRun=Boolean(firstRun);
+  tutorialPage=0;
+
+  // A new-career briefing must appear BEFORE commercial setup.
+  if(firstRun) q("seasonSetup")?.classList.add("hide");
+
+  renderTutorialPage();
+  q("tutorialModal")?.classList.remove("hide");
+  setModalScrollLock(true);
+}
+
+function closeTutorial({completeFirstRun=false}={}){
+  q("tutorialModal")?.classList.add("hide");
+  setModalScrollLock(false);
+
+  if(completeFirstRun && state){
+    state.tutorialSeen=true;
+    saveGame(false);
+    if(!state.pricingLocked) openSeasonSetup();
+  }
+  tutorialIsFirstRun=false;
+}
+
+function tutorialNext(){
+  if(tutorialPage<TUTORIAL_PAGES.length-1){
+    tutorialPage+=1;
+    renderTutorialPage();
+    return;
+  }
+  closeTutorial({completeFirstRun:tutorialIsFirstRun});
+}
+
+function tutorialBack(){
+  if(tutorialPage<=0) return;
+  tutorialPage-=1;
+  renderTutorialPage();
+}
+
+function skipTutorial(){
+  closeTutorial({completeFirstRun:true});
+}
 
 function init(){
   document.querySelectorAll(".club-card").forEach(card=>{
@@ -3048,6 +3577,14 @@ function init(){
   });
   document.querySelectorAll(".home-dashboard-btn").forEach(btn=>{
     btn.addEventListener("click",()=>showTab("dashboard"));
+  });
+  q("helpBtn")?.addEventListener("click",()=>openTutorial(false));
+  q("tutorialNextBtn")?.addEventListener("click",tutorialNext);
+  q("tutorialBackBtn")?.addEventListener("click",tutorialBack);
+  q("tutorialSkipBtn")?.addEventListener("click",skipTutorial);
+  q("tutorialCloseBtn")?.addEventListener("click",()=>{
+    if(tutorialIsFirstRun) skipTutorial();
+    else closeTutorial();
   });
   q("toggleInboxBtn")?.addEventListener("click",()=>{
     const inbox=q("inbox");

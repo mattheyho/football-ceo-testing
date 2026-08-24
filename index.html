@@ -365,6 +365,7 @@
   <button class="icon-btn home-dashboard-btn" type="button" aria-label="Dashboard">⌂</button>
   <div class="game-brand">FOOTBALL <span>CEO</span></div>
   <div class="game-top-actions">
+    <button class="icon-btn" id="helpBtn" type="button" aria-label="How to play">?</button>
     <button class="icon-btn" type="button" onclick="saveGame()" aria-label="Save career">✓</button>
     <button class="icon-btn" type="button" onclick="openSaveManager()" aria-label="Manage saves">▣</button>
     <button class="icon-btn danger-icon" type="button" onclick="newCareer()" aria-label="Return to careers">↺</button>
@@ -699,6 +700,35 @@
 <script src="simulation.js"></script>
 <script src="ui.js"></script>
 <script src="game.js"></script>
+
+
+<div id="tutorialModal" class="tutorial-overlay hide">
+  <div class="tutorial-card">
+    <div class="tutorial-top">
+      <div>
+        <div class="eyebrow" id="tutorialKicker">WELCOME TO THE BOARDROOM</div>
+        <div id="tutorialCounter" class="tutorial-counter">1 / 4</div>
+      </div>
+      <button id="tutorialCloseBtn" class="close-x" type="button" aria-label="Close tutorial">×</button>
+    </div>
+
+    <div class="tutorial-scroll">
+      <div id="tutorialIcon" class="tutorial-icon">CEO</div>
+      <h2 id="tutorialTitle">You are the CEO</h2>
+      <div id="tutorialBody" class="tutorial-body"></div>
+    </div>
+
+    <div class="tutorial-footer">
+      <div id="tutorialDots" class="tutorial-dots" aria-hidden="true"></div>
+      <div class="tutorial-actions">
+        <button id="tutorialSkipBtn" class="btn secondary" type="button">Skip briefing</button>
+        <button id="tutorialBackBtn" class="btn secondary" type="button" disabled>← Back</button>
+        <button id="tutorialNextBtn" class="btn primary" type="button">Next →</button>
+      </div>
+    </div>
+  </div>
+</div>
+
 
 <div id="seasonSetup" class="setup-overlay hide">
   <div class="setup-card">

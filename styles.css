@@ -1020,3 +1020,116 @@ html.modal-open,body.modal-open{overflow:hidden!important;height:100%!important}
 
 /* Player profiles opened from a lineup sit above the match report. */
 .player-modal{z-index:1980}
+
+
+/* v0.15.4 integrated stakeholder system */
+.dashboard-happiness-grid{align-items:stretch}
+.stakeholder-card{min-width:0}
+.stakeholder-mood{
+  margin:2px 0 7px;font-size:9px;font-weight:900;letter-spacing:.06em;
+  text-transform:uppercase;color:var(--muted)
+}
+.happiness-explainer{font-size:9px;line-height:1.35;color:var(--muted);margin:7px 0}
+.driver-list{display:grid;gap:4px;margin-top:7px}
+.driver{
+  display:flex;align-items:flex-start;justify-content:space-between;gap:8px;
+  font-size:9px;line-height:1.25
+}
+.driver>span:first-child{min-width:0}
+.delta{font-weight:900;flex:none}
+.delta.pos{color:#8be6b1}.delta.neg{color:#ff9d9d}.delta.neu{color:var(--muted)}
+.stakeholder-history{border-top:1px solid var(--line);margin-top:8px;padding-top:7px}
+.stakeholder-history-title{
+  color:var(--muted);font-size:8px;font-weight:900;text-transform:uppercase;
+  letter-spacing:.05em;margin-bottom:5px
+}
+.stakeholder-status-line{
+  margin-top:8px;padding-top:7px;border-top:1px solid var(--line);font-size:9px;color:var(--muted)
+}
+@media(min-width:900px){
+  .dashboard-happiness-grid{grid-template-columns:repeat(5,minmax(0,1fr))}
+}
+@media(max-width:899px){
+  .dashboard-happiness-grid{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .dashboard-happiness-grid .stakeholder-card:last-child{grid-column:1/-1}
+}
+
+
+/* v0.15.5 CEO briefing / how to play */
+.tutorial-overlay{
+  position:fixed;inset:0;z-index:2100;background:#060307ef;
+  display:flex;align-items:center;justify-content:center;padding:14px
+}
+.tutorial-card{
+  width:min(620px,96vw);max-height:90dvh;
+  background:var(--panel);border:1px solid var(--line);border-radius:20px;
+  display:flex;flex-direction:column;overflow:hidden;
+  box-shadow:0 24px 80px rgba(0,0,0,.42)
+}
+.tutorial-top{
+  display:flex;align-items:flex-start;justify-content:space-between;gap:12px;
+  padding:16px 16px 8px
+}
+.tutorial-counter{font-size:9px;color:var(--muted);margin-top:4px}
+.tutorial-scroll{
+  min-height:0;overflow-y:auto;-webkit-overflow-scrolling:touch;
+  padding:8px 18px 18px
+}
+.tutorial-icon{
+  width:58px;height:58px;border-radius:18px;
+  display:flex;align-items:center;justify-content:center;
+  background:rgba(126,190,221,.10);border:1px solid rgba(126,190,221,.28);
+  color:var(--villa-sky);font-size:19px;font-weight:1000;letter-spacing:-.02em;
+  margin:4px 0 16px
+}
+.tutorial-scroll h2{font-size:27px;line-height:1.05;margin:0 0 14px}
+.tutorial-body{font-size:13px;line-height:1.55}
+.tutorial-body p{margin:0 0 14px}
+.tutorial-rule-grid{display:grid;grid-template-columns:1fr 1fr;gap:9px;margin:13px 0 16px}
+.tutorial-rule{
+  border:1px solid var(--line);border-radius:12px;padding:11px;
+  background:rgba(255,255,255,.025);font-size:11px;line-height:1.4
+}
+.tutorial-rule-head{
+  display:block;color:var(--villa-sky);font-size:8px;font-weight:1000;
+  text-transform:uppercase;letter-spacing:.08em;margin-bottom:5px
+}
+.tutorial-callout{
+  border-left:3px solid var(--villa-sky);padding:9px 10px;
+  background:rgba(126,190,221,.055);border-radius:0 8px 8px 0
+}
+.tutorial-stakeholders{
+  display:grid;grid-template-columns:repeat(5,1fr);gap:5px;margin:13px 0 16px
+}
+.tutorial-stakeholders span{
+  border:1px solid var(--line);border-radius:9px;padding:8px 3px;
+  text-align:center;font-size:8px;font-weight:900
+}
+.tutorial-footer{
+  border-top:1px solid var(--line);padding:11px 14px 14px;background:rgba(0,0,0,.06)
+}
+.tutorial-dots{display:flex;justify-content:center;gap:6px;margin-bottom:10px}
+.tutorial-dots span{
+  width:6px;height:6px;border-radius:50%;background:rgba(255,255,255,.18)
+}
+.tutorial-dots span.active{background:var(--villa-sky);transform:scale(1.2)}
+.tutorial-actions{display:flex;gap:7px;justify-content:flex-end}
+.tutorial-actions .btn{min-height:40px}
+.tutorial-actions #tutorialSkipBtn{margin-right:auto}
+
+@media(max-width:520px){
+  .tutorial-overlay{padding:0;align-items:flex-end}
+  .tutorial-card{
+    width:100%;max-height:94dvh;border-radius:20px 20px 0 0;
+    padding-bottom:env(safe-area-inset-bottom)
+  }
+  .tutorial-scroll{padding:7px 15px 16px}
+  .tutorial-scroll h2{font-size:25px}
+  .tutorial-body{font-size:12px}
+  .tutorial-rule-grid{grid-template-columns:1fr}
+  .tutorial-stakeholders{grid-template-columns:repeat(3,1fr)}
+  .tutorial-actions{display:grid;grid-template-columns:1fr 1fr}
+  .tutorial-actions #tutorialSkipBtn{
+    grid-column:1/-1;order:3;margin-right:0
+  }
+}

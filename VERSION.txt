@@ -1,27 +1,16 @@
-Football CEO v0.15.3 — Matchday Selection & Lineups
+Football CEO v0.15.5 — CEO Briefing / Tutorial
 
-- Manager now selects and stores an actual XI for every user fixture.
-- Selection uses the manager's preferred formation from v0.15.2.
-- Player selection scores overall quality plus positional suitability.
-- Full-back sides are strict:
-  RB/RWB strongly fit right-back; LB/LWB strongly fit left-back.
-  Opposite-side full-backs are emergency-only.
-- Wide positions remain deliberately flexible:
-  RM/RW can cover LM/LW and vice versa with a modest suitability penalty.
-- Match stats are now generated from the manager-selected XI rather than the top 11 OVR players.
-- Added Starts and Assists to player season statistics.
-- Match report stores formation, XI, player ratings, goals, assists, bench and goal events.
-- Post-match formation graphic appears after every user league match.
-- Goal icon: football.
-- Assist icon: dartboard/target.
-- Historical lineups can be reopened from Fixtures using View lineup.
-- Player profiles and Squad season stats now show Starts and Assists.
-- Season archive now stores starts, assists and average rating.
-- Bench is stored now for future substitution/manager-usage systems.
+Built on v0.15.4 Integrated Stakeholders.
 
-Patch v0.15.3a — Full-back Priority
-- Full-back selection now distinguishes primary and secondary positions.
-- Primary RB/RWB and LB/LWB receive strong priority.
-- A CB/midfielder with RB/LB as a secondary position no longer displaces a fit natural full-back simply due to higher OVR.
-- Wide-player cross-flank flexibility remains intentionally loose.
-- Villa regression test: Cash selected at RB and Digne at LB ahead of Konsa/McGinn when all are available.
+- New careers now open with a four-page CEO briefing before commercial setup.
+- Page 1: CEO role vs manager role.
+- Page 2: Fans / Owners / Players / Manager / Sponsors.
+- Page 3: daily Continue flow and manager-selected match lineups.
+- Page 4: first commercial decisions — pricing and sponsorship.
+- Final Start pre-season button opens the existing commercial setup.
+- Skip briefing is available on first run.
+- Tutorial is marked as seen per save and will not automatically reopen.
+- Existing saves are migrated with tutorialSeen=true so they are not interrupted.
+- Permanent ? Help button in the game top bar reopens the tutorial at any time.
+- Reopening Help does not alter commercial setup or save progression.
+- Mobile-first bottom-sheet styling on phones.

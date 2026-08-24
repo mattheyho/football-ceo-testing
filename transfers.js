@@ -616,26 +616,46 @@ function resolveManagerRequest(id,accepted){
 }
 
 function recordStarSale(player,fee,fairValue,yearsAtClub=1){
-  if(!state.transferSentiment) state.transferSentiment={fans:[],owners:[],players:[],manager:[]};
   const topRatings=squad(state.club).map(p=>p.overall).sort((a,b)=>b-a).slice(0,5);
   const isStar=topRatings.includes(player.overall);
   if(!isStar) return;
   let fanHit=-3;
   if(yearsAtClub>=4) fanHit-=2;
-  if(fee < fairValue*0.9) fanHit-=3;
-  else if(fee >= fairValue*1.15) fanHit+=2;
-  state.transferSentiment.fans.push({label:`Sale of star player ${player.name}`,value:fanHit});
+  if(fee<fairValue*0.9) fanHit-=3;
+  else if(fee>=fairValue*1.15) fanHit+=2;
+
+  if(typeof stakeholderChange==="function"){
+    stakeholderChange("fans",fanHit,`Sale of star player ${player.name}`,{notify:true});
+    if(fee>=fairValue*1.15) stakeholderChange("owners",1,`Strong fee received for ${player.name}`,{notify:true});
+    else if(fee<fairValue*0.9) stakeholderChange("owners",-2,`Poor value received for ${player.name}`,{notify:true});
+  }else{
+    if(!state.transferSentiment) state.transferSentiment={fans:[],owners:[],players:[],manager:[]};
+    state.transferSentiment.fans.push({label:`Sale of star player ${player.name}`,value:fanHit});
+  }
 }
 
 function recordMarqueeSigning(player){
-  if(!state.transferSentiment) state.transferSentiment={fans:[],owners:[],players:[],manager:[]};
-  state.transferSentiment.fans.push({label:`Marquee signing: ${player.name}`,value:5});
+  if(typeof stakeholderDecision==="function"){
+    stakeholderDecision({fans:5,players:1},`Marquee signing: ${player.name}`,{notify:true});
+  }else{
+    if(!state.transferSentiment) state.transferSentiment={fans:[],owners:[],players:[],manager:[]};
+    state.transferSentiment.fans.push({label:`Marquee signing: ${player.name}`,value:5});
+  }
 }
 
 function recordManagerTransferChoice(backedManager){
-  if(!state.transferSentiment) state.transferSentiment={fans:[],owners:[],players:[],manager:[]};
   state.managerBacking=clamp((state.managerBacking??70)+(backedManager?8:-6),0,100);
-  state.transferSentiment.manager.push({label:backedManager?"Backed manager's transfer target":"Rejected manager's preferred target",value:backedManager?4:-4});
+  if(typeof stakeholderChange==="function"){
+    stakeholderChange(
+      "manager",
+      backedManager?4:-4,
+      backedManager?"Backed manager's transfer target":"Rejected manager's preferred target",
+      {notify:true}
+    );
+  }else{
+    if(!state.transferSentiment) state.transferSentiment={fans:[],owners:[],players:[],manager:[]};
+    state.transferSentiment.manager.push({label:backedManager?"Backed manager's transfer target":"Rejected manager's preferred target",value:backedManager?4:-4});
+  }
 }
 
 function beginContractNegotiation(id){

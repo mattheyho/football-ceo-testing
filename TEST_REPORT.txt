@@ -1,41 +1,21 @@
-v0.15.3 MATCHDAY SELECTION TEST REPORT
+v0.15.5 TUTORIAL TEST REPORT
 
 PASS — game.js syntax
 PASS — transfers.js syntax
 PASS — no duplicate HTML IDs
-PASS — match engine uses managerSelectMatchdaySquad()
-PASS — every user match stores matchReport inside state.results
-PASS — matchReport stores formation, XI, bench, goals, assists and ratings
-PASS — post-match lineup modal is shown after user fixtures
-PASS — final-MW season review waits until match report is closed
-PASS — monthly report waits until match report is closed
-PASS — historical View lineup control exists on played user fixtures
-PASS — Starts added to player statistics
-PASS — Assists added to player statistics
-PASS — Starts/Assists displayed on Squad screen
-PASS — Starts/Assists displayed in player profile
-PASS — Starts/Assists included in season archive
-PASS — full-back opposite-side suitability is emergency-only
-PASS — wide players can cover the opposite flank
-
-Position-selection harness:
-PASS — natural RB selected at RB ahead of a substantially higher-rated LB
-PASS — natural LB selected at LB
-PASS — two natural RMs can fill RW + LW when no left winger exists
-PASS — RB/RWB natural suitability = 100
-PASS — opposite-side LB at RB suitability = 18
-PASS — RM at LM suitability = 82
-PASS — RW at LW suitability = 82
-
-Important prototype limitation:
-There are no substitutions yet, so Apps and Starts will normally be identical for league matches.
-The bench is stored historically so substitutions can be added later without redesigning match records.
-
-The CEO does not control the lineup. Selection remains manager-controlled.
-
-v0.15.3a REGRESSION
-PASS — transfers.js syntax
-PASS — primary-position-aware full-back suitability
-PASS — M. Cash (RB, RM / 79) selected at RB over E. Konsa (CB, RB / 82)
-PASS — L. Digne (LB, LM / 80) selected at LB over J. McGinn (LM, RM, CAM, LB / 81)
-PASS — wide roles retain opposite-flank flexibility
+PASS — new careers store tutorialSeen=false
+PASS — old saves with no tutorial flag migrate to tutorialSeen=true
+PASS — first-run tutorial opens before commercial setup
+PASS — finishing tutorial marks it seen and opens commercial setup
+PASS — skip briefing marks it seen and opens commercial setup
+PASS — permanent Help button reopens tutorial
+PASS — manual Help view does not trigger commercial setup
+PASS — four tutorial pages present
+PASS — CEO vs manager responsibility explained
+PASS — five stakeholders explained
+PASS — Continue advances one day explained
+PASS — manager-selected lineup / post-match review explained
+PASS — pricing and sponsorship first task explained
+PASS — current v0.15.4 stakeholder code retained
+PASS — current v0.15.3a matchday/lineup code retained
+PASS — current save-management code retained
