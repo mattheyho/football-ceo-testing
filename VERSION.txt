@@ -1,79 +1,9 @@
-Football CEO v0.16.2 — External Transfer Buyers
-
-Built on v0.16.1 Transfer Flow.
-
-SCOPE
-- Expands the transfer BUYER market without adding full foreign/EFL leagues or a large new player database.
-- External clubs are lightweight market actors only.
-- They have no generated squads, fixtures, league tables or domestic simulation.
-- v0.16.2 does NOT add a searchable external-player database.
-
-EXTERNAL MARKET
-65 lightweight external buyer profiles:
-- 24 Championship clubs.
-- 9 lower-EFL clubs from League One / League Two.
-- 32 foreign/other major-market clubs across Spain, Germany, France, Italy, Portugal, Netherlands, Turkey and Scotland.
-
-Each external club has:
-- reputation
-- abstract seasonal transfer budget
-- wage ceiling
-- expected squad standard
-- division / country
-- player-fit logic.
-
-BID BEHAVIOUR
-- Incoming offers can now come from Premier League clubs OR external clubs.
-- External buyers account for roughly half of the viable incoming market, with higher weighting for transfer-listed/fringe players.
-- Transfer-listed players are especially attractive to Championship/EFL/value-seeking clubs.
-- Lower-EFL clubs primarily target affordable fringe players and prospects.
-- Championship clubs target realistic PL fringe / development players.
-- Major European clubs prefer higher-quality players and, where appropriate, high-upside younger players.
-- External clubs consider player value, wage level, age, overall, potential, reputation/standard fit and whether the player is transfer listed.
-- External clubs must stay within their own abstract transfer budget and wage ceiling.
-- Their budgets refresh each season because their wider finances are not fully simulated.
-
-OFFER UI
-- Incoming offer screen now shows the buying club's league/division and country.
-- Inbox messages identify the buyer market, e.g. "Benfica (Primeira Liga • Portugal)".
-- All existing SCR sale-impact, star-player and manager/DoF decision information remains in the offer screen.
-
-PLAYER WORLD
-- If one of your players is sold to an external club, that existing known player moves there and persists in the save.
-- The game does NOT generate a squad around him.
-- External clubs remain buyer-only in v0.16.2:
-  - user cannot start an approach for external-club players;
-  - Premier League AI does not use exported external-club players as a hidden foreign recruitment database.
-- This avoids accidentally turning v0.16.2 into a large database expansion.
-
-COMPATIBILITY
-- Existing saves work.
-- Existing transfer-listed players automatically begin using the expanded buyer market.
-- v0.16 financial regulations retained.
-- v0.16.1 listing improvements / bid safeguards / transfer withdrawal retained.
 
 
-Patch v0.16.2a — Contract Renewal SCR Preview
-- Existing-player contract negotiations now show Current SCR -> Projected SCR.
-- Preview updates live as weekly wage or contract length changes.
-- Wage changes affect annual regulated payroll immediately.
-- For post-save signings, longer/shorter renewals also preview the effect of re-spreading remaining transfer + agent acquisition cost.
-- Preview shows annual regulated cost added/removed and the current regulatory limit.
-- Accepted renewal still applies the existing acquisition-cost restructuring logic.
-
-
-Patch v0.16.2b — Contract Negotiation Logic
-- Rebuilt both existing-player renewals and new-signing contract talks around persistent negotiation state.
-- The displayed wage demand is now a genuine demand rather than a probability hint.
-- Meeting the displayed demand on the player's preferred contract term guarantees acceptance.
-- Contract length can trade against salary in a predictable way:
-  longer deals can slightly reduce required wage for younger players;
-  older players may demand more for unusually long commitments;
-  short deals can require a premium for younger players.
-- Repeating an identical rejected wage/term offer is automatically rejected again.
-- Rejected offers are remembered across negotiation rounds.
-- Near-demand offers can make the agent move slightly toward the CEO.
-- Clearly low offers cause the agent to hold their position rather than generating random acceptance chances.
-- New signings now follow the same negotiation principles as renewals.
-- Successful deals clear their negotiation state.
-- Existing live SCR contract preview remains fully compatible.
+Patch v0.16.2c — Rejected Sale Stakeholder Fix
+- Stakeholder reactions to outgoing star transfers now fire only after the player has actually transferred.
+- Rejecting an incoming offer or having a buying club withdraw no longer produces "player sold" fan/owner/manager reactions.
+- If a deal collapses after acceptance because the buyer cannot complete it financially, no sale reaction is recorded.
+- Pre-sale star status and SCR impact are captured before the move, then applied only after transfer completion.
+- One-time migration repairs affected saves by reversing/removing false sale reactions linked to rejected incoming offers where the player is still at the club.
+- PWA cache bumped to v0.16.2c-pwa-1.

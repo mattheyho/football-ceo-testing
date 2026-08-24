@@ -13,6 +13,7 @@
 
 function ensureContractState(){
   ensureTransferMarketState();
+  repairFalseRejectedSaleStakeholderReactions();
   if(!state.playerContracts) state.playerContracts={};
   if(!state.playerListStatus) state.playerListStatus={};
   if(!state.managerRequests) state.managerRequests=[];
@@ -694,16 +695,17 @@ function isClubStarPlayer(player,club=state.club){
   return clubStarPlayers(club).some(p=>String(p.id)===String(player.id));
 }
 
-function recordStarSale(player,fee,fairValue,yearsAtClub=1){
-  if(!isClubStarPlayer(player,state.club)) return;
+function recordStarSale(player,fee,fairValue,yearsAtClub=1,context={}){
+  const wasStar=context.wasStar ?? isClubStarPlayer(player,state.club);
+  if(!wasStar) return;
 
   let fanHit=-3;
   if(yearsAtClub>=4) fanHit-=2;
   if(fee<fairValue*0.9) fanHit-=3;
   else if(fee>=fairValue*1.15) fanHit+=2;
 
-  const current=typeof userSCRSnapshot==="function"?userSCRSnapshot():null;
-  const projected=current&&typeof projectSCRAfterSale==="function"?projectSCRAfterSale(player,fee):null;
+  const current=context.currentSCR ?? (typeof userSCRSnapshot==="function"?userSCRSnapshot():null);
+  const projected=context.projectedSCR ?? (current&&typeof projectSCRAfterSale==="function"?projectSCRAfterSale(player,fee):null);
   const forcedByRegulation=Boolean(
     current && projected &&
     current.ratio>current.limit &&
@@ -3374,7 +3376,15 @@ function resolveIncomingTransferOffer(id,action,counter=0){
       const joined=parseInt(String(p.joined||"").match(/20\d{2}/)?.[0]||"2025",10);
       return Math.max(0,currentSeasonStartYear()-joined);
     })();
-    recordStarSale(p,offer.fee,oldValue,yearsAtClub);
+
+    // Capture the stakeholder/SCR context while the player is still ours, but
+    // do not apply any reaction until the transfer has actually completed.
+    const saleStakeholderContext={
+      wasStar:isClubStarPlayer(p,oldClub),
+      currentSCR:typeof userSCRSnapshot==="function"?userSCRSnapshot():null,
+      projectedSCR:typeof projectSCRAfterSale==="function"?projectSCRAfterSale(p,offer.fee):null
+    };
+
     const buyerWage=offer.expectedWage||transferBuyerExpectedWage(p,buyer);
     const affordability=transferBuyerCanAfford(buyer,p,offer.fee,buyerWage);
     if(!affordability.ok){
@@ -3395,6 +3405,11 @@ function resolveIncomingTransferOffer(id,action,counter=0){
     p.wage=buyerWage;
     transferPlayerToClub(p,buyer,offer.fee,oldClub);
     offer.status="accepted";
+
+    // Only now is the sale real. Stakeholders must never react to a rejected
+    // counter-offer or a deal that collapses on affordability.
+    recordStarSale(p,offer.fee,oldValue,yearsAtClub,saleStakeholderContext);
+
     delete state.playerContracts[p.id];
     delete state.playerStats[p.id];
     delete state.playerMorale[p.id];
@@ -3404,6 +3419,52 @@ function resolveIncomingTransferOffer(id,action,counter=0){
   }
   saveGame(false);
   renderAll();
+}
+
+
+function repairFalseRejectedSaleStakeholderReactions(){
+  if(!state || state.falseSaleReactionRepairV0162c) return;
+  state.falseSaleReactionRepairV0162c=true;
+
+  const rejected=(state.incomingTransferOffers||[]).filter(o=>o.status==="rejected");
+  if(!rejected.length || !state.stakeholderHistory || !state.happiness) return;
+
+  rejected.forEach(offer=>{
+    const p=DB.players.find(x=>String(x.id)===String(offer.playerId));
+    if(!p || p.club!==state.club) return;
+
+    const reasons={
+      fans:[
+        `Necessary SCR-driven sale of star player ${p.name}`,
+        `Sale of star player ${p.name}`
+      ],
+      manager:[
+        `Key player ${p.name} sold to improve SCR compliance`
+      ],
+      owners:[
+        `Sale of ${p.name} improves financial compliance`,
+        `Strong fee received for ${p.name}`,
+        `Poor value received for ${p.name}`
+      ]
+    };
+
+    Object.entries(reasons).forEach(([group,labels])=>{
+      const history=state.stakeholderHistory[group];
+      if(!Array.isArray(history)) return;
+
+      // Remove and reverse only the most recent matching false-sale entry for
+      // this rejected offer. This keeps the migration deliberately narrow.
+      for(let i=history.length-1;i>=0;i--){
+        const h=history[i];
+        if(labels.includes(h?.reason)){
+          const delta=Number(h.delta||0);
+          state.happiness[group]=clamp((state.happiness[group]??70)-delta,0,100);
+          history.splice(i,1);
+          break;
+        }
+      }
+    });
+  });
 }
 
 function runAITransferReview(){

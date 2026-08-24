@@ -1,69 +1,15 @@
-v0.16.2 EXTERNAL TRANSFER MARKET TEST REPORT
 
-STATIC / SYNTAX
+
+v0.16.2c SALE REACTION REGRESSION
+PASS — recordStarSale no longer fires before affordability/completion checks
+PASS — star status captured while player still belongs to user club
+PASS — SCR context captured pre-sale
+PASS — stakeholder reaction fires after transferPlayerToClub
+PASS — rejected/collapsed offers cannot trigger completed-sale reaction
+PASS — one-time affected-save repair present
+PASS — repair reverses false happiness delta
+PASS — repair removes false recent-change history
 PASS — transfers.js syntax
 PASS — game.js syntax
-PASS — no duplicate static HTML IDs
-PASS — v0.16 financial regulation system retained
-PASS — v0.16.1 transfer withdrawal and bid safeguards retained
-
-MARKET PROFILE CHECK
-PASS — 65 external buyer profiles loaded
-PASS — 24 Championship clubs
-PASS — 7 League One market actors
-PASS — 2 League Two market actors
-PASS — major foreign buyers present across multiple European leagues
-
-RUNTIME EXTERNAL-MARKET HARNESS
-PASS — lightweight external finance state initializes by season
-PASS — Championship/EFL clubs identify suitable listed PL fringe players
-PASS — foreign clubs identify suitable higher-quality PL players
-PASS — league/country buyer label resolves correctly
-PASS — external clubs respect abstract transfer budgets and wage ceilings
-
-INCOMING OFFER FLOW
-PASS — Premier League and external buyer pools are combined
-PASS — listed players receive enhanced external-market interest
-PASS — external buyers can generate permanent incoming offers
-PASS — external offer stores competition/country metadata
-PASS — acceptance uses external affordability check
-PASS — acceptance updates abstract external transfer spend
-PASS — sold player transfers to external club through existing persistent player-world override
-
-BUYER-ONLY SCOPE
-PASS — external-club-owned player has disabled recruitment action
-PASS — hard guard prevents user approach to an external club
-PASS — Premier League AI target search excludes external-club-owned exports
-PASS — no external squads or new external player database generated
-
-NOTE
-External club budgets, wage ceilings, reputation and standards are gameplay abstractions.
-They are designed to create a believable wider market, not simulate exact club accounts.
-
-
-v0.16.2a CONTRACT SCR REGRESSION
-PASS — contract renewal preview exists
-PASS — current -> projected SCR shown
-PASS — weekly wage change included in projection
-PASS — post-save acquisition cost re-spread included in projection
-PASS — preview recalculates on wage input
-PASS — preview recalculates on contract-length change
-PASS — accepted renewal retains existing restructureRegulatedAcquisitionOnExtension()
-PASS — transfers.js syntax
-PASS — game.js syntax
-
-
-v0.16.2b CONTRACT NEGOTIATION REGRESSION
-PASS — displayed renewal demand + preferred term guarantees acceptance
-PASS — displayed new-signing demand + preferred term guarantees acceptance
-PASS — clearly low offer is rejected
-PASS — exact same rejected offer is rejected again without random reroll
-PASS — near-demand offer produces a logical agent counter
-PASS — meeting the new counter guarantees acceptance
-PASS — renewal negotiation memory persists between offers
-PASS — signing negotiation memory persists between offers
-PASS — successful negotiation clears stored negotiation state
-PASS — live contract SCR preview retained
-PASS — external buyer market retained
-PASS — transfers.js syntax
-PASS — game.js syntax
+PASS — service worker syntax
+PASS — PWA cache version bumped
