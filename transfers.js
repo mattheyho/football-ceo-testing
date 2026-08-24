@@ -615,10 +615,21 @@ function resolveManagerRequest(id,accepted){
   renderDashboard();
 }
 
+
+function clubStarPlayers(club=state.club){
+  return squad(club)
+    .slice()
+    .sort((a,b)=>(b.overall||0)-(a.overall||0) || (b.value||0)-(a.value||0))
+    .slice(0,5);
+}
+
+function isClubStarPlayer(player,club=state.club){
+  if(!player) return false;
+  return clubStarPlayers(club).some(p=>String(p.id)===String(player.id));
+}
+
 function recordStarSale(player,fee,fairValue,yearsAtClub=1){
-  const topRatings=squad(state.club).map(p=>p.overall).sort((a,b)=>b-a).slice(0,5);
-  const isStar=topRatings.includes(player.overall);
-  if(!isStar) return;
+  if(!isClubStarPlayer(player,state.club)) return;
   let fanHit=-3;
   if(yearsAtClub>=4) fanHit-=2;
   if(fee<fairValue*0.9) fanHit-=3;
@@ -2069,11 +2080,19 @@ function submitNewSigningTerms(id){
 function playerSaleDecisionStatsHTML(p){
   const s=state.playerStats?.[p.id]||{};
   const avg=typeof playerAverageRating==="function"?playerAverageRating(p.id):null;
-  return `<div class="sale-decision-stats">
-    <div><span>Apps</span><b>${s.appearances||0}</b></div>
-    <div><span>Goals</span><b>${s.goals||0}</b></div>
-    <div><span>AVG rating</span><b>${avg!=null?avg.toFixed(2):"—"}</b></div>
-  </div>`;
+  const star=typeof isClubStarPlayer==="function" && isClubStarPlayer(p,state.club);
+
+  return `
+    ${star?`<div class="sale-star-warning">
+      <span class="star-player-badge">★ STAR PLAYER</span>
+      <b>Selling ${p.name} may cause supporter unrest.</b>
+    </div>`:""}
+    <div class="sale-decision-stats">
+      <div><span>Apps</span><b>${s.appearances||0}</b></div>
+      <div><span>Starts</span><b>${s.starts||0}</b></div>
+      <div><span>Goals</span><b>${s.goals||0}</b></div>
+      <div><span>AVG rating</span><b>${avg!=null?avg.toFixed(2):"—"}</b></div>
+    </div>`;
 }
 
 function incomingOfferFairValue(p){

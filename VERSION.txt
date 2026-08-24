@@ -1,16 +1,44 @@
-Football CEO v0.15.5 — CEO Briefing / Tutorial
+Football CEO v0.15.6 — Commercial & Matchday Fixes
 
-Built on v0.15.4 Integrated Stakeholders.
+Built on v0.15.5 CEO Briefing.
 
-- New careers now open with a four-page CEO briefing before commercial setup.
-- Page 1: CEO role vs manager role.
-- Page 2: Fans / Owners / Players / Manager / Sponsors.
-- Page 3: daily Continue flow and manager-selected match lineups.
-- Page 4: first commercial decisions — pricing and sponsorship.
-- Final Start pre-season button opens the existing commercial setup.
-- Skip briefing is available on first run.
-- Tutorial is marked as seen per save and will not automatically reopen.
-- Existing saves are migrated with tutorialSeen=true so they are not interrupted.
-- Permanent ? Help button in the game top bar reopens the tutorial at any time.
-- Reopening Help does not alter commercial setup or save progression.
-- Mobile-first bottom-sheet styling on phones.
+SPONSORS
+- A new sponsor now starts a completely new sponsor relationship.
+- Previous sponsor happiness and sponsor history do not carry over to the new company.
+- New neutral/positive sponsor starts at 72 happiness.
+- New fan-opposed sponsor starts at 61 happiness.
+- Multi-year deals still retain their relationship during the same contract.
+
+STAKEHOLDER DRIFT
+- Persistent drivers no longer subtract/add the same happiness forever.
+- Weekly drivers now create a relationship equilibrium.
+- Happiness moves toward that equilibrium and stabilises if circumstances stay unchanged.
+- Immediate CEO decisions still cause immediate happiness changes.
+- Example: "Sponsor unpopular with supporters" (-3) naturally settles around 61 rather than causing -1 every week indefinitely.
+
+COMMERCIAL SETUP
+- Added live predicted home attendance.
+- Added live predicted occupancy.
+- Added live predicted match revenue.
+- Projections update immediately when ticket/concession/hospitality/food prices change.
+- Projection includes current supporter happiness and shows when fan unhappiness is reducing demand.
+
+STAR PLAYERS
+- Club's top five players by OVR (value tie-break) are flagged as STAR players.
+- Squad screen shows a ★ STAR badge.
+- Player profile shows ★ STAR PLAYER plus a warning that a sale may cause supporter unrest.
+- Transfer-sale fan reaction uses the exact same star definition as the UI.
+
+MATCH LINEUP LEFT/RIGHT DISPLAY
+- Fixed the post-match pitch viewing orientation.
+- RB/RM/RW now display on the right side of the pitch.
+- LB/LM/LW now display on the left side.
+- Added the tactical slot (RB, LB, RW, etc.) to each pitch player tile.
+- The underlying v0.15.3a selection logic remains strict for natural full-backs.
+
+
+Patch v0.15.6a — Star Player Transfer Warning
+- Incoming transfer-offer / negotiation screen now displays ★ STAR PLAYER when applicable.
+- Warning explicitly states that selling the player may cause supporter unrest.
+- Sale decision stats now show Apps, Starts, Goals and AVG rating.
+- Uses the same isClubStarPlayer() definition as the Squad screen, Player Profile and actual supporter-reaction logic.

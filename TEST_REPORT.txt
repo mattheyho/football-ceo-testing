@@ -1,21 +1,52 @@
-v0.15.5 TUTORIAL TEST REPORT
+v0.15.6 REGRESSION TEST REPORT
 
 PASS — game.js syntax
 PASS — transfers.js syntax
 PASS — no duplicate HTML IDs
-PASS — new careers store tutorialSeen=false
-PASS — old saves with no tutorial flag migrate to tutorialSeen=true
-PASS — first-run tutorial opens before commercial setup
-PASS — finishing tutorial marks it seen and opens commercial setup
-PASS — skip briefing marks it seen and opens commercial setup
-PASS — permanent Help button reopens tutorial
-PASS — manual Help view does not trigger commercial setup
-PASS — four tutorial pages present
-PASS — CEO vs manager responsibility explained
-PASS — five stakeholders explained
-PASS — Continue advances one day explained
-PASS — manager-selected lineup / post-match review explained
-PASS — pricing and sponsorship first task explained
-PASS — current v0.15.4 stakeholder code retained
-PASS — current v0.15.3a matchday/lineup code retained
-PASS — current save-management code retained
+
+SPONSORS
+PASS — new sponsor calls resetSponsorRelationshipForNewDeal()
+PASS — sponsor relationship history is cleared on a new company
+PASS — fan-opposed new sponsor baseline = 61
+PASS — neutral/positive new sponsor baseline = 72
+PASS — multi-year current sponsor is not reset during an ongoing contract
+
+STAKEHOLDER EQUILIBRIUM
+PASS — weekly driver target = 70 + (driver total × 3), clamped 10–92
+PASS — unchanged pressure stabilises instead of ratcheting indefinitely
+PASS — isolated sponsor-unpopular (-3) target = 61
+PASS — immediate stakeholderDecision / stakeholderChange behavior retained
+
+COMMERCIAL PREVIEW
+PASS — predicted attendance UI exists
+PASS — predicted occupancy UI exists
+PASS — predicted revenue UI exists
+PASS — renderSeasonSetup recalculates projection after every price adjustment
+PASS — projection uses current fan-happiness attendance multiplier
+
+STAR PLAYER INDICATOR
+PASS — one shared isClubStarPlayer() definition
+PASS — star sale supporter reaction uses that definition
+PASS — squad UI uses that definition
+PASS — player profile uses that definition
+
+FULL-BACK / PITCH REGRESSION
+PASS — manager selection: Matty Cash selected at RB
+PASS — manager selection: Lucas Digne selected at LB
+PASS — Konsa secondary RB does not displace Cash
+PASS — McGinn secondary LB does not displace Digne
+PASS — display mirror maps RB to pitch right and LB to pitch left
+PASS — display mirror maps RW to pitch right and LW to pitch left
+PASS — tactical slot labels are visible on post-match player tiles
+
+Existing saves:
+- Compatible with v0.15.5 saves.
+- Historical match reports automatically render with the corrected left/right pitch orientation.
+- Existing sponsor happiness is left untouched until that contract expires; the NEXT new sponsor begins a fresh relationship.
+
+v0.15.6a REGRESSION
+PASS — transfer negotiation warning uses shared star-player definition
+PASS — star warning appears before sale decision stats
+PASS — Apps / Starts / Goals / AVG shown in incoming offer screen
+PASS — transfers.js syntax
+PASS — game.js syntax

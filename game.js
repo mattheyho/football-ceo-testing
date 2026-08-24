@@ -291,7 +291,8 @@ function openPlayerProfile(id){
   const morale=state.playerMorale[p.id]||"Content";
 
   q("profileName").textContent=p.name;
-  q("profileSubtitle").textContent=`${p.club} • ${p.positions}`;
+  const isStar=typeof isClubStarPlayer==="function" && p.club===state.club && isClubStarPlayer(p,state.club);
+  q("profileSubtitle").innerHTML=`${p.club} • ${p.positions}${isStar?` <span class="star-player-badge profile-star-badge">★ STAR PLAYER</span>`:""}`;
   q("profileOverall").textContent=p.overall;
   q("profileMorale").textContent=morale;
   q("profileMorale").className="v "+playerMoraleClass(morale);
@@ -313,6 +314,12 @@ function openPlayerProfile(id){
     : `<span class="good">Fit</span>`;
 
   const listStatus=state.playerListStatus[p.id]||"None";
+  if(q("profileSupporterStatus")){
+    q("profileSupporterStatus").innerHTML=isStar
+      ? `<span class="star-player-warning">★ Star player — selling may cause supporter unrest</span>`
+      : `<span class="muted">No special star-player sale penalty</span>`;
+  }
+
   q("profileListStatus").innerHTML=listStatus==="Transfer"
     ? `<span class="listed-badge listed-transfer">Transfer listed</span>`
     : listStatus==="Loan"
@@ -917,12 +924,23 @@ function applyStakeholderHappiness(){
 
   STAKEHOLDER_GROUPS.forEach(key=>{
     const total=(state.happinessDrivers[key]||[]).reduce((s,d)=>s+(d.value||0),0);
+
+    // Persistent drivers now define a relationship equilibrium rather than
+    // subtracting the same point forever every Sunday.
+    //
+    // Example: an unpopular sponsor (-3) settles around the low 60s if nothing
+    // else is wrong. If circumstances improve, happiness gradually recovers.
+    const target=clamp(70+(total*3),10,92);
+    const current=stakeholderValue(key);
+    const gap=target-current;
+
     let delta=0;
-    if(total>=6) delta=2;
-    else if(total>=2) delta=1;
-    else if(total<=-6) delta=-2;
-    else if(total<=-2) delta=-1;
-    if(delta) state.happiness[key]=clamp(stakeholderValue(key)+delta,0,100);
+    if(gap>=8) delta=2;
+    else if(gap>=2) delta=1;
+    else if(gap<=-8) delta=-2;
+    else if(gap<=-2) delta=-1;
+
+    if(delta) state.happiness[key]=applyHappinessDelta(current,delta);
   });
 
   STAKEHOLDER_GROUPS.forEach(key=>{
@@ -2282,7 +2300,8 @@ function renderSquad(){
 
   if(q("squadRows")){
     q("squadRows").innerHTML=arr.map(p=>{
-      const playerCell=`<td class="squad-player-cell"><button type="button" class="player-link" data-player-id="${p.id}">${p.name}</button><div class="muted small">${p.nationality}</div></td>`;
+      const star=typeof isClubStarPlayer==="function" && isClubStarPlayer(p,state.club);
+      const playerCell=`<td class="squad-player-cell"><div class="squad-player-name-row"><button type="button" class="player-link" data-player-id="${p.id}">${p.name}</button>${star?`<span class="star-player-badge" title="Star player — selling may upset supporters">★ STAR</span>`:""}</div><div class="muted small">${p.nationality}</div></td>`;
       if(squadView==="stats"){
         return `<tr>
           ${playerCell}
@@ -2887,7 +2906,11 @@ function renderFormationPitch(report){
     <div class="pitch-box pitch-box-top"></div>
     <div class="pitch-box pitch-box-bottom"></div>
     ${report.lineup.map((x,i)=>{
-      const [left,top]=coords[i]||[50,50];
+      const [rawLeft,top]=coords[i]||[50,50];
+      // Formation coordinates were originally drawn from the opposite viewing
+      // perspective. Mirror horizontally so RB/RM/RW display on the right and
+      // LB/LM/LW display on the left when the team attacks up the screen.
+      const left=100-rawLeft;
       const events=[
         x.goals?`<span title="${x.goals} goal${x.goals===1?"":"s"}">⚽${x.goals>1?`×${x.goals}`:""}</span>`:"",
         x.assists?`<span title="${x.assists} assist${x.assists===1?"":"s"}">🎯${x.assists>1?`×${x.assists}`:""}</span>`:""
@@ -2895,6 +2918,7 @@ function renderFormationPitch(report){
       return `<button class="pitch-player ${x.playerId?"":"vacant"}" type="button"
         style="left:${left}%;top:${top}%"
         ${x.playerId?`data-player-id="${x.playerId}"`:"disabled"}>
+        <span class="pitch-player-slot">${x.slot||""}</span>
         <span class="pitch-player-name">${x.name}</span>
         <span class="pitch-player-bottom">
           <b class="pitch-rating ${matchRatingClass(x.rating)}">${x.rating?.toFixed(1)||"—"}</b>
@@ -3117,6 +3141,18 @@ function renderSeasonSetup(){
   q("setupHospitalityPrice").textContent=money(p.hospitality);
   q("setupFoodPrice").textContent=money(p.food);
 
+  const projected=projectedMatchday();
+  const capacity=STADIUMS[state.club]?.capacity||0;
+  if(q("setupPredictedAttendance")) q("setupPredictedAttendance").textContent=projected.attendance.toLocaleString("en-GB");
+  if(q("setupPredictedOccupancy")) q("setupPredictedOccupancy").textContent=capacity?`${Math.round(projected.attendance/capacity*100)}%`:"—";
+  if(q("setupPredictedRevenue")) q("setupPredictedRevenue").textContent=money(projected.revenue);
+  if(q("setupDemandNote")){
+    const fanNote=stakeholderValue("fans")<40
+      ? ` Supporter unhappiness is currently reducing demand to ${Math.round(projected.fanHappinessAttendanceMultiplier*100)}% of its normal level.`
+      : "";
+    q("setupDemandNote").textContent=`Typical home-match projection based on current prices, supporter happiness and club demand.${fanNote}`;
+  }
+
   const diff=Math.round((p.ticket/rec.ticket-1)*100);
   q("setupPricingAdvice").textContent =
     diff>20 ? `Adult tickets are ${diff}% above the club benchmark. Expect stronger fan resistance.` :
@@ -3164,6 +3200,20 @@ function adjustSetupPrice(key,step){
   renderSeasonSetup();
 }
 
+
+function resetSponsorRelationshipForNewDeal(sponsor){
+  ensureStakeholderState();
+  if(!sponsor) return;
+
+  // A sponsorship relationship belongs to the current sponsor, not to the slot.
+  // When a new company signs, the previous company's happiness/history must not carry over.
+  const initial=sponsor.fanOpposed?61:72;
+  state.happiness.sponsors=initial;
+  state.stakeholderHistory.sponsors=[];
+  state.stakeholderThresholdState.sponsors=stakeholderBand(initial).key;
+  state.stakeholderMeta.sponsorTerminationRisk=false;
+}
+
 function confirmSeasonSetup(){
   if(!selectedSponsorId) return;
   ensureStakeholderState();
@@ -3171,15 +3221,16 @@ function confirmSeasonSetup(){
   const chosen=state.sponsorship?null:state.sponsorOffers.find(s=>s.id===selectedSponsorId);
 
   if(chosen){
+    // New company = new relationship. Do this before assigning the deal so an
+    // expired sponsor's score/history never carries over.
+    resetSponsorRelationshipForNewDeal(chosen);
     state.sponsorship={...chosen,seasonsRemaining:chosen.years};
 
-    // This only happens when a NEW agreement is signed. Multi-year sponsors retain
-    // their relationship score across summers instead of resetting every season.
     if(chosen.fanOpposed){
-      stakeholderDecision({fans:-3,sponsors:-6},"New sponsor is unpopular with supporters",{notify:true});
+      stakeholderChange("fans",-3,`Supporter opposition to new sponsor ${chosen.name}`,{notify:true});
       addNews(`Supporters have criticised the club's new sponsorship agreement with ${chosen.name}.`);
     }else{
-      stakeholderDecision({fans:+1,sponsors:+2},"Positive launch of new sponsorship agreement",{notify:true});
+      stakeholderChange("fans",+1,`Positive supporter response to new sponsor ${chosen.name}`,{notify:true});
       addNews(`${chosen.name} has been announced as the club's main sponsor.`);
     }
 
