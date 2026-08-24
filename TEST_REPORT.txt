@@ -51,3 +51,19 @@ PASS — preview recalculates on contract-length change
 PASS — accepted renewal retains existing restructureRegulatedAcquisitionOnExtension()
 PASS — transfers.js syntax
 PASS — game.js syntax
+
+
+v0.16.2b CONTRACT NEGOTIATION REGRESSION
+PASS — displayed renewal demand + preferred term guarantees acceptance
+PASS — displayed new-signing demand + preferred term guarantees acceptance
+PASS — clearly low offer is rejected
+PASS — exact same rejected offer is rejected again without random reroll
+PASS — near-demand offer produces a logical agent counter
+PASS — meeting the new counter guarantees acceptance
+PASS — renewal negotiation memory persists between offers
+PASS — signing negotiation memory persists between offers
+PASS — successful negotiation clears stored negotiation state
+PASS — live contract SCR preview retained
+PASS — external buyer market retained
+PASS — transfers.js syntax
+PASS — game.js syntax

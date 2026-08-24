@@ -20,6 +20,7 @@ function ensureContractState(){
   if(!state.managerRequestRejections) state.managerRequestRejections={};
   if(!state.managerRoleFulfilledUntil) state.managerRoleFulfilledUntil={};
   if(!state.managerTactics) state.managerTactics={};
+  if(!state.contractNegotiations) state.contractNegotiations={};
   squad(state.club).forEach(p=>{
     if(!state.playerContracts[p.id]){
       state.playerContracts[p.id]={
@@ -770,16 +771,124 @@ function recordManagerTransferChoice(backedManager){
   }
 }
 
+
+function contractNegotiationKey(playerId,type="renewal"){
+  return `${type}-${playerId}`;
+}
+
+function initialiseContractNegotiation(player,type="renewal",baseDemand=null){
+  ensureContractState();
+  const key=contractNegotiationKey(player.id,type);
+  const existing=state.contractNegotiations[key];
+  if(existing?.active) return existing;
+
+  const demand=Math.max(1000,baseDemand??(
+    type==="renewal"?playerContractDemand(player):expectedTransferWage(player,state.club)
+  ));
+
+  const negotiation={
+    active:true,
+    type,
+    playerId:player.id,
+    openingDemand:demand,
+    currentDemand:demand,
+    minimumAcceptable:Math.round((demand*(0.96+stablePlayerTrait(player,`contract-floor-${type}`)*0.025))/1000)*1000,
+    preferredYears:type==="renewal"
+      ? ((player.age||25)<=28?4:(player.age||25)>=31?2:3)
+      : ((player.age||25)<=29?4:3),
+    lastOfferWage:null,
+    lastOfferYears:null,
+    rejectedOffers:[],
+    round:0
+  };
+
+  state.contractNegotiations[key]=negotiation;
+  return negotiation;
+}
+
+function getContractNegotiation(player,type="renewal"){
+  return state.contractNegotiations?.[contractNegotiationKey(player.id,type)]||null;
+}
+
+function clearContractNegotiation(player,type="renewal"){
+  if(state.contractNegotiations) delete state.contractNegotiations[contractNegotiationKey(player.id,type)];
+}
+
+function contractTermsDecision(player,wage,years,type="renewal"){
+  const baseDemand=type==="renewal"?playerContractDemand(player):expectedTransferWage(player,state.club);
+  const n=initialiseContractNegotiation(player,type,baseDemand);
+  wage=Math.max(1000,Number(wage||0));
+  years=Math.max(1,Number(years||1));
+
+  const sameRejected=n.rejectedOffers.some(x=>x.wage===wage && x.years===years);
+  if(sameRejected){
+    return {
+      accepted:false,
+      repeated:true,
+      demand:n.currentDemand,
+      message:`These exact terms have already been rejected. The player's position has not changed.`
+    };
+  }
+
+  n.round+=1;
+  n.lastOfferWage=wage;
+  n.lastOfferYears=years;
+
+  const age=player.age||25;
+  let required=n.currentDemand;
+
+  // The displayed demand is now a genuine demand. If the CEO meets it on the
+  // player's preferred term, the deal is accepted — no hidden dice roll.
+  // Contract length can trade against salary in a predictable way.
+  if(years>n.preferredYears && age<=29) required*=0.97;
+  else if(years>n.preferredYears && age>=31) required*=1.035;
+  else if(years<n.preferredYears && age<=28) required*=1.025;
+
+  required=Math.max(n.minimumAcceptable,Math.round(required/1000)*1000);
+
+  // Once the user meets the current genuine demand, acceptance is deterministic.
+  if(wage>=required){
+    return {
+      accepted:true,
+      demand:required,
+      message:`Terms accepted at ${money(wage)}/wk for ${years} year${years===1?"":"s"}.`
+    };
+  }
+
+  n.rejectedOffers.push({wage,years,round:n.round});
+  n.rejectedOffers=n.rejectedOffers.slice(-8);
+
+  // The agent counters logically. A good offer can narrow the gap slightly;
+  // repeated low offers do not randomly improve the user's chances.
+  const gap=Math.max(0,required-wage);
+  const closeOffer=wage>=required*0.93;
+  const concession=closeOffer?Math.min(gap*.25,required*.0125):0;
+  let counter=Math.max(n.minimumAcceptable,required-concession);
+  counter=Math.round(counter/1000)*1000;
+  n.currentDemand=Math.max(n.minimumAcceptable,counter);
+
+  return {
+    accepted:false,
+    repeated:false,
+    demand:n.currentDemand,
+    message:closeOffer
+      ? `Offer rejected. The agent has moved slightly and now wants ${money(n.currentDemand)}/wk.`
+      : `Offer rejected. The agent is holding at around ${money(n.currentDemand)}/wk.`
+  };
+}
+
 function beginContractNegotiation(id){
   ensureContractState();
   const p=DB.players.find(x=>String(x.id)===String(id));
   if(!p) return;
   const current=state.playerContracts[p.id];
   const breakdown=playerContractDemandBreakdown(p);
-  const demand=breakdown.demand;
+  const n=initialiseContractNegotiation(p,"renewal",breakdown.demand);
+  const demand=n.currentDemand;
+
   q("contractWageInput").value=Math.max(current.wage,demand);
-  q("contractYearsInput").value="3";
-  q("contractDemandText").textContent=`Agent expectation: around ${money(demand)}/wk • Based on ${breakdown.reasons.join(" • ")}.`;
+  q("contractYearsInput").value=String(n.preferredYears||3);
+  q("contractDemandText").textContent=`Agent demand: ${money(demand)}/wk • Preferred term: ${n.preferredYears} year${n.preferredYears===1?"":"s"} • ${breakdown.reasons.join(" • ")}.`;
   q("contractNegotiation").dataset.playerId=p.id;
   q("contractNegotiation").classList.remove("hide");
   renderContractSCRPreview(p);
@@ -789,17 +898,19 @@ function submitContractOffer(){
   const id=q("contractNegotiation")?.dataset.playerId;
   const p=DB.players.find(x=>String(x.id)===String(id));
   if(!p) return;
+
   const wage=Number(q("contractWageInput").value||0);
   const years=Number(q("contractYearsInput").value||1);
-  const chance=contractAcceptanceChance(p,wage,years);
+  const decision=contractTermsDecision(p,wage,years,"renewal");
 
-  if(Math.random()<chance){
+  if(decision.accepted){
     state.playerContracts[p.id]={
       wage,
       endYear:currentSeasonStartYear()+years
     };
     if(typeof restructureRegulatedAcquisitionOnExtension==="function") restructureRegulatedAcquisitionOnExtension(p,years);
     state.playerMorale[p.id]=state.playerMorale[p.id]==="Wants to leave"?"Unhappy":"Happy";
+    clearContractNegotiation(p,"renewal");
     addNews(`${p.name} has signed a new ${years}-year contract worth ${money(wage)}/week.`);
     q("contractNegotiation").classList.add("hide");
     saveGame(false);
@@ -808,8 +919,9 @@ function submitContractOffer(){
     renderFinances();
   }else{
     addNews(`${p.name}'s representatives rejected your contract offer.`);
-    const revised=playerContractDemandBreakdown(p);
-    q("contractDemandText").textContent=`Offer rejected. The player is looking for something closer to ${money(revised.demand)}/week • ${revised.reasons.join(" • ")}.`;
+    q("contractDemandText").textContent=`${decision.message} Repeating rejected terms will not change the player's decision.`;
+    renderContractSCRPreview(p);
+    saveGame(false);
   }
 }
 
@@ -2439,7 +2551,8 @@ function renderTransferNegotiation(id){
   if(!p||!n||!area) return;
 
   if(n.status==="clubAccepted" || n.status==="terms"){
-    const demand=expectedTransferWage(p,state.club);
+    const contractN=initialiseContractNegotiation(p,"signing",expectedTransferWage(p,state.club));
+    const demand=n.contractDemand||contractN.currentDemand;
     area.innerHTML=`<div class="transfer-box">
       <b>${n.sellingClub} accepted ${money(n.agreedFee)}.</b><br>
       <span class="muted small">You can now agree terms with ${p.name}, or withdraw before the transfer is completed.</span>
@@ -2449,7 +2562,7 @@ function renderTransferNegotiation(id){
         <button class="btn primary" id="submitSigningTerms">Offer contract</button>
         <button class="btn secondary" id="withdrawAcceptedTransfer">Withdraw transfer</button>
       </div>
-      <div class="muted small" style="margin-top:8px">Agent expectation: around ${money(demand)}/wk • Player interest: ${interestLabel(playerInterestScore(p,state.club))}.</div>
+      <div class="muted small" style="margin-top:8px">Agent demand: ${money(demand)}/wk • Preferred term: ${contractN.preferredYears} year${contractN.preferredYears===1?"":"s"} • Player interest: ${interestLabel(playerInterestScore(p,state.club))}. Repeating rejected terms will not improve your chances.</div>
       ${financialRegulationTransferPreviewHTML(p,n.agreedFee,demand,4,"buy")}
     </div>`;
     q("submitSigningTerms").addEventListener("click",()=>submitNewSigningTerms(p.id));
@@ -2669,19 +2782,18 @@ function submitNewSigningTerms(id){
   const years=Math.max(1,Number(q("newSigningYears")?.value||4));
   const demand=expectedTransferWage(p,state.club);
   const interest=playerInterestScore(p,state.club);
+  const decision=contractTermsDecision(p,wage,years,"signing");
 
-  let chance=0.36+(wage/demand-1)*1.7+(interest-50)/180;
-  if(years>=4 && p.age<=29) chance+=0.06;
-  chance=clamp(chance,0.04,0.96);
-
-  if(Math.random()>chance){
+  if(!decision.accepted){
     n.status="clubAccepted";
+    n.contractDemand=decision.demand;
     addNews(`${p.name}'s representatives rejected ${state.club}'s contract offer.`);
     const area=q("transferNegotiationArea");
     if(area){
       const old=area.querySelector(".transfer-box");
-      if(old) old.insertAdjacentHTML("afterbegin",`<div class="bad" style="margin-bottom:8px"><b>Contract offer rejected.</b></div>`);
+      if(old) old.insertAdjacentHTML("afterbegin",`<div class="bad" style="margin-bottom:8px"><b>Contract offer rejected.</b><br><span class="muted small">${decision.message} Repeating the same rejected offer will not work.</span></div>`);
     }
+    saveGame(false);
     return;
   }
 
@@ -2731,6 +2843,7 @@ function submitNewSigningTerms(id){
   if(!state.playerStats[p.id]) state.playerStats[p.id]={appearances:0,goals:0};
   state.playerListStatus[p.id]="None";
   n.status="completed";
+  clearContractNegotiation(p,"signing");
   if(p.overall>=82 || n.agreedFee>=40_000_000) recordMarqueeSigning(p);
   state.transferSentiment.owners.push({label:`Transfer spending on ${p.name}`,value:n.agreedFee>(p.value||0)*1.25?-3:1});
   addNews(`${state.club} have signed ${p.name} from ${oldClub} for ${money(n.agreedFee)}. ${p.name} has agreed a ${years}-year contract worth ${money(wage)}/week.`);

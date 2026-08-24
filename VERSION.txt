@@ -60,3 +60,20 @@ Patch v0.16.2a — Contract Renewal SCR Preview
 - For post-save signings, longer/shorter renewals also preview the effect of re-spreading remaining transfer + agent acquisition cost.
 - Preview shows annual regulated cost added/removed and the current regulatory limit.
 - Accepted renewal still applies the existing acquisition-cost restructuring logic.
+
+
+Patch v0.16.2b — Contract Negotiation Logic
+- Rebuilt both existing-player renewals and new-signing contract talks around persistent negotiation state.
+- The displayed wage demand is now a genuine demand rather than a probability hint.
+- Meeting the displayed demand on the player's preferred contract term guarantees acceptance.
+- Contract length can trade against salary in a predictable way:
+  longer deals can slightly reduce required wage for younger players;
+  older players may demand more for unusually long commitments;
+  short deals can require a premium for younger players.
+- Repeating an identical rejected wage/term offer is automatically rejected again.
+- Rejected offers are remembered across negotiation rounds.
+- Near-demand offers can make the agent move slightly toward the CEO.
+- Clearly low offers cause the agent to hold their position rather than generating random acceptance chances.
+- New signings now follow the same negotiation principles as renewals.
+- Successful deals clear their negotiation state.
+- Existing live SCR contract preview remains fully compatible.
