@@ -3831,6 +3831,16 @@ function init(){
   q("closePlayerModal")?.addEventListener("click",closePlayerProfile);
   q("playerModal")?.addEventListener("click",e=>{if(e.target===q("playerModal")) closePlayerProfile();});
   q("negotiateContractBtn")?.addEventListener("click",e=>beginContractNegotiation(e.currentTarget.dataset.playerId));
+  q("contractWageInput")?.addEventListener("input",()=>{
+    const id=q("contractNegotiation")?.dataset.playerId;
+    const p=DB.players.find(x=>String(x.id)===String(id));
+    if(p) renderContractSCRPreview(p);
+  });
+  q("contractYearsInput")?.addEventListener("change",()=>{
+    const id=q("contractNegotiation")?.dataset.playerId;
+    const p=DB.players.find(x=>String(x.id)===String(id));
+    if(p) renderContractSCRPreview(p);
+  });
   q("submitContractOfferBtn")?.addEventListener("click",submitContractOffer);
   q("cancelContractBtn")?.addEventListener("click",()=>q("contractNegotiation")?.classList.add("hide"));
   q("transferListBtn")?.addEventListener("click",e=>toggleTransferList(e.currentTarget.dataset.playerId));

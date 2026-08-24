@@ -782,6 +782,7 @@ function beginContractNegotiation(id){
   q("contractDemandText").textContent=`Agent expectation: around ${money(demand)}/wk • Based on ${breakdown.reasons.join(" • ")}.`;
   q("contractNegotiation").dataset.playerId=p.id;
   q("contractNegotiation").classList.remove("hide");
+  renderContractSCRPreview(p);
 }
 
 function submitContractOffer(){
@@ -814,8 +815,24 @@ function submitContractOffer(){
 
 function toggleTransferList(id){
   ensureContractState();
+  if(!state.transferListingMeta) state.transferListingMeta={};
+
   const current=state.playerListStatus[id]||"None";
-  setPlayerListStatus(id,current==="Transfer"?"None":"Transfer");
+  const listing=current!=="Transfer";
+  setPlayerListStatus(id,listing?"Transfer":"None");
+
+  if(listing){
+    state.transferListingMeta[id]={
+      listedDay:typeof currentCareerDay==="function"?currentCareerDay():0,
+      lastMarketCheckDay:null,
+      failedChecks:0
+    };
+    const p=DB.players.find(x=>String(x.id)===String(id));
+    if(p) addNews(`${p.name} has been placed on the transfer list. Recruitment staff will actively circulate his availability to other clubs.`);
+  }else{
+    delete state.transferListingMeta[id];
+  }
+
   saveGame(false);
   openPlayerProfile(id);
   renderSquad();
@@ -1315,6 +1332,72 @@ function restructureRegulatedAcquisitionOnExtension(player,newYears){
   acq.annualAmortisation=remainingTransfer/newYears;
   acq.annualAgentCost=remainingAgent/newYears;
 }
+
+function projectSCRAfterContractRenewal(player,newWeeklyWage,newYears){
+  const current=userSCRSnapshot();
+  if(!player) return current;
+
+  const oldWeekly=(state.playerContracts?.[player.id]?.wage??player.wage??0);
+  const wageDelta=(Math.max(0,newWeeklyWage||0)-oldWeekly)*52;
+
+  let acquisitionDelta=0;
+  const fr=ensureFinancialRegulationState();
+  const acq=fr?.newAcquisitions?.[player.id];
+  if(acq){
+    const years=Math.max(1,Number(newYears||1));
+    const remainingTransfer=(acq.annualAmortisation||0)*Math.max(1,acq.yearsRemaining||1);
+    const remainingAgent=(acq.annualAgentCost||0)*Math.max(1,acq.yearsRemaining||1);
+    const currentAnnual=(acq.annualAmortisation||0)+(acq.annualAgentCost||0);
+    const newAnnual=(remainingTransfer+remainingAgent)/years;
+    acquisitionDelta=newAnnual-currentAnnual;
+  }
+
+  const squadCost=Math.max(0,current.squadCost+wageDelta+acquisitionDelta);
+  const ratio=squadCost/current.revenue;
+  return {
+    ...current,
+    currentRatio:current.ratio,
+    ratio,
+    squadCost,
+    annualImpact:wageDelta+acquisitionDelta,
+    wageDelta,
+    acquisitionDelta,
+    status:financialRegulationStatus(ratio,current.limit),
+    headroom:current.revenue*current.limit-squadCost
+  };
+}
+
+function renderContractSCRPreview(player){
+  const box=q("contractSCRPreview");
+  if(!box||!player) return;
+  const wage=Number(q("contractWageInput")?.value||0);
+  const years=Number(q("contractYearsInput")?.value||1);
+  const current=userSCRSnapshot();
+  const projected=projectSCRAfterContractRenewal(player,wage,years);
+  const impact=projected.annualImpact||0;
+  const improves=projected.ratio<current.ratio;
+
+  box.innerHTML=`
+    <div class="financial-regulation-preview-head">
+      <b>Financial regulation impact</b>
+      <span class="scr-mini-status ${projected.ratio<=current.limit?"good":"bad"}">${projected.status}</span>
+    </div>
+    <div class="financial-regulation-ratios">
+      <span>Current <b>${(current.ratio*100).toFixed(1)}%</b></span>
+      <span>→</span>
+      <span>Projected <b>${(projected.ratio*100).toFixed(1)}%</b></span>
+    </div>
+    <div class="muted small">
+      ${impact===0
+        ?"No annual SCR change from these terms."
+        :`${money(Math.abs(impact))} annual regulated cost ${impact>0?"added":"removed"}.`}
+      ${projected.acquisitionDelta<0?" Longer terms spread the remaining acquisition cost over more years.":""}
+      ${current.ratio>current.limit&&improves?" This renewal improves the club's compliance position.":""}
+      • Limit: ${Math.round(current.limit*100)}%
+    </div>`;
+}
+
+
 
 function financialTransferBanActive(){
   const fr=ensureFinancialRegulationState();
@@ -2138,7 +2221,7 @@ function findTransferTargets(club,position,limit=6){
   })();
 
   return DB.players
-    .filter(p=>p.club!==club && playsPositionGroup(p,position))
+    .filter(p=>p.club!==club && !isExternalTransferClub(p.club) && playsPositionGroup(p,position))
     .map(player=>{
       const interest=playerInterestScore(player,club);
       const asking=estimatedAskingPrice(player,club);
@@ -2264,6 +2347,8 @@ function openTransferPlayerFile(id,context={}){
 
   q("transferFileName").textContent=p.name;
   q("transferFileSub").textContent=`${p.club} • ${p.positions} • ${p.age} • ${p.nationality}`;
+  const externalOwned=isExternalTransferClub(p.club);
+
   q("transferFileBody").innerHTML=`
     <div class="transfer-grid">
       <div class="transfer-metric"><span>Joined current club</span><b>${joined}</b></div>
@@ -2282,10 +2367,11 @@ function openTransferPlayerFile(id,context={}){
     ${financialRegulationTransferPreviewHTML(p,d.asking,d.wage,4,"buy")}
     ${transferWindowStatusHTML()}
     <div id="transferNegotiationArea"></div>
+    ${externalOwned?`<div class="transfer-box"><b>External club</b><br><span class="muted small">This club exists as a transfer-market buyer only in v0.16.2. Recruitment from external/EFL clubs will be added when their player database is expanded.</span></div>`:""}
     <div class="transfer-actions">
-      <button class="btn primary" id="authoriseTransferApproach" ${isTransferWindowOpen()?"":"disabled"}>${isTransferWindowOpen()?(active?"Continue negotiation":"Authorise approach"):"Window closed"}</button>
+      <button class="btn primary" id="authoriseTransferApproach" ${(isTransferWindowOpen()&&!externalOwned)?"":"disabled"}>${externalOwned?"External recruitment unavailable":isTransferWindowOpen()?(active?"Continue negotiation":"Authorise approach"):"Window closed"}</button>
     </div>`;
-  q("authoriseTransferApproach").addEventListener("click",()=>beginTransferApproach(p.id,context));
+  q("authoriseTransferApproach").addEventListener("click",()=>{if(!externalOwned) beginTransferApproach(p.id,context);});
   q("transferPlayerModal").classList.remove("hide");
   if(active) renderTransferNegotiation(p.id);
 }
@@ -2314,6 +2400,10 @@ function beginTransferApproach(id,context={}){
   if(blockClosedWindow("authorise an approach")) return;
   const p=DB.players.find(x=>String(x.id)===String(id));
   if(!p || p.club===state.club) return;
+  if(isExternalTransferClub(p.club)){
+    addNews(`Recruitment from ${p.club} is not available yet because external clubs currently exist as buyer-only market actors.`);
+    return;
+  }
   if(!state.transferNegotiations[p.id]){
     const asking=estimatedAskingPrice(p,state.club);
     const suggested=Math.round((asking*.82)/250000)*250000;
@@ -2329,6 +2419,19 @@ function beginTransferApproach(id,context={}){
   renderTransferNegotiation(p.id);
 }
 
+
+function withdrawTransferApproach(id,reason="You withdrew from negotiations."){
+  const p=DB.players.find(x=>String(x.id)===String(id));
+  const n=state.transferNegotiations?.[id];
+  if(!n) return;
+  n.status="withdrawn";
+  n.message=reason;
+  n.agreedFee=null;
+  if(p) addNews(`${state.club} withdrew from transfer talks for ${p.name}.`);
+  saveGame(false);
+  renderTransferNegotiation(id);
+}
+
 function renderTransferNegotiation(id){
   const p=DB.players.find(x=>String(x.id)===String(id));
   const n=state.transferNegotiations?.[id];
@@ -2337,16 +2440,29 @@ function renderTransferNegotiation(id){
 
   if(n.status==="clubAccepted" || n.status==="terms"){
     const demand=expectedTransferWage(p,state.club);
-    area.innerHTML=`<div class="transfer-box"><b>${n.sellingClub} accepted ${money(n.agreedFee)}.</b><br><span class="muted small">You can now agree terms with ${p.name}.</span>
+    area.innerHTML=`<div class="transfer-box">
+      <b>${n.sellingClub} accepted ${money(n.agreedFee)}.</b><br>
+      <span class="muted small">You can now agree terms with ${p.name}, or withdraw before the transfer is completed.</span>
       <div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:10px;align-items:center">
         <label>Weekly wage <input id="newSigningWage" type="number" step="1000" value="${demand}"></label>
         <label>Contract <select id="newSigningYears"><option>3</option><option selected>4</option><option>5</option></select> years</label>
         <button class="btn primary" id="submitSigningTerms">Offer contract</button>
+        <button class="btn secondary" id="withdrawAcceptedTransfer">Withdraw transfer</button>
       </div>
       <div class="muted small" style="margin-top:8px">Agent expectation: around ${money(demand)}/wk • Player interest: ${interestLabel(playerInterestScore(p,state.club))}.</div>
       ${financialRegulationTransferPreviewHTML(p,n.agreedFee,demand,4,"buy")}
     </div>`;
     q("submitSigningTerms").addEventListener("click",()=>submitNewSigningTerms(p.id));
+    q("withdrawAcceptedTransfer").addEventListener("click",()=>withdrawTransferApproach(p.id,"You withdrew after the selling club accepted the bid."));
+    return;
+  }
+
+  if(n.status==="withdrawn"){
+    area.innerHTML=`<div class="transfer-box"><b>Approach withdrawn.</b><br><span class="muted small">${n.message||"You ended the transfer talks."}</span><div style="margin-top:10px"><button class="btn secondary" id="restartTransferApproach">Start new approach</button></div></div>`;
+    q("restartTransferApproach")?.addEventListener("click",()=>{
+      delete state.transferNegotiations[p.id];
+      beginTransferApproach(p.id);
+    });
     return;
   }
 
@@ -2360,14 +2476,33 @@ function renderTransferNegotiation(id){
     <span class="muted small">Recruitment estimates the player may cost around ${money(Math.round(n.askingPrice*.92/250000)*250000)}–${money(Math.round(n.askingPrice*1.08/250000)*250000)}.</span>
     ${n.message?`<div style="margin-top:8px">${n.message}</div>`:""}
     ${n.lastCounter?`<div class="muted small" style="margin-top:6px">Current counter: ${money(n.lastCounter)} • Match this amount to accept.</div>`:""}
+    <div id="transferBidWarning" class="transfer-bid-warning hide"></div>
     <div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:10px;align-items:center">
       <label>Transfer fee <input id="transferFeeOffer" type="number" step="250000" value="${n.latestOffer}"></label>
       <button class="btn primary" id="submitTransferBid">Submit bid</button>
       <button class="btn secondary" id="walkAwayTransfer">Walk away</button>
     </div>
   </div>`;
-  q("submitTransferBid").addEventListener("click",()=>submitTransferBid(p.id,Number(q("transferFeeOffer").value||0)));
-  q("walkAwayTransfer").addEventListener("click",()=>{n.status="rejected";n.message="You ended negotiations.";saveGame(false);renderTransferNegotiation(p.id);});
+
+  const input=q("transferFeeOffer");
+  const updateWarning=()=>{
+    const fee=Number(input?.value||0);
+    const estimateHigh=n.askingPrice*1.08;
+    const warn=q("transferBidWarning");
+    if(!warn) return;
+    if(fee>estimateHigh*1.25){
+      warn.classList.remove("hide");
+      warn.innerHTML=`<b>Check this bid.</b> ${money(fee)} is far above the recruitment estimate for ${p.name}.`;
+    }else{
+      warn.classList.add("hide");
+      warn.innerHTML="";
+    }
+  };
+  input?.addEventListener("input",updateWarning);
+  updateWarning();
+
+  q("submitTransferBid").addEventListener("click",()=>submitTransferBid(p.id,Number(input?.value||0)));
+  q("walkAwayTransfer").addEventListener("click",()=>withdrawTransferApproach(p.id));
 }
 
 function submitTransferBid(id,fee){
@@ -2378,6 +2513,27 @@ function submitTransferBid(id,fee){
   if(!p||!n||fee<=0) return;
 
   const offer=Math.round(fee/250000)*250000;
+
+  if(offer>(state.budget||0)){
+    n.message=`Bid blocked: ${money(offer)} exceeds the remaining transfer budget of ${money(state.budget||0)}.`;
+    renderTransferNegotiation(id);
+    return;
+  }
+
+  // Typo protection. A bid far beyond the recruitment estimate needs an
+  // explicit second confirmation before it can be submitted.
+  const highEstimate=(n.askingPrice||0)*1.08;
+  if(highEstimate>0 && offer>highEstimate*1.25){
+    const multiple=offer/Math.max(1,n.askingPrice||highEstimate);
+    const proceed=typeof window!=="undefined" && typeof window.confirm==="function"
+      ? window.confirm(`This bid is ${money(offer)}, around ${multiple.toFixed(1)}× the recruitment valuation for ${p.name}. Submit it anyway?`)
+      : false;
+    if(!proceed){
+      n.message=`Bid not submitted. Check the transfer fee and try again.`;
+      renderTransferNegotiation(id);
+      return;
+    }
+  }
 
   // Migrate older/in-progress negotiations safely.
   if(n.reservationPrice==null) n.reservationPrice=transferSellerReservationPrice(n);
@@ -2606,47 +2762,421 @@ function incomingOfferFairValue(p){
   return Math.round(estimatedAskingPrice(p,state.club)/250000)*250000;
 }
 
-function generateIncomingOffer(){
+
+/* --------------------------------------------------------------------------
+   External transfer market — v0.16.2
+   --------------------------------------------------------------------------
+   These clubs exist only as transfer-market actors. They do NOT have generated
+   squads, fixtures or domestic-league simulation and are not browsable in the
+   player database. This expands the selling market without expanding the full
+   football-world database.
+   -------------------------------------------------------------------------- */
+
+const EXTERNAL_TRANSFER_CLUBS=[
+  // Championship-level market
+  {name:"Birmingham City",division:"Championship",country:"England",reputation:73,budget:38_000_000,maxWage:75_000,standard:73},
+  {name:"Blackburn Rovers",division:"Championship",country:"England",reputation:70,budget:18_000_000,maxWage:45_000,standard:71},
+  {name:"Bristol City",division:"Championship",country:"England",reputation:70,budget:20_000_000,maxWage:48_000,standard:71},
+  {name:"Charlton Athletic",division:"Championship",country:"England",reputation:68,budget:14_000_000,maxWage:36_000,standard:69},
+  {name:"Coventry City",division:"Championship",country:"England",reputation:72,budget:25_000_000,maxWage:55_000,standard:72},
+  {name:"Derby County",division:"Championship",country:"England",reputation:71,budget:20_000_000,maxWage:48_000,standard:71},
+  {name:"Hull City",division:"Championship",country:"England",reputation:69,budget:18_000_000,maxWage:43_000,standard:70},
+  {name:"Ipswich Town",division:"Championship",country:"England",reputation:75,budget:45_000_000,maxWage:80_000,standard:74},
+  {name:"Leicester City",division:"Championship",country:"England",reputation:78,budget:48_000_000,maxWage:95_000,standard:75},
+  {name:"Middlesbrough",division:"Championship",country:"England",reputation:73,budget:30_000_000,maxWage:60_000,standard:73},
+  {name:"Millwall",division:"Championship",country:"England",reputation:69,budget:16_000_000,maxWage:40_000,standard:70},
+  {name:"Norwich City",division:"Championship",country:"England",reputation:73,budget:30_000_000,maxWage:62_000,standard:73},
+  {name:"Oxford United",division:"Championship",country:"England",reputation:66,budget:10_000_000,maxWage:30_000,standard:68},
+  {name:"Portsmouth",division:"Championship",country:"England",reputation:70,budget:17_000_000,maxWage:42_000,standard:70},
+  {name:"Preston North End",division:"Championship",country:"England",reputation:68,budget:13_000_000,maxWage:34_000,standard:69},
+  {name:"Queens Park Rangers",division:"Championship",country:"England",reputation:69,budget:16_000_000,maxWage:40_000,standard:70},
+  {name:"Sheffield United",division:"Championship",country:"England",reputation:75,budget:38_000_000,maxWage:75_000,standard:74},
+  {name:"Sheffield Wednesday",division:"Championship",country:"England",reputation:70,budget:15_000_000,maxWage:38_000,standard:70},
+  {name:"Southampton",division:"Championship",country:"England",reputation:76,budget:45_000_000,maxWage:85_000,standard:75},
+  {name:"Stoke City",division:"Championship",country:"England",reputation:71,budget:22_000_000,maxWage:50_000,standard:71},
+  {name:"Swansea City",division:"Championship",country:"Wales",reputation:70,budget:18_000_000,maxWage:45_000,standard:71},
+  {name:"Watford",division:"Championship",country:"England",reputation:72,budget:25_000_000,maxWage:55_000,standard:72},
+  {name:"West Bromwich Albion",division:"Championship",country:"England",reputation:74,budget:30_000_000,maxWage:65_000,standard:73},
+  {name:"Wrexham",division:"Championship",country:"Wales",reputation:72,budget:32_000_000,maxWage:60_000,standard:72},
+
+  // Lower-EFL market — primarily fringe players, prospects and listed players
+  {name:"Bolton Wanderers",division:"League One",country:"England",reputation:68,budget:8_000_000,maxWage:24_000,standard:67},
+  {name:"Cardiff City",division:"League One",country:"Wales",reputation:69,budget:9_000_000,maxWage:26_000,standard:68},
+  {name:"Exeter City",division:"League One",country:"England",reputation:61,budget:3_000_000,maxWage:12_000,standard:63},
+  {name:"Huddersfield Town",division:"League One",country:"England",reputation:68,budget:8_000_000,maxWage:25_000,standard:67},
+  {name:"Luton Town",division:"League One",country:"England",reputation:69,budget:9_000_000,maxWage:28_000,standard:68},
+  {name:"Plymouth Argyle",division:"League One",country:"England",reputation:66,budget:6_000_000,maxWage:20_000,standard:66},
+  {name:"Reading",division:"League One",country:"England",reputation:65,budget:5_000_000,maxWage:18_000,standard:65},
+  {name:"Bradford City",division:"League Two",country:"England",reputation:61,budget:2_500_000,maxWage:10_000,standard:62},
+  {name:"Notts County",division:"League Two",country:"England",reputation:61,budget:2_500_000,maxWage:10_000,standard:62},
+
+  // Major European / overseas buyers
+  {name:"Real Madrid",division:"La Liga",country:"Spain",reputation:99,budget:180_000_000,maxWage:400_000,standard:88},
+  {name:"Barcelona",division:"La Liga",country:"Spain",reputation:98,budget:120_000_000,maxWage:350_000,standard:87},
+  {name:"Atlético Madrid",division:"La Liga",country:"Spain",reputation:92,budget:90_000_000,maxWage:220_000,standard:84},
+  {name:"Villarreal",division:"La Liga",country:"Spain",reputation:84,budget:45_000_000,maxWage:110_000,standard:80},
+  {name:"Athletic Club",division:"La Liga",country:"Spain",reputation:85,budget:45_000_000,maxWage:115_000,standard:81},
+
+  {name:"Bayern Munich",division:"Bundesliga",country:"Germany",reputation:97,budget:140_000_000,maxWage:320_000,standard:87},
+  {name:"Borussia Dortmund",division:"Bundesliga",country:"Germany",reputation:91,budget:80_000_000,maxWage:180_000,standard:83},
+  {name:"RB Leipzig",division:"Bundesliga",country:"Germany",reputation:86,budget:70_000_000,maxWage:145_000,standard:81},
+  {name:"Bayer Leverkusen",division:"Bundesliga",country:"Germany",reputation:90,budget:85_000_000,maxWage:175_000,standard:83},
+  {name:"Eintracht Frankfurt",division:"Bundesliga",country:"Germany",reputation:84,budget:50_000_000,maxWage:110_000,standard:80},
+
+  {name:"Paris Saint-Germain",division:"Ligue 1",country:"France",reputation:97,budget:170_000_000,maxWage:380_000,standard:87},
+  {name:"Marseille",division:"Ligue 1",country:"France",reputation:87,budget:65_000_000,maxWage:140_000,standard:81},
+  {name:"Monaco",division:"Ligue 1",country:"France",reputation:85,budget:60_000_000,maxWage:130_000,standard:80},
+  {name:"Lyon",division:"Ligue 1",country:"France",reputation:83,budget:45_000_000,maxWage:100_000,standard:79},
+  {name:"Lille",division:"Ligue 1",country:"France",reputation:82,budget:42_000_000,maxWage:95_000,standard:79},
+
+  {name:"Inter Milan",division:"Serie A",country:"Italy",reputation:93,budget:90_000_000,maxWage:210_000,standard:84},
+  {name:"AC Milan",division:"Serie A",country:"Italy",reputation:92,budget:85_000_000,maxWage:200_000,standard:83},
+  {name:"Juventus",division:"Serie A",country:"Italy",reputation:93,budget:95_000_000,maxWage:220_000,standard:84},
+  {name:"Napoli",division:"Serie A",country:"Italy",reputation:89,budget:75_000_000,maxWage:170_000,standard:82},
+  {name:"Roma",division:"Serie A",country:"Italy",reputation:87,budget:65_000_000,maxWage:150_000,standard:81},
+  {name:"Atalanta",division:"Serie A",country:"Italy",reputation:86,budget:60_000_000,maxWage:135_000,standard:81},
+
+  {name:"Benfica",division:"Primeira Liga",country:"Portugal",reputation:87,budget:65_000_000,maxWage:120_000,standard:81},
+  {name:"Porto",division:"Primeira Liga",country:"Portugal",reputation:87,budget:60_000_000,maxWage:115_000,standard:81},
+  {name:"Sporting CP",division:"Primeira Liga",country:"Portugal",reputation:87,budget:65_000_000,maxWage:125_000,standard:82},
+  {name:"Ajax",division:"Eredivisie",country:"Netherlands",reputation:84,budget:50_000_000,maxWage:95_000,standard:79},
+  {name:"PSV Eindhoven",division:"Eredivisie",country:"Netherlands",reputation:84,budget:50_000_000,maxWage:95_000,standard:80},
+  {name:"Feyenoord",division:"Eredivisie",country:"Netherlands",reputation:83,budget:45_000_000,maxWage:90_000,standard:79},
+
+  {name:"Galatasaray",division:"Süper Lig",country:"Turkey",reputation:85,budget:55_000_000,maxWage:140_000,standard:80},
+  {name:"Fenerbahçe",division:"Süper Lig",country:"Turkey",reputation:85,budget:55_000_000,maxWage:145_000,standard:80},
+  {name:"Beşiktaş",division:"Süper Lig",country:"Turkey",reputation:82,budget:40_000_000,maxWage:110_000,standard:78},
+  {name:"Celtic",division:"Scottish Premiership",country:"Scotland",reputation:81,budget:35_000_000,maxWage:70_000,standard:77},
+  {name:"Rangers",division:"Scottish Premiership",country:"Scotland",reputation:80,budget:30_000_000,maxWage:65_000,standard:76}
+];
+
+function externalTransferClub(name){
+  return EXTERNAL_TRANSFER_CLUBS.find(c=>c.name===name)||null;
+}
+
+function isExternalTransferClub(name){
+  return Boolean(externalTransferClub(name));
+}
+
+function ensureExternalTransferMarketState(){
+  if(!state) return;
+  if(!state.externalClubFinances) state.externalClubFinances={};
+  const seasonKey=typeof currentSeasonStartYear==="function"?currentSeasonStartYear():2025;
+
+  EXTERNAL_TRANSFER_CLUBS.forEach(c=>{
+    const existing=state.externalClubFinances[c.name];
+    if(!existing || existing.seasonKey!==seasonKey){
+      // External clubs are deliberately abstract. Their market budget refreshes
+      // each season rather than requiring full profit/loss simulation.
+      const variance=0.90+stablePlayerTrait({id:c.name},"external-season-budget")*.20;
+      state.externalClubFinances[c.name]={
+        seasonKey,
+        transferBudget:Math.round((c.budget*variance)/250000)*250000,
+        maxWage:c.maxWage,
+        spent:0,
+        signed:0
+      };
+    }
+  });
+}
+
+function externalClubBudgetLeft(club){
+  ensureExternalTransferMarketState();
+  const p=externalTransferClub(club);
+  const f=state.externalClubFinances?.[club];
+  if(!p||!f) return 0;
+  return Math.max(0,(f.transferBudget??p.budget)-(f.spent||0));
+}
+
+function externalPlayerFitScore(p,club,listed=false){
+  const c=typeof club==="string"?externalTransferClub(club):club;
+  if(!c||!p) return -999;
+
+  const overall=p.overall||0;
+  const potential=p.potential||overall;
+  const age=p.age||25;
+  const currentWage=state.playerContracts?.[p.id]?.wage??p.wage??0;
+  const value=p.value||0;
+
+  let score=50;
+  score+=(overall-c.standard)*7;
+  score+=(potential-overall)*1.5;
+  if(age<=23) score+=5;
+  if(age>=31) score-=Math.min(15,(age-30)*4);
+
+  // Lower divisions are mostly shopping for fringe players and prospects rather
+  // than established Premier League stars.
+  if(c.division==="Championship"){
+    if(overall>=68 && overall<=79) score+=8;
+    if(overall>=83) score-=18;
+  }else if(c.division==="League One"||c.division==="League Two"){
+    if(overall>=60 && overall<=72) score+=10;
+    if(overall>=76) score-=28;
+  }else{
+    // Elite foreign clubs mainly chase high-end players; development clubs are
+    // also interested in younger upside.
+    if(c.reputation>=92 && overall<80) score-=18;
+    if(c.reputation>=84 && age<=23 && potential>=82) score+=7;
+  }
+
+  if(listed) score+=10;
+  if(value>c.budget*1.15) score-=30;
+  if(currentWage>c.maxWage*1.20) score-=25;
+
+  // Deterministic club/player variation stops every club evaluating the player
+  // identically while remaining stable across re-renders.
+  score+=(stablePlayerTrait(p,`external-${c.name}`)-0.5)*12;
+  return score;
+}
+
+function externalExpectedWage(p,club){
+  const c=externalTransferClub(club);
+  if(!c) return expectedTransferWage(p,club);
+
+  const current=Math.max(1000,state.playerContracts?.[p.id]?.wage??p.wage??1000);
+  const sellerRep=byClub(state.club)?.reputation||80;
+  const moveDelta=c.reputation-sellerRep;
+  let target=current;
+
+  if(moveDelta>=8) target*=1.03;
+  else if(moveDelta>=0) target*=1.08;
+  else if(moveDelta>=-8) target*=1.13;
+  else target*=1.20;
+
+  // Players will not normally move abroad/down the pyramid for a dramatic wage
+  // cut simply because the buying club has a lower wage ceiling.
+  target=Math.min(target,c.maxWage*1.15);
+  const step=target>=100000?5000:target>=50000?2500:1000;
+  return Math.max(1000,Math.round(target/step)*step);
+}
+
+function externalCanAffordTransfer(club,p,fee,weeklyWage){
+  const c=externalTransferClub(club);
+  if(!c) return {ok:false,reason:"Unknown external club"};
+  const budget=externalClubBudgetLeft(club);
+  if(fee>budget) return {ok:false,reason:"Transfer budget"};
+  if(weeklyWage>c.maxWage*1.15) return {ok:false,reason:"Wage level"};
+  if(externalPlayerFitScore(p,c,state.playerListStatus?.[p.id]==="Transfer")<35) return {ok:false,reason:"Squad fit"};
+  return {ok:true,reason:"Affordable"};
+}
+
+function applyExternalTransferPurchase(club,fee){
+  ensureExternalTransferMarketState();
+  const f=state.externalClubFinances?.[club];
+  if(!f) return;
+  f.spent=(f.spent||0)+fee;
+  f.signed=(f.signed||0)+1;
+}
+
+function externalMarketCandidatesForPlayer(p,{listed=false}={}){
+  ensureExternalTransferMarketState();
+  return EXTERNAL_TRANSFER_CLUBS
+    .map(club=>({club,score:externalPlayerFitScore(p,club,listed)}))
+    .filter(x=>x.score>=35)
+    .filter(x=>{
+      const wage=externalExpectedWage(p,x.club.name);
+      const fair=incomingOfferFairValue(p);
+      const testFee=fair*(listed?0.70:0.84);
+      return externalCanAffordTransfer(x.club.name,p,testFee,wage).ok;
+    })
+    .sort((a,b)=>b.score-a.score)
+    .slice(0,18)
+    .map(x=>x.club);
+}
+
+function buyerCompetitionLabel(club){
+  const ext=externalTransferClub(club);
+  return ext?`${ext.division} • ${ext.country}`:"Premier League";
+}
+
+
+function transferBuyerExpectedWage(p,buyerName){
+  return isExternalTransferClub(buyerName)
+    ? externalExpectedWage(p,buyerName)
+    : expectedTransferWage(p,buyerName);
+}
+
+function transferBuyerCanAfford(buyerName,p,fee,weeklyWage){
+  return isExternalTransferClub(buyerName)
+    ? externalCanAffordTransfer(buyerName,p,fee,weeklyWage)
+    : aiCanAffordTransfer(buyerName,fee,weeklyWage);
+}
+
+function applyTransferBuyerPurchase(buyerName,fee,weeklyWage){
+  if(isExternalTransferClub(buyerName)) applyExternalTransferPurchase(buyerName,fee);
+  else applyAITransferPurchase(buyerName,fee,weeklyWage);
+}
+
+function chooseIncomingBuyer(p,plBuyers,externalBuyers,listed=false){
+  // Keep the Premier League active, but make external/EFL bids common enough
+  // to materially expand the market.
+  if(!plBuyers.length) return externalBuyers[Math.floor(Math.random()*externalBuyers.length)]||null;
+  if(!externalBuyers.length) return plBuyers[Math.floor(Math.random()*plBuyers.length)]||null;
+
+  const overall=p.overall||0;
+  let externalChance=listed?0.62:0.52;
+
+  // Fringe players are especially likely to attract EFL / development markets;
+  // stars still draw major foreign clubs but retain a strong domestic market.
+  if(overall<=74) externalChance+=0.10;
+  if(overall>=84) externalChance-=0.06;
+
+  const useExternal=Math.random()<clamp(externalChance,0.35,0.75);
+  const pool=useExternal?externalBuyers:plBuyers;
+  return pool[Math.floor(Math.random()*pool.length)]||null;
+}
+
+function interestedBuyersForPlayer(p,{listed=false}={}){
+  const needDepth=listed?7:3;
+  const fair=incomingOfferFairValue(p);
+
+  const premierLeague=DB.clubs
+    .filter(c=>c.name!==state.club)
+    .filter(c=>{
+      const needs=evaluateSquadNeeds(c.name).slice(0,needDepth);
+      return needs.some(n=>playsPositionGroup(p,n.position));
+    })
+    .filter(c=>{
+      const wage=transferBuyerExpectedWage(p,c.name);
+      const testFee=fair*(listed?0.72:0.85);
+      return transferBuyerCanAfford(c.name,p,testFee,wage).ok;
+    })
+    .map(c=>({...c,marketType:"Premier League"}));
+
+  const external=externalMarketCandidatesForPlayer(p,{listed})
+    .map(c=>({...c,marketType:"External"}));
+
+  return {premierLeague,external};
+}
+
+function createIncomingOfferForPlayer(p,{listed=false}={}){
+  if(!p) return false;
+  if(state.incomingTransferOffers.some(o=>String(o.playerId)===String(p.id) && o.status==="pending")) return false;
+
+  const fair=incomingOfferFairValue(p);
+  const pools=interestedBuyersForPlayer(p,{listed});
+  const buyer=chooseIncomingBuyer(p,pools.premierLeague,pools.external,listed);
+  if(!buyer) return false;
+
+  const external=isExternalTransferClub(buyer.name);
+
+  // Listed players invite value-seeking offers. External clubs use slightly
+  // wider variance because financial power varies dramatically between the
+  // Championship, lower EFL and Europe's elite.
+  let feeFactor;
+  if(external){
+    if(buyer.division==="League One"||buyer.division==="League Two"){
+      feeFactor=listed?0.68+Math.random()*0.18:0.76+Math.random()*0.18;
+    }else if(buyer.division==="Championship"){
+      feeFactor=listed?0.72+Math.random()*0.20:0.82+Math.random()*0.20;
+    }else{
+      feeFactor=listed?0.78+Math.random()*0.24:0.90+Math.random()*0.24;
+    }
+  }else{
+    feeFactor=listed?0.76+Math.random()*0.20:0.88+Math.random()*0.22;
+  }
+
+  const fee=Math.max(250000,Math.round((fair*feeFactor)/250000)*250000);
+  const wage=transferBuyerExpectedWage(p,buyer.name);
+
+  if(!transferBuyerCanAfford(buyer.name,p,fee,wage).ok) return false;
+
+  const offer={
+    id:"io"+Date.now()+Math.floor(Math.random()*1000),
+    playerId:p.id,
+    buyingClub:buyer.name,
+    buyerCompetition:buyerCompetitionLabel(buyer.name),
+    externalBuyer:external,
+    fee,
+    status:"pending",
+    round:1,
+    expectedWage:wage,
+    generatedFromListing:Boolean(listed)
+  };
+
+  state.incomingTransferOffers.push(offer);
+  state.news.unshift({
+    week:state.week,
+    date:currentGameDateISO(),
+    text:`${buyer.name} (${buyerCompetitionLabel(buyer.name)}) have submitted a ${money(fee)} offer for ${p.name}${listed?" after being alerted to his transfer-list availability":""}.`,
+    incomingOfferId:offer.id
+  });
+
+  if(state.transferListingMeta?.[p.id]){
+    state.transferListingMeta[p.id].failedChecks=0;
+    state.transferListingMeta[p.id].lastMarketCheckDay=typeof currentCareerDay==="function"?currentCareerDay():0;
+  }
+  return true;
+}
+
+function generateIncomingOffer(options={}){
   ensureContractState();
-  if(!isTransferWindowOpen()) return;
-  const candidates=squad(state.club).filter(p=>{
+  if(!isTransferWindowOpen()) return false;
+
+  const listedOnly=Boolean(options.listedOnly);
+  const requestedPlayer=options.player||null;
+
+  if(requestedPlayer){
+    return createIncomingOfferForPlayer(requestedPlayer,{listed:state.playerListStatus?.[requestedPlayer.id]==="Transfer"});
+  }
+
+  let candidates=squad(state.club).filter(p=>{
     const listed=state.playerListStatus?.[p.id]==="Transfer";
     const strong=p.overall>=74;
-    return listed || strong;
+    return listedOnly?listed:(listed||strong);
   });
-  if(!candidates.length) return;
+  if(!candidates.length) return false;
 
-  // Listed players are much more likely to attract attention.
+  // Transfer-listed players receive a much stronger market weighting.
   const weighted=[];
   candidates.forEach(p=>{
     let w=1;
-    if(state.playerListStatus?.[p.id]==="Transfer") w+=5;
+    if(state.playerListStatus?.[p.id]==="Transfer") w+=12;
     if(p.overall>=82) w+=2;
     for(let i=0;i<w;i++) weighted.push(p);
   });
-  const p=weighted[Math.floor(Math.random()*weighted.length)];
-  if(state.incomingTransferOffers.some(o=>o.playerId===p.id && o.status==="pending")) return;
 
-  const interestedClubs=DB.clubs.filter(c=>c.name!==state.club).filter(c=>{
-    const needs=evaluateSquadNeeds(c.name).slice(0,3);
-    return needs.some(n=>playsPositionGroup(p,n.position));
-  });
-  if(!interestedClubs.length) return;
-  const fair=incomingOfferFairValue(p);
-  const affordableBuyers=interestedClubs.filter(c=>{
-    const expectedWage=expectedTransferWage(p,c.name);
-    return aiCanAffordTransfer(c.name,fair*.85,expectedWage).ok;
-  });
-  if(!affordableBuyers.length) return;
+  // Try several candidates instead of abandoning the entire daily market event
+  // because the first random player has no affordable interested club.
+  const tried=new Set();
+  while(tried.size<Math.min(candidates.length,6)){
+    const p=weighted[Math.floor(Math.random()*weighted.length)];
+    if(tried.has(String(p.id))) continue;
+    tried.add(String(p.id));
+    const listed=state.playerListStatus?.[p.id]==="Transfer";
+    if(createIncomingOfferForPlayer(p,{listed})) return true;
+  }
+  return false;
+}
 
-  const buyer=affordableBuyers[Math.floor(Math.random()*affordableBuyers.length)];
-  const listed=state.playerListStatus?.[p.id]==="Transfer";
-  const fee=Math.round((fair*(listed?0.82+Math.random()*.16:0.88+Math.random()*.22))/250000)*250000;
-  const wage=expectedTransferWage(p,buyer.name);
-  if(!aiCanAffordTransfer(buyer.name,fee,wage).ok) return;
-  const offer={id:"io"+Date.now()+Math.floor(Math.random()*1000),playerId:p.id,buyingClub:buyer.name,fee,status:"pending",round:1,expectedWage:wage};
-  state.incomingTransferOffers.push(offer);
-  state.news.unshift({week:state.week,date:currentGameDateISO(),text:`${buyer.name} have submitted a ${money(fee)} offer for ${p.name}.`,incomingOfferId:offer.id});
+function processTransferListedPlayerInterest(){
+  if(!isTransferWindowOpen()) return;
+  if(!state.transferListingMeta) state.transferListingMeta={};
+
+  const day=typeof currentCareerDay==="function"?currentCareerDay():0;
+  const listed=squad(state.club).filter(p=>state.playerListStatus?.[p.id]==="Transfer");
+  listed.forEach(p=>{
+    if(state.incomingTransferOffers.some(o=>String(o.playerId)===String(p.id) && o.status==="pending")) return;
+
+    const meta=state.transferListingMeta[p.id]||(state.transferListingMeta[p.id]={
+      listedDay:day,lastMarketCheckDay:null,failedChecks:0
+    });
+    const daysListed=Math.max(0,day-(meta.listedDay??day));
+    const sinceCheck=meta.lastMarketCheckDay==null?99:day-meta.lastMarketCheckDay;
+    if(sinceCheck<2) return;
+
+    // Active marketing: roughly 16% daily initially, rising if the player
+    // remains unsold. This is separate from normal unsolicited offers.
+    const chance=clamp(0.16+(meta.failedChecks||0)*0.035+Math.min(0.10,daysListed*0.008),0.16,0.42);
+    if(Math.random()<chance){
+      const made=createIncomingOfferForPlayer(p,{listed:true});
+      meta.lastMarketCheckDay=day;
+      if(!made) meta.failedChecks=(meta.failedChecks||0)+1;
+    }else if(sinceCheck>=3){
+      meta.lastMarketCheckDay=day;
+      meta.failedChecks=(meta.failedChecks||0)+1;
+    }
+  });
 }
 
 function incomingOfferViews(offer){
@@ -2665,10 +3195,11 @@ function openIncomingTransferOffer(id){
   const v=incomingOfferViews(offer);
   ensureTransferPlayerModal();
   q("transferFileName").textContent=`Offer for ${v.p.name}`;
-  q("transferFileSub").textContent=`${offer.buyingClub} → ${state.club}`;
+  q("transferFileSub").textContent=`${offer.buyingClub} • ${offer.buyerCompetition||buyerCompetitionLabel(offer.buyingClub)} → ${state.club}`;
   q("transferFileBody").innerHTML=`
     <div class="transfer-grid">
       <div class="transfer-metric"><span>Offer</span><b>${money(offer.fee)}</b></div>
+      <div class="transfer-metric"><span>Buying club</span><b>${offer.buyingClub}</b><div class="muted small">${offer.buyerCompetition||buyerCompetitionLabel(offer.buyingClub)}</div></div>
       <div class="transfer-metric"><span>Market value</span><b>${money(v.p.value)}</b></div>
       <div class="transfer-metric"><span>Internal fair-value estimate</span><b>${money(v.fair)}</b></div>
       <div class="transfer-metric"><span>Player morale</span><b>${state.playerMorale?.[v.p.id]||"Content"}</b></div>
@@ -2731,8 +3262,8 @@ function resolveIncomingTransferOffer(id,action,counter=0){
       return Math.max(0,currentSeasonStartYear()-joined);
     })();
     recordStarSale(p,offer.fee,oldValue,yearsAtClub);
-    const buyerWage=offer.expectedWage||expectedTransferWage(p,buyer);
-    const affordability=aiCanAffordTransfer(buyer,offer.fee,buyerWage);
+    const buyerWage=offer.expectedWage||transferBuyerExpectedWage(p,buyer);
+    const affordability=transferBuyerCanAfford(buyer,p,offer.fee,buyerWage);
     if(!affordability.ok){
       offer.status="rejected";
       addNews(`${buyer} withdrew their offer for ${p.name} because they could no longer complete the deal within their financial limits.`);
@@ -2747,7 +3278,7 @@ function resolveIncomingTransferOffer(id,action,counter=0){
     state.budget+=offer.fee;
     if(state.transferFinance) state.transferFinance.received=(state.transferFinance.received||0)+offer.fee;
     if(state.monthlyFinance) state.monthlyFinance.transferReceived=(state.monthlyFinance.transferReceived||0)+offer.fee;
-    applyAITransferPurchase(buyer,offer.fee,buyerWage);
+    applyTransferBuyerPurchase(buyer,offer.fee,buyerWage);
     p.wage=buyerWage;
     transferPlayerToClub(p,buyer,offer.fee,oldClub);
     offer.status="accepted";
@@ -2828,6 +3359,10 @@ function processTransferDay(){
 
   const windowActive=isTransferWindowOpen();
   if(!windowActive) return;
+
+  // Transfer-listed players are actively marketed every day, separately from
+  // the normal unsolicited-offer market.
+  processTransferListedPlayerInterest();
 
   // Convert the old weekly probabilities to daily probabilities.
   if(Math.random()<(1-Math.pow(1-0.24,1/7))) generateIncomingOffer();

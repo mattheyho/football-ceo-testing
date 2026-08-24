@@ -1,60 +1,53 @@
-v0.16 FINANCIAL REGULATIONS TEST REPORT
+v0.16.2 EXTERNAL TRANSFER MARKET TEST REPORT
 
-SYNTAX / INTEGRATION
-PASS — game.js syntax
+STATIC / SYNTAX
 PASS — transfers.js syntax
-PASS — no duplicate HTML IDs
-PASS — v0.15.6a stakeholder / tutorial / match-lineup code retained
-PASS — Dashboard SCR metric added
-PASS — pre-season financial-plan UI added
+PASS — game.js syntax
+PASS — no duplicate static HTML IDs
+PASS — v0.16 financial regulation system retained
+PASS — v0.16.1 transfer withdrawal and bid safeguards retained
 
-STARTING-RATIO HARNESS
-PASS — all 20 named Premier League profiles present
-PASS — all 20 test careers initialise exactly to their configured starting ratio
-PASS — Aston Villa initialises at 79.0%
-PASS — Newcastle United initialises at 78.0%
-PASS — Premier League regulatory limit = 70%
+MARKET PROFILE CHECK
+PASS — 65 external buyer profiles loaded
+PASS — 24 Championship clubs
+PASS — 7 League One market actors
+PASS — 2 League Two market actors
+PASS — major foreign buyers present across multiple European leagues
 
-TRANSFER ACCOUNTING HARNESS
-PASS — £40m / £100k week / 5-year signing increases Villa SCR
-PASS — sale of an existing Villa player reduces Villa SCR
-PASS — new signing registers annual amortisation and estimated agent cost
-PASS — outgoing sale removes inherited/post-save regulated player costs
-PASS — post-save contract extension re-spreads remaining acquisition cost
+RUNTIME EXTERNAL-MARKET HARNESS
+PASS — lightweight external finance state initializes by season
+PASS — Championship/EFL clubs identify suitable listed PL fringe players
+PASS — foreign clubs identify suitable higher-quality PL players
+PASS — league/country buyer label resolves correctly
+PASS — external clubs respect abstract transfer budgets and wage ceilings
 
-TRANSFER UI
-PASS — incoming target dossier shows SCR impact
-PASS — agreed-fee stage shows SCR impact
-PASS — outgoing offer screen shows SCR impact
-PASS — star-player warning remains present
-PASS — transfer registration ban blocks purchases but not player sales
+INCOMING OFFER FLOW
+PASS — Premier League and external buyer pools are combined
+PASS — listed players receive enhanced external-market interest
+PASS — external buyers can generate permanent incoming offers
+PASS — external offer stores competition/country metadata
+PASS — acceptance uses external affordability check
+PASS — acceptance updates abstract external transfer spend
+PASS — sold player transfers to external club through existing persistent player-world override
 
-RECRUITMENT
-PASS — manager shortlist uses per-need budget planning
-PASS — manager profile recruitment aggression affects spending allowance
-PASS — DoF financial weighting uses DoF rating
-PASS — SCR breach increases DoF preference for financially efficient young players
-PASS — manager does not recommend a target above total remaining budget
+BUYER-ONLY SCOPE
+PASS — external-club-owned player has disabled recruitment action
+PASS — hard guard prevents user approach to an external club
+PASS — Premier League AI target search excludes external-club-owned exports
+PASS — no external squads or new external player database generated
 
-STAKEHOLDERS
-PASS — SCR-driven star sale receives reduced fan penalty
-PASS — SCR-driven key sale receives reduced manager penalty
-PASS — corrective sale improves Owner happiness
-PASS — transfer-request rejection while in breach receives reduced manager penalty
+NOTE
+External club budgets, wage ceilings, reputation and standards are gameplay abstractions.
+They are designed to create a believable wider market, not simulate exact club accounts.
 
-SANCTIONS HARNESS
-Villa 79% test:
-PASS — first assessment = Breach, 15% next-investment restriction, £4m test fine
-PASS — second consecutive assessment = stronger 28% investment restriction, £6m test fine
-PASS — third consecutive breach = £8m test fine + transfer registration ban
-PASS — breach streak resets on compliance
 
-FUTURE DIVISION SCAFFOLD
-PASS — Premier League 70%
-PASS — Championship 80%
-PASS — League One 90%
-PASS — League Two 90%
-
-IMPORTANT CALIBRATION NOTE
-Starting revenue and SCR values are gameplay-calibrated baselines rather than claims of exact audited club ratios.
-The hybrid system is designed so future user transactions become simulation-driven while inherited pre-save accounting gradually disappears.
+v0.16.2a CONTRACT SCR REGRESSION
+PASS — contract renewal preview exists
+PASS — current -> projected SCR shown
+PASS — weekly wage change included in projection
+PASS — post-save acquisition cost re-spread included in projection
+PASS — preview recalculates on wage input
+PASS — preview recalculates on contract-length change
+PASS — accepted renewal retains existing restructureRegulatedAcquisitionOnExtension()
+PASS — transfers.js syntax
+PASS — game.js syntax

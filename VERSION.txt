@@ -1,109 +1,62 @@
-Football CEO v0.16 — Financial Regulations
+Football CEO v0.16.2 — External Transfer Buyers
 
-Built on v0.15.6a.
+Built on v0.16.1 Transfer Flow.
 
-CORE RULE
-- Football CEO now uses a universal Squad Cost Ratio (SCR) financial-regulation system.
-- Premier League limit: 70%.
-- Future Championship scaffold: 80%.
-- Future League One / League Two scaffold: 90%.
-- Status bands:
-  Healthy <= 60%
-  Tight >60% to regulatory limit
-  Breach above regulatory limit to 80%
-  Severe above 80%
+SCOPE
+- Expands the transfer BUYER market without adding full foreign/EFL leagues or a large new player database.
+- External clubs are lightweight market actors only.
+- They have no generated squads, fixtures, league tables or domestic simulation.
+- v0.16.2 does NOT add a searchable external-player database.
 
-STARTING POSITIONS
-All 20 current Premier League clubs have gameplay-calibrated starting SCR positions:
-Arsenal 64%
-Aston Villa 79%
-Bournemouth 57%
-Brentford 53%
-Brighton 60%
-Burnley 61%
-Chelsea 73%
-Crystal Palace 62%
-Everton 68%
-Fulham 59%
-Leeds United 69%
-Liverpool 61%
-Manchester City 58%
-Manchester United 69%
-Newcastle United 78%
-Nottingham Forest 71%
-Sunderland 63%
-Tottenham Hotspur 61%
-West Ham United 66%
-Wolverhampton Wanderers 69%
+EXTERNAL MARKET
+65 lightweight external buyer profiles:
+- 24 Championship clubs.
+- 9 lower-EFL clubs from League One / League Two.
+- 32 foreign/other major-market clubs across Spain, Germany, France, Italy, Portugal, Netherlands, Turkey and Scotland.
 
-HYBRID ACCOUNTING
-- Starting ratio is created by live annual football payroll plus a calibrated inherited legacy cost.
-- Legacy cost represents pre-save amortisation / acquisition commitments without needing historic accounting for every player.
-- The legacy burden is distributed across the existing squad so selling a player removes their share of inherited cost.
-- Remaining inherited costs decay by 24% each season as old commitments run off.
-- New transfers from the save start are tracked individually:
-  transfer fee / contract term
-  + estimated agent cost (5% of fee) / contract term
-  + annual wages.
-- Contract extensions for post-save signings re-spread remaining regulated acquisition cost over the new contract.
-- Selling a post-save signing removes their remaining annual acquisition cost and wage from the projected ratio.
+Each external club has:
+- reputation
+- abstract seasonal transfer budget
+- wage ceiling
+- expected squad standard
+- division / country
+- player-fit logic.
 
-REVENUE
-- Every current club has a calibrated football-revenue baseline.
-- Main sponsorship moves revenue relative to the club's baseline sponsor value.
-- Matchday pricing / supporter demand can move projected annual matchday revenue.
-- Hooks exist for future cup / European competition revenue.
+BID BEHAVIOUR
+- Incoming offers can now come from Premier League clubs OR external clubs.
+- External buyers account for roughly half of the viable incoming market, with higher weighting for transfer-listed/fringe players.
+- Transfer-listed players are especially attractive to Championship/EFL/value-seeking clubs.
+- Lower-EFL clubs primarily target affordable fringe players and prospects.
+- Championship clubs target realistic PL fringe / development players.
+- Major European clubs prefer higher-quality players and, where appropriate, high-upside younger players.
+- External clubs consider player value, wage level, age, overall, potential, reputation/standard fit and whether the player is transfer listed.
+- External clubs must stay within their own abstract transfer budget and wage ceiling.
+- Their budgets refresh each season because their wider finances are not fully simulated.
 
-CEO TRANSFER BUDGET
-- CEO now sets the transfer budget in the pre-season commercial/financial setup.
-- The game shows Available Investment and allows the CEO to allocate part of it.
-- The old configured transfer budget remains the default first-season allocation.
-- Maximum available first-season investment is 125% of the old configured budget.
-- Manager / Owner happiness reacts to aggressive or conservative allocations.
-- When SCR is already over the limit, the manager is more understanding of a conservative budget.
+OFFER UI
+- Incoming offer screen now shows the buying club's league/division and country.
+- Inbox messages identify the buyer market, e.g. "Benfica (Primeira Liga • Portugal)".
+- All existing SCR sale-impact, star-player and manager/DoF decision information remains in the offer screen.
 
-RECRUITMENT AI
-- Manager / DoF recommendations now plan around the remaining transfer budget.
-- Recruitment spreads budget across multiple identified squad needs rather than assuming the full budget is for one signing.
-- Manager recruitment aggression affects how far above an equal share they will push for a priority signing.
-- DoF rating increases the importance of SCR impact, value and young-player upside.
-- When already in breach, strong DoFs favour lower annual-cost / higher-upside investments.
-- Managers no longer suggest permanent targets that exceed the total remaining transfer budget.
+PLAYER WORLD
+- If one of your players is sold to an external club, that existing known player moves there and persists in the save.
+- The game does NOT generate a squad around him.
+- External clubs remain buyer-only in v0.16.2:
+  - user cannot start an approach for external-club players;
+  - Premier League AI does not use exported external-club players as a hidden foreign recruitment database.
+- This avoids accidentally turning v0.16.2 into a large database expansion.
 
-TRANSFER SCREENS
-- Incoming signing dossier shows Current SCR -> Projected SCR.
-- Agreed-fee / contract stage also shows projected regulated cost.
-- Incoming offers for your players show Current SCR -> Projected SCR after sale.
-- The screen shows the annual regulated cost added or removed.
+COMPATIBILITY
+- Existing saves work.
+- Existing transfer-listed players automatically begin using the expanded buyer market.
+- v0.16 financial regulations retained.
+- v0.16.1 listing improvements / bid safeguards / transfer withdrawal retained.
 
-CONTEXT-AWARE STAKEHOLDERS
-- Star sales that materially improve an existing SCR breach receive a reduced fan penalty.
-- Manager penalty is also reduced when a key player must be sold to restore compliance.
-- Owners reward financially necessary corrective sales.
-- Rejecting a manager transfer target while above the SCR limit creates a much smaller manager penalty.
 
-ANNUAL ASSESSMENT / SANCTIONS
-- Compliance is assessed at the season rollover rather than punishing temporary in-season fluctuations.
-- <= limit: compliant, breach streak resets.
-- 70-75%: warning; repeat offences can reduce next-season investment and create a fine.
-- 75-85%: breach; fines and next-season investment restrictions increase with repeat offences.
-- >85%: severe breach; larger fines and stronger investment restrictions.
-- Repeat serious breaches can trigger a next-season transfer registration ban.
-- Transfer bans block incoming permanent transfers but do NOT block selling players.
-- Repeat offences escalate via consecutive-breach history.
-
-VISIBILITY
-- SCR is now a headline Dashboard metric.
-- Finance screen shows:
-  football revenue
-  regulated squad cost
-  headroom / reduction required
-  annual football payroll
-  inherited pre-save commitments
-  post-save transfer & agent costs
-  current sanctions.
-- Tutorial now explains financial regulations and CEO transfer-budget allocation.
-
-NOTE
-These are Football CEO gameplay regulations inspired by real football financial controls.
-They are not presented as exact UEFA SCR or Premier League PSR accounting.
+Patch v0.16.2a — Contract Renewal SCR Preview
+- Existing-player contract negotiations now show Current SCR -> Projected SCR.
+- Preview updates live as weekly wage or contract length changes.
+- Wage changes affect annual regulated payroll immediately.
+- For post-save signings, longer/shorter renewals also preview the effect of re-spreading remaining transfer + agent acquisition cost.
+- Preview shows annual regulated cost added/removed and the current regulatory limit.
+- Accepted renewal still applies the existing acquisition-cost restructuring logic.
