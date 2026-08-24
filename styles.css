@@ -1227,3 +1227,17 @@ html.modal-open,body.modal-open{overflow:hidden!important;height:100%!important}
 
 /* v0.16.2a contract renewal SCR preview */
 .contract-scr-preview{margin-top:10px}
+
+/* PWA / iPhone Home Screen standalone mode */
+@media (display-mode: standalone) {
+  html, body { min-height: 100dvh; }
+  body {
+    padding-top: env(safe-area-inset-top);
+    padding-left: env(safe-area-inset-left);
+    padding-right: env(safe-area-inset-right);
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+  .game-topbar {
+    padding-top: 2px;
+  }
+}
