@@ -1241,3 +1241,11 @@ html.modal-open,body.modal-open{overflow:hidden!important;height:100%!important}
     padding-top: 2px;
   }
 }
+
+
+/* v0.17.2 squad condition / substitutions */
+.substitution-row{opacity:.92}
+.status-fit.good{color:var(--good,#4fd18b)}
+.status-fit.warn{color:var(--warn,#f2b84b)}
+.status-fit.bad{color:var(--bad,#ff7777)}
+.manager-complaint-actions{gap:6px;flex-wrap:wrap}

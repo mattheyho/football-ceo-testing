@@ -1,51 +1,52 @@
-v0.17.0 MATCH ENGINE TEST REPORT
+v0.17.2 SQUAD MANAGEMENT TEST REPORT
 
-SYNTAX / INTEGRATION
+STATIC / SYNTAX
 PASS — game.js syntax
 PASS — transfers.js syntax
-PASS — service worker syntax
-PASS — manager-selected XI feeds the result engine
-PASS — same user XI is reused for result generation and match report
-PASS — attack / defence / goalkeeper / control ratings are separate
-PASS — positional suitability affects effective match contribution
-PASS — existing manager-profile attributes feed match simulation
-PASS — form modifier is capped
-PASS — engine diagnostics persist with match result
-PASS — PWA cache bumped
+PASS — sw.js syntax
+PASS — no duplicate static HTML IDs
+PASS — v0.17 Match Engine 2.0 retained
+PASS — v0.16 transfer/contract/external-buyer systems retained
 
-MONTE CARLO MATCH TEST
-Synthetic 86 OVR elite-profile team vs 76 OVR weaker-profile team, 30,000 matches:
-- Strong team at home: approximately 73% wins, 19% draws, 8% defeats
-- Strong team away: approximately 61% wins, 23% draws, 15% defeats
-- Equal 80 OVR teams: approximately 43% home wins, 28% draws, 30% away wins
-PASS — meaningful hierarchy while preserving football upsets
-PASS — home advantage visible without guaranteeing home result
+CONDITION / WORKLOAD
+PASS — automatic migration/initial condition state
+PASS — daily condition recovery hook
+PASS — match-minute condition cost
+PASS — age/intensity modifiers
+PASS — medical/physio user-club recovery modifier
+PASS — 14-day workload calculation
+PASS — progressive condition performance multiplier
+PASS — fatigue-related injury multiplier
 
-SYNTHETIC SEASON TEST
-120 double-round-robin seasons across 20 teams ranging from 88 to 72 OVR:
-- highest-rated club average finish approximately 2.5
-- fifth-rated club average finish approximately 5.0
-- middle club average finish approximately 11.0
-- lowest-rated club average finish approximately 18.9
-- highest-rated club finished top four around 90% of runs
-- lowest-rated club was relegated around 83% of runs
-PASS — season table strongly correlates with team quality without hard-coding standings
+ROTATION
+PASS — manager XI scoring includes condition
+PASS — manager XI scoring includes workload
+PASS — manager-specific rotation tendency
+PASS — match importance alters fatigue tolerance
+PASS — CEO does not select XI
 
-GOALSCORER TEST
-20,000 single-goal events using an equal-80-OVR 4-3-3:
-- striker / wide-forward share approximately 69%
-- defenders approximately 8.5%
-- centre-backs retain set-piece scoring route
-- penalties and set pieces are separately modelled
-PASS — defenders no longer receive disproportionate open-play scoring weight
+SUBSTITUTIONS
+PASS — three match phases
+PASS — substitution windows at 60 and 75
+PASS — maximum five changes per side
+PASS — replacement requires positional suitability and usable condition
+PASS — score state changes substitution priorities
+PASS — active XI is rebuilt before later phases
+PASS — later phases use changed XI strength
+PASS — substitution usage map records starter/substitute minutes
+PASS — Apps / Starts / Minutes logic separates substitute appearances
+PASS — match report renders substitution events
 
-FUTURE ARCHITECTURE
-PASS — matchPlayerFitnessMultiplier() hook present
-PASS — simulateMatchPhase() present
-PASS — starter minutes stored
-PASS — bench minutes stored
-PASS — substitutions array reserved
+MANAGER COMPLAINTS
+PASS — rejected signing request creates persistent depth-rejection memory
+PASS — complaint requires a later genuine positional depth crisis
+PASS — complaint references earlier rejected request
+PASS — one complaint maximum per rejected request
+PASS — Back manager response creates recruitment vacancy + reassessment
+PASS — Defend decision affects manager happiness/backing
+PASS — Use squad response is sensitive to manager youth trust
+PASS — no player-side complaint system added
 
 NOTE
-These are gameplay calibration tests, not claims that exact real-world Premier League probabilities are being reproduced.
-Full iPhone/GitHub Pages E2E has not been run in this environment.
+Full iPhone/GitHub Pages E2E has not been run here.
+Current Premier League-only calendar is normally one match per week, so condition-driven rotation will become substantially more visible once cups/European fixture congestion is added.

@@ -121,6 +121,123 @@ function ensurePlayerState(){
   });
 }
 
+
+/* --------------------------------------------------------------------------
+   SQUAD CONDITION & WORKLOAD — v0.17.2
+   -------------------------------------------------------------------------- */
+function ensureFitnessState(){
+  if(!state.playerCondition) state.playerCondition={};
+  if(!state.playerMinuteLog) state.playerMinuteLog={};
+
+  DB.players.forEach(p=>{
+    if(state.playerCondition[p.id]==null){
+      const seed=((String(p.id).split("").reduce((s,c)=>s+c.charCodeAt(0),0)%5));
+      state.playerCondition[p.id]=96+seed;
+    }
+    if(!state.playerMinuteLog[p.id]) state.playerMinuteLog[p.id]=[];
+  });
+}
+
+function playerCondition(pOrId){
+  ensureFitnessState();
+  const id=typeof pOrId==="object"?pOrId.id:pOrId;
+  return clamp(Number(state.playerCondition[id]??100),20,100);
+}
+
+function workloadMinutes(pOrId,days=14){
+  ensureFitnessState();
+  const id=typeof pOrId==="object"?pOrId.id:pOrId;
+  const today=typeof currentCareerDay==="function"?currentCareerDay():0;
+  return (state.playerMinuteLog[id]||[])
+    .filter(x=>today-(x.day??today)<=days)
+    .reduce((s,x)=>s+(x.minutes||0),0);
+}
+
+function playerWorkloadLabel(pOrId){
+  const mins=workloadMinutes(pOrId,14);
+  if(mins>=360) return "Very heavy";
+  if(mins>=250) return "Heavy";
+  if(mins>=120) return "Normal";
+  return "Light";
+}
+
+function playerConditionLabel(pOrId){
+  const c=playerCondition(pOrId);
+  if(c>=90) return "Fresh";
+  if(c>=75) return "Good";
+  if(c>=60) return "Tired";
+  if(c>=45) return "Fatigued";
+  return "High risk";
+}
+
+function playerConditionClass(pOrId){
+  const c=playerCondition(pOrId);
+  if(c>=75) return "good";
+  if(c>=60) return "warn";
+  return "bad";
+}
+
+function conditionPerformanceMultiplier(condition){
+  const c=clamp(Number(condition||100),20,100);
+  if(c>=90) return 1;
+  if(c>=80) return 0.99;
+  if(c>=70) return 0.965;
+  if(c>=60) return 0.93;
+  if(c>=50) return 0.885;
+  if(c>=40) return 0.82;
+  return 0.74;
+}
+
+function recordPlayerMinutes(player,minutes,club=player?.club){
+  if(!player || minutes<=0) return;
+  ensureFitnessState();
+  const day=typeof currentCareerDay==="function"?currentCareerDay():0;
+  state.playerMinuteLog[player.id].push({day,minutes,club});
+  state.playerMinuteLog[player.id]=state.playerMinuteLog[player.id]
+    .filter(x=>day-(x.day??day)<=21)
+    .slice(-12);
+
+  const profile=typeof managerProfileForClub==="function"?managerProfileForClub(club):null;
+  const intensity=profile
+    ? 0.94+((profile.pressing||65)-65)*0.0022+((profile.verticality||65)-65)*0.0008
+    : 1;
+  const age=player.age||25;
+  const ageMult=age>=32?1.10:age>=29?1.05:age<=22?0.96:1;
+  const loss=(4.5+minutes*0.155)*intensity*ageMult;
+  state.playerCondition[player.id]=clamp(playerCondition(player)-loss,20,100);
+}
+
+function processDailyConditionRecovery(){
+  ensureFitnessState();
+  const medical=typeof facilityRating==="function"?facilityRating("medical"):70;
+  const physio=state.staff?.physio?.rating||70;
+
+  DB.players.forEach(p=>{
+    const current=playerCondition(p);
+    const age=p.age||25;
+    let recovery=5.0;
+    if(age<=23) recovery+=0.5;
+    if(age>=30) recovery-=0.45;
+    if(age>=33) recovery-=0.35;
+
+    if(p.club===state.club){
+      recovery+=(medical-70)*0.018+(physio-70)*0.012;
+    }
+    if(state.injuries?.[p.id]) recovery*=0.75;
+
+    state.playerCondition[p.id]=clamp(current+recovery,20,100);
+  });
+}
+
+function fatigueInjuryRiskMultiplier(player){
+  const c=playerCondition(player);
+  if(c>=70) return 1;
+  if(c>=60) return 1.15;
+  if(c>=50) return 1.45;
+  if(c>=40) return 1.9;
+  return 2.5;
+}
+
 function playerMoraleClass(m){
   if(m==="Happy") return "morale-happy";
   if(m==="Content") return "morale-content";
@@ -176,19 +293,45 @@ function weightedPick(players,weightFn,excludeIds=new Set()){
   return usable[usable.length-1];
 }
 
-function trackPlayerMatchStats(myGoals,oppGoals=0,matchSelection=null){
+function trackPlayerMatchStats(myGoals,oppGoals=0,matchSelection=null,matchFlow={}){
   ensurePlayerState();
 
   const selection=matchSelection || (typeof managerSelectMatchdaySquad==="function"
     ? managerSelectMatchdaySquad(state.club)
     : {formation:"4-2-3-1",xi:selectMatchSquad().map((p,i)=>({slot:"",slotIndex:i,player:p,playerId:p.id,suitability:100})),bench:[]});
 
-  const starters=selection.xi.filter(x=>x.player);
-  starters.forEach(x=>{
+  const usage=matchFlow.usage||buildMatchUsage(selection,matchFlow.substitutions||[]);
+  const substitutions=matchFlow.substitutions||[];
+
+  const participantEntries=[];
+  const seen=new Set();
+
+  selection.xi.forEach(x=>{
+    if(!x.player) return;
+    const mins=usage.minutes?.[x.player.id]??90;
+    participantEntries.push({...x,minutes:mins,started:true});
+    seen.add(String(x.player.id));
+  });
+
+  (selection.bench||[]).forEach(p=>{
+    const mins=usage.minutes?.[p.id]||0;
+    if(mins<=0 || seen.has(String(p.id))) return;
+    const slot=usage.slots?.[p.id]||"CM";
+    participantEntries.push({
+      player:p,playerId:p.id,slot,slotIndex:null,
+      suitability:typeof positionSuitability==="function"?positionSuitability(p,slot):100,
+      minutes:mins,started:false
+    });
+    seen.add(String(p.id));
+  });
+
+  participantEntries.forEach(x=>{
     const p=x.player;
+    if(!state.playerStats[p.id]) state.playerStats[p.id]={appearances:0,starts:0,goals:0,assists:0};
     const s=state.playerStats[p.id];
-    s.appearances=(s.appearances||0)+1;
-    s.starts=(s.starts||0)+1;
+    if(x.minutes>0) s.appearances=(s.appearances||0)+1;
+    if(x.started) s.starts=(s.starts||0)+1;
+    s.minutes=(s.minutes||0)+x.minutes;
   });
 
   const goalsByPlayer={};
@@ -196,7 +339,7 @@ function trackPlayerMatchStats(myGoals,oppGoals=0,matchSelection=null){
   const goalEvents=[];
 
   const weightedLineupPick=(entries,weightFn,excludeIds=new Set())=>{
-    const usable=entries.filter(x=>x.player && !excludeIds.has(String(x.player.id)));
+    const usable=entries.filter(x=>x.player && x.minutes>0 && !excludeIds.has(String(x.player.id)));
     if(!usable.length) return null;
     const weights=usable.map(x=>Math.max(0.001,weightFn(x)));
     const total=weights.reduce((a,b)=>a+b,0);
@@ -212,8 +355,9 @@ function trackPlayerMatchStats(myGoals,oppGoals=0,matchSelection=null){
     const p=x.player;
     const ability=Math.pow(1.05,clamp((p.overall||72)-75,-15,15));
     const suitability=0.78+0.22*clamp(Number(x.suitability??100),0,100)/100;
-    const fitness=matchPlayerFitnessMultiplier(p,state.club,{slot:x.slot,selection});
-    return ability*suitability*fitness;
+    const minuteShare=clamp((x.minutes||0)/90,0.08,1);
+    const fitness=conditionPerformanceMultiplier(playerCondition(p));
+    return ability*suitability*Math.sqrt(minuteShare)*fitness;
   };
 
   const openPlayScorerBase={
@@ -238,7 +382,7 @@ function trackPlayerMatchStats(myGoals,oppGoals=0,matchSelection=null){
     const goalType=roll<0.08?"penalty":roll<0.22?"set-piece":"open-play";
     const scorerMap=goalType==="penalty"?penaltyScorerBase:goalType==="set-piece"?setPieceScorerBase:openPlayScorerBase;
 
-    const scorerEntry=weightedLineupPick(starters,x=>(scorerMap[x.slot]??0.9)*qualityMultiplier(x));
+    const scorerEntry=weightedLineupPick(participantEntries,x=>(scorerMap[x.slot]??0.9)*qualityMultiplier(x));
     if(!scorerEntry) break;
     const scorer=scorerEntry.player;
 
@@ -246,10 +390,9 @@ function trackPlayerMatchStats(myGoals,oppGoals=0,matchSelection=null){
     goalsByPlayer[scorer.id]=(goalsByPlayer[scorer.id]||0)+1;
 
     let assisterEntry=null;
-    // Penalties are not assisted; around 80% of other goals are.
     if(goalType!=="penalty" && Math.random()<0.80){
       assisterEntry=weightedLineupPick(
-        starters,
+        participantEntries,
         x=>(assistBase[x.slot]??1.0)*qualityMultiplier(x),
         new Set([String(scorer.id)])
       );
@@ -274,15 +417,16 @@ function trackPlayerMatchStats(myGoals,oppGoals=0,matchSelection=null){
   const resultBase=myGoals>oppGoals?0.45:myGoals===oppGoals?0.05:-0.35;
   const playerMatchData={};
 
-  selection.xi.forEach(x=>{
+  participantEntries.forEach(x=>{
     const p=x.player;
-    if(!p) return;
+    if(!p || x.minutes<=0) return;
 
     const quality=((p.overall||75)-75)*0.018;
     const goalBonus=(goalsByPlayer[p.id]||0)*0.70;
     const assistBonus=(assistsByPlayer[p.id]||0)*0.38;
+    const minutesFactor=x.minutes<30?-0.05:x.minutes<60?0:0.04;
     const variance=(Math.random()-.5)*0.95;
-    let rating=6.45+resultBase+quality+goalBonus+assistBonus+variance;
+    let rating=6.40+resultBase+quality+goalBonus+assistBonus+minutesFactor+variance;
 
     if(x.slot==="GK" && oppGoals===0) rating+=0.35;
     if((x.slot==="CB"||x.slot==="LB"||x.slot==="RB") && oppGoals===0) rating+=0.22;
@@ -298,7 +442,8 @@ function trackPlayerMatchStats(myGoals,oppGoals=0,matchSelection=null){
       playerId:p.id,name:p.name,slot:x.slot,slotIndex:x.slotIndex,
       rating,goals:goalsByPlayer[p.id]||0,assists:assistsByPlayer[p.id]||0,
       overall:p.overall||0,suitability:x.suitability??100,
-      minutes:90 // v0.18 substitutions will replace this with actual minutes.
+      minutes:x.minutes,
+      started:x.started
     };
   });
 
@@ -307,8 +452,14 @@ function trackPlayerMatchStats(myGoals,oppGoals=0,matchSelection=null){
     lineup:selection.xi.map(x=>x.player ? playerMatchData[x.player.id] : {
       playerId:null,name:"Vacant",slot:x.slot,slotIndex:x.slotIndex,rating:null,goals:0,assists:0,suitability:0,minutes:0
     }),
-    bench:(selection.bench||[]).map(p=>({playerId:p.id,name:p.name,overall:p.overall||0,minutes:0})),
-    substitutions:[], // reserved for v0.18
+    bench:(selection.bench||[]).map(p=>({
+      playerId:p.id,name:p.name,overall:p.overall||0,
+      minutes:usage.minutes?.[p.id]||0,
+      rating:playerMatchData[p.id]?.rating??null,
+      goals:goalsByPlayer[p.id]||0,
+      assists:assistsByPlayer[p.id]||0
+    })),
+    substitutions,
     goalEvents
   };
 }
@@ -341,7 +492,7 @@ function openPlayerProfile(id){
   q("profileWage").textContent=money(contract.wage)+"/wk";
   q("profileAvailability").innerHTML=state.injuries?.[p.id]
     ? `<span class="bad">Injured — ${state.injuries[p.id].daysRemaining??state.injuries[p.id].weeksLeft*7} day${(state.injuries[p.id].daysRemaining??state.injuries[p.id].weeksLeft*7)===1?"":"s"} remaining</span>`
-    : `<span class="good">Fit</span>`;
+    : `<span class="${playerConditionClass(p)}">${Math.round(playerCondition(p))}% • ${playerConditionLabel(p)}</span><br><span class="muted small">Workload: ${playerWorkloadLabel(p)} • ${workloadMinutes(p,14)} mins / 14 days</span>`;
 
   const listStatus=state.playerListStatus[p.id]||"None";
   if(q("profileSupporterStatus")){
@@ -421,7 +572,8 @@ function processInjuries(){
   const dailyChance=1-Math.pow(1-weeklyChance,1/7);
 
   healthy.forEach(p=>{
-    if(Math.random()<dailyChance){
+    const fatigueRisk=typeof fatigueInjuryRiskMultiplier==="function"?fatigueInjuryRiskMultiplier(p):1;
+    if(Math.random()<dailyChance*fatigueRisk){
       const rawWeeks=injuryBaseDuration();
       const facilityRecovery=clamp(1-(medical-70)*0.004,0.86,1.08);
       const days=Math.max(3,Math.round(rawWeeks*7*physioRecoveryModifier()*facilityRecovery));
@@ -2076,8 +2228,12 @@ function advanceDay(){
     performSeasonRollover();
   }
 
+  // Fitness recovers on the daily calendar before injury/recovery processing.
+  processDailyConditionRecovery();
+
   // Injuries/recovery and transfer-market activity live on the daily clock.
   processInjuries();
+  if(typeof checkManagerDepthComplaints==="function") checkManagerDepthComplaints();
   if(typeof processTransferDay==="function") processTransferDay();
 
   // Event-triggered manager reassessment happens the day after a significant
@@ -2249,6 +2405,137 @@ function renderDashboardInboxPreview(){
     : `<div class="muted small">No messages requiring your attention.</div>`;
 }
 
+
+/* --------------------------------------------------------------------------
+   MANAGER DEPTH COMPLAINTS — v0.17.2
+   -------------------------------------------------------------------------- */
+function managerDepthAvailablePlayers(position){
+  const players=squad(state.club).filter(p=>!state.injuries?.[p.id]);
+  return players.filter(p=>{
+    const suitability=typeof positionSuitability==="function"?positionSuitability(p,position):0;
+    const condition=typeof playerCondition==="function"?playerCondition(p):100;
+    return suitability>=70 && condition>=52;
+  });
+}
+
+function managerDepthRequiredCount(position){
+  if(typeof managerFormationForClub!=="function" || typeof MANAGER_FORMATIONS==="undefined") return 1;
+  const formation=managerFormationForClub(state.club);
+  const slots=MANAGER_FORMATIONS[formation]?.slots||[];
+  const exact=slots.filter(x=>x===position).length;
+  return Math.max(1,exact);
+}
+
+function managerDepthCrisis(position){
+  const available=managerDepthAvailablePlayers(position);
+  const required=managerDepthRequiredCount(position);
+  return {
+    crisis:available.length<required,
+    available,
+    required
+  };
+}
+
+function checkManagerDepthComplaints(){
+  if(!state.managerDepthRequestRejections?.length) return;
+  if(!state.managerDepthComplaints) state.managerDepthComplaints=[];
+
+  const today=currentCareerDay();
+  state.managerDepthRequestRejections.forEach(rejection=>{
+    if(rejection.complaintRaised) return;
+    if(today-(rejection.rejectedDay||0)<5) return;
+
+    const crisis=managerDepthCrisis(rejection.position);
+    if(!crisis.crisis) return;
+
+    const duplicate=state.managerDepthComplaints.some(c=>
+      !c.resolved && c.position===rejection.position
+    );
+    if(duplicate) return;
+
+    const id=`mdc${Date.now()}${Math.floor(Math.random()*1000)}`;
+    const manager=state.staff?.manager?.name||rejection.manager||"The manager";
+    const role=positionLabel(rejection.position);
+
+    const complaint={
+      id,
+      rejectionId:rejection.id,
+      position:rejection.position,
+      originalRole:rejection.squadRole||"backup",
+      manager,
+      createdDay:today,
+      resolved:false
+    };
+    state.managerDepthComplaints.push(complaint);
+    rejection.complaintRaised=true;
+
+    state.news.unshift({
+      week:state.week,
+      date:currentGameDateISO(),
+      managerComplaintId:id,
+      text:`${manager}: “I raised the need for another ${role} earlier. We now don't have enough fit options there and it is restricting how I can manage the team.”`
+    });
+
+    if(typeof stakeholderChange==="function"){
+      stakeholderChange("manager",-2,`Squad-depth problem at ${role} after rejected recruitment request`,{notify:true});
+    }
+  });
+}
+
+function resolveManagerDepthComplaint(id,response){
+  const complaint=state.managerDepthComplaints?.find(c=>c.id===id);
+  if(!complaint || complaint.resolved) return;
+  complaint.resolved=true;
+
+  const manager=complaint.manager;
+  const role=positionLabel(complaint.position);
+  if(response==="back"){
+    if(typeof stakeholderChange==="function"){
+      stakeholderChange("manager",+3,`CEO promises to address ${role} depth`,{notify:true});
+    }
+    state.managerBacking=clamp((state.managerBacking??70)+4,0,100);
+
+    if(!state.managerSquadVacancies) state.managerSquadVacancies=[];
+    const existing=state.managerSquadVacancies.find(v=>!v.filled && v.position===complaint.position);
+    if(!existing){
+      state.managerSquadVacancies.push({
+        id:`depth-${complaint.position}-${Date.now()}`,
+        position:complaint.position,
+        role:"backup",
+        filled:false,
+        soldPlayerName:"the earlier rejected depth request",
+        createdDay:currentCareerDay(),
+        reason:"CEO promised to address a manager depth complaint"
+      });
+    }
+    if(state.managerRequestCooldowns){
+      delete state.managerRequestCooldowns[`sign-${complaint.position}-backup`];
+      delete state.managerRequestCooldowns[`sign-${complaint.position}-competition`];
+    }
+    if(typeof scheduleManagerReassessment==="function") scheduleManagerReassessment(1);
+    addNews(`You told ${manager} that the club will address the shortage at ${role}. Recruitment will reassess the role.`);
+  }else if(response==="defend"){
+    if(typeof stakeholderChange==="function"){
+      stakeholderChange("manager",-3,`CEO defended earlier ${role} recruitment decision`,{notify:true});
+    }
+    state.managerBacking=clamp((state.managerBacking??70)-4,0,100);
+    addNews(`You defended the earlier decision not to add another ${role}. ${manager} remains dissatisfied with the available depth.`);
+  }else{
+    const youthTrust=typeof managerProfileForClub==="function"
+      ? managerProfileForClub(state.club).youthTrust||60
+      : 60;
+    const delta=youthTrust>=78?0:youthTrust>=60?-1:-2;
+    if(delta && typeof stakeholderChange==="function"){
+      stakeholderChange("manager",delta,`Asked manager to solve ${role} shortage internally`,{notify:true});
+    }
+    addNews(`You asked ${manager} to solve the ${role} shortage using the existing squad${youthTrust>=78?" and younger options":""}.`);
+  }
+
+  saveGame(false);
+  renderInbox();
+  renderDashboard();
+}
+
 function renderInbox(){
   q("inbox").innerHTML=state.news.map(n=>{
     let actions="";
@@ -2267,12 +2554,25 @@ function renderInbox(){
         actions=`<div class="inbox-action"><button class="btn primary incoming-offer-btn" data-offer-id="${offer.id}">Review offer</button></div>`;
       }
     }
+    if(n.managerComplaintId){
+      const complaint=state.managerDepthComplaints?.find(c=>c.id===n.managerComplaintId);
+      if(complaint && !complaint.resolved){
+        actions=`<div class="inbox-action manager-complaint-actions">
+          <button class="btn primary manager-complaint-btn" data-complaint-id="${complaint.id}" data-response="back">Back manager</button>
+          <button class="btn secondary manager-complaint-btn" data-complaint-id="${complaint.id}" data-response="defend">Defend decision</button>
+          <button class="btn secondary manager-complaint-btn" data-complaint-id="${complaint.id}" data-response="squad">Use the squad</button>
+        </div>`;
+      }
+    }
     const when=n.date?shortGameDate(n.date):`MW ${n.week}`;
     return `<div class="news"><span class="pill">${when}</span> &nbsp; ${n.text}${actions}</div>`;
   }).join("")||`<p class="muted">No messages.</p>`;
 
   document.querySelectorAll(".manager-request-btn").forEach(btn=>{
     btn.addEventListener("click",()=>resolveManagerRequest(btn.dataset.requestId,btn.dataset.accept==="1"));
+  });
+  document.querySelectorAll(".manager-complaint-btn").forEach(btn=>{
+    btn.addEventListener("click",()=>resolveManagerDepthComplaint(btn.dataset.complaintId,btn.dataset.response));
   });
   renderDashboardInboxPreview();
 }
@@ -2361,7 +2661,7 @@ function renderSquad(){
           ? `<span class="listed-badge listed-loan">Loan</span>`
           : state.injuries?.[p.id]
             ? `<span class="injury-chip">${state.injuries[p.id].weeksLeft}w</span>`
-            : `<span class="status-fit">Fit</span>`;
+            : `<span class="status-fit ${playerConditionClass(p)}">${Math.round(playerCondition(p))}% • ${playerConditionLabel(p)}</span>`;
 
       return `<tr>
         ${playerCell}
@@ -2428,12 +2728,23 @@ function clubMatchEngineFormModifier(club){
 }
 
 function matchPlayerFitnessMultiplier(player,club,matchContext={}){
-  // v0.17 intentionally returns full fitness. v0.18 can read a condition /
-  // fatigue value here and the whole engine will immediately respect it.
-  if(typeof globalThis.FootballCEOFitnessMultiplier==="function"){
-    return clamp(Number(globalThis.FootballCEOFitnessMultiplier(player,club,matchContext))||1,0.55,1.05);
+  ensureFitnessState();
+  let condition=playerCondition(player);
+
+  // Later match phases are played at a lower effective condition even before
+  // the post-match condition deduction is applied.
+  const phaseMinute=Number(matchContext.phaseMinute||0);
+  if(phaseMinute>0){
+    const profile=typeof managerProfileForClub==="function"?managerProfileForClub(club):null;
+    const intensity=profile?1+((profile.pressing||65)-65)*0.002:1;
+    condition-=phaseMinute*0.065*intensity;
   }
-  return 1;
+
+  let mult=conditionPerformanceMultiplier(condition);
+  if(typeof globalThis.FootballCEOFitnessMultiplier==="function"){
+    mult*=clamp(Number(globalThis.FootballCEOFitnessMultiplier(player,club,matchContext))||1,0.75,1.05);
+  }
+  return clamp(mult,0.55,1.05);
 }
 
 function fallbackMatchSelection(club){
@@ -2610,6 +2921,205 @@ function simulateMatchPhase(homeContext,awayContext,share=1){
     hg:Math.min(7,poisson(homeXG)),
     ag:Math.min(7,poisson(awayXG))
   };
+}
+
+
+function cloneMatchSelection(selection){
+  return {
+    ...selection,
+    xi:(selection.xi||[]).map(x=>({...x})),
+    bench:[...(selection.bench||[])]
+  };
+}
+
+function effectiveConditionAtMinute(player,club,minute){
+  const base=typeof playerCondition==="function"?playerCondition(player):100;
+  const profile=typeof managerProfileForClub==="function"?managerProfileForClub(club):null;
+  const intensity=profile?1+((profile.pressing||65)-65)*0.002:1;
+  return clamp(base-minute*0.065*intensity,20,100);
+}
+
+function managerSubstitutionScore(entry,club,minute,scoreDiff,importance=60){
+  if(!entry?.player) return -999;
+  const condition=effectiveConditionAtMinute(entry.player,club,minute);
+  let need=(78-condition)*0.35;
+  need+=minute>=72?7.0:minute>=58?4.5:0;
+  if(condition<65) need+=3;
+  if(condition<55) need+=5;
+  if(condition<45) need+=8;
+
+  // Managers are more proactive when chasing, and protect attacking players
+  // slightly earlier when leading.
+  if(scoreDiff>0 && ["ST","RW","LW","AM"].includes(entry.slot)) need+=1.8;
+  if(scoreDiff<0 && ["DM","CB","RB","LB"].includes(entry.slot)) need+=2.6;
+  if(scoreDiff<0 && ["ST","RW","LW","AM"].includes(entry.slot)) need+=1.2;
+  need+=(100-importance)*0.018;
+  return need;
+}
+
+function managerMakeSubstitutions(club,selection,scoreDiff,minute,maxChanges=3,alreadyUsed=new Set(),context={}){
+  const current=cloneMatchSelection(selection);
+  const changes=[];
+  const profile=typeof managerProfileForClub==="function"?managerProfileForClub(club):null;
+  const importance=Number(context.importance||60);
+  const rotation=typeof managerRotationTendency==="function"?managerRotationTendency(club):55;
+
+  const outgoing=current.xi
+    .filter(x=>x.player && !x.cameOn)
+    .map(x=>({x,need:managerSubstitutionScore(x,club,minute,scoreDiff,importance)}))
+    .sort((a,b)=>b.need-a.need);
+
+  for(const candidate of outgoing){
+    if(changes.length>=maxChanges) break;
+    if(candidate.need<3.5 && minute<72) continue;
+    if(candidate.need<1.5 && minute>=72 && scoreDiff===0) continue;
+
+    const out=candidate.x;
+    const alternatives=current.bench
+      .filter(p=>p && !alreadyUsed.has(String(p.id)))
+      .map(p=>{
+        const suitability=typeof positionSuitability==="function"?positionSuitability(p,out.slot):0;
+        const condition=typeof playerCondition==="function"?playerCondition(p):100;
+        let tactical=0;
+
+        if(scoreDiff<0 && ["ST","RW","LW","AM","RM","LM"].some(pos=>String(p.positions||"").includes(pos))) tactical+=2.0;
+        if(scoreDiff>0 && ["CB","DM","CDM","RB","LB"].some(pos=>String(p.positions||"").includes(pos))) tactical+=1.3;
+
+        const score=(p.overall||0)*0.66+suitability*0.23+condition*0.11+tactical;
+        return {p,suitability,condition,score};
+      })
+      .filter(x=>x.suitability>=55 && x.condition>=48)
+      .sort((a,b)=>b.score-a.score);
+
+    const best=alternatives[0];
+    if(!best) continue;
+
+    const outCondition=effectiveConditionAtMinute(out.player,club,minute);
+    const outScore=(out.player.overall||0)*0.69+(out.suitability??100)*0.23+outCondition*0.08;
+    const threshold=scoreDiff<0?outScore-1.5:outScore-0.5;
+    const managerWillingness=(rotation-50)*0.025+(minute>=72?1.2:0);
+
+    if(best.score+managerWillingness<threshold && outCondition>=60) continue;
+
+    const replacement={
+      slot:out.slot,
+      slotIndex:out.slotIndex,
+      player:best.p,
+      playerId:best.p.id,
+      overall:best.p.overall||0,
+      suitability:best.suitability,
+      condition:best.condition,
+      cameOn:true,
+      cameOnMinute:minute
+    };
+
+    const idx=current.xi.findIndex(x=>x.slotIndex===out.slotIndex);
+    current.xi[idx]=replacement;
+    alreadyUsed.add(String(best.p.id));
+    changes.push({
+      minute,
+      playerOutId:out.player.id,
+      playerOutName:out.player.name,
+      playerInId:best.p.id,
+      playerInName:best.p.name,
+      slot:out.slot,
+      reason:outCondition<58?"fatigue":scoreDiff<0?"chasing game":scoreDiff>0?"protecting lead":"fresh legs"
+    });
+  }
+
+  return {selection:current,changes,alreadyUsed};
+}
+
+function buildMatchUsage(initialSelection,substitutions){
+  const minutes={};
+  const slots={};
+  (initialSelection.xi||[]).forEach(x=>{
+    if(!x.player) return;
+    minutes[x.player.id]=90;
+    slots[x.player.id]=x.slot;
+  });
+
+  substitutions.slice().sort((a,b)=>a.minute-b.minute).forEach(s=>{
+    if(minutes[s.playerOutId]!=null){
+      minutes[s.playerOutId]=Math.min(minutes[s.playerOutId],s.minute);
+    }
+    minutes[s.playerInId]=Math.max(minutes[s.playerInId]||0,90-s.minute);
+    slots[s.playerInId]=s.slot;
+  });
+
+  return {minutes,slots};
+}
+
+function simulateGameWithManagerSubs(home,away,options={}){
+  const homeInitial=cloneMatchSelection(options.homeSelection||matchSelectionForClub(home));
+  const awayInitial=cloneMatchSelection(options.awaySelection||matchSelectionForClub(away));
+  let homeActive=cloneMatchSelection(homeInitial);
+  let awayActive=cloneMatchSelection(awayInitial);
+  const homeSubs=[],awaySubs=[];
+  const homeUsed=new Set(),awayUsed=new Set();
+
+  let hg=0,ag=0,totalHomeXG=0,totalAwayXG=0;
+  const phases=[];
+
+  const playPhase=(share,minute)=>{
+    const hc=buildMatchTeamContext(home,homeActive,{home:true,opponent:away,phaseMinute:minute});
+    const ac=buildMatchTeamContext(away,awayActive,{home:false,opponent:home,phaseMinute:minute});
+    const phase=simulateMatchPhase(hc,ac,share);
+    hg+=phase.hg;ag+=phase.ag;
+    totalHomeXG+=phase.homeXG;totalAwayXG+=phase.awayXG;
+    phases.push({...phase,startMinute:minute,homeContext:hc,awayContext:ac});
+  };
+
+  playPhase(0.66,0);
+
+  let hs=managerMakeSubstitutions(home,homeActive,hg-ag,60,3,homeUsed,{
+    importance:options.homeImportance||60
+  });
+  homeActive=hs.selection;homeSubs.push(...hs.changes);
+
+  let as=managerMakeSubstitutions(away,awayActive,ag-hg,60,3,awayUsed,{
+    importance:options.awayImportance||60
+  });
+  awayActive=as.selection;awaySubs.push(...as.changes);
+
+  playPhase(0.17,60);
+
+  hs=managerMakeSubstitutions(home,homeActive,hg-ag,75,Math.max(0,5-homeSubs.length),homeUsed,{
+    importance:options.homeImportance||60
+  });
+  homeActive=hs.selection;homeSubs.push(...hs.changes);
+
+  as=managerMakeSubstitutions(away,awayActive,ag-hg,75,Math.max(0,5-awaySubs.length),awayUsed,{
+    importance:options.awayImportance||60
+  });
+  awayActive=as.selection;awaySubs.push(...as.changes);
+
+  playPhase(0.17,75);
+
+  return {
+    hg,ag,
+    homeXG:totalHomeXG,
+    awayXG:totalAwayXG,
+    homeContext:phases[phases.length-1].homeContext,
+    awayContext:phases[phases.length-1].awayContext,
+    homeInitial,awayInitial,
+    homeFinal:homeActive,awayFinal:awayActive,
+    homeSubs,awaySubs,
+    homeUsage:buildMatchUsage(homeInitial,homeSubs),
+    awayUsage:buildMatchUsage(awayInitial,awaySubs),
+    phases
+  };
+}
+
+function applyMatchUsageCondition(club,selection,usage){
+  const allPlayers=new Map();
+  (selection.xi||[]).forEach(x=>{if(x.player)allPlayers.set(String(x.player.id),x.player);});
+  (selection.bench||[]).forEach(p=>{if(p)allPlayers.set(String(p.id),p);});
+
+  Object.entries(usage?.minutes||{}).forEach(([id,mins])=>{
+    const p=allPlayers.get(String(id))||DB.players.find(x=>String(x.id)===String(id));
+    if(p && mins>0) recordPlayerMinutes(p,mins,club);
+  });
 }
 
 function simulateGameDetailed(home,away,options={}){
@@ -2876,32 +3386,44 @@ function processWeeklyClubCycle(){
 function simulateFixtureRound(round){
   if(!round) return null;
 
-  // Select the user's XI once and reuse that exact selection for both the result
-  // engine and player stats. This closes the old disconnect where the match
-  // report showed one XI while the score was generated from generic squad strength.
+  const mine=round.games.find(game=>game.home===state.club||game.away===state.club);
+  const userOpponent=mine ? (mine.home===state.club?mine.away:mine.home) : null;
+  const userImportance=typeof managerFixtureImportance==="function"
+    ? managerFixtureImportance(state.club,userOpponent)
+    : 60;
+
   const matchSelection=typeof managerSelectMatchdaySquad==="function"
-    ? managerSelectMatchdaySquad(state.club)
+    ? managerSelectMatchdaySquad(state.club,{opponent:userOpponent,importance:userImportance})
     : null;
 
   round.games.forEach(game=>{
+    const homeImportance=typeof managerFixtureImportance==="function"?managerFixtureImportance(game.home,game.away):60;
+    const awayImportance=typeof managerFixtureImportance==="function"?managerFixtureImportance(game.away,game.home):60;
+
     const homeSelection=game.home===state.club
       ? matchSelection
-      : (typeof managerSelectMatchdaySquad==="function"?managerSelectMatchdaySquad(game.home):null);
+      : (typeof managerSelectMatchdaySquad==="function"?managerSelectMatchdaySquad(game.home,{opponent:game.away,importance:homeImportance}):null);
     const awaySelection=game.away===state.club
       ? matchSelection
-      : (typeof managerSelectMatchdaySquad==="function"?managerSelectMatchdaySquad(game.away):null);
+      : (typeof managerSelectMatchdaySquad==="function"?managerSelectMatchdaySquad(game.away,{opponent:game.home,importance:awayImportance}):null);
 
-    const sim=simulateGameDetailed(game.home,game.away,{homeSelection,awaySelection});
+    const sim=simulateGameWithManagerSubs(game.home,game.away,{
+      homeSelection,awaySelection,homeImportance,awayImportance
+    });
+
+    applyMatchUsageCondition(game.home,sim.homeInitial,sim.homeUsage);
+    applyMatchUsageCondition(game.away,sim.awayInitial,sim.awayUsage);
+
     state.results[`${round.week}-${game.home}-${game.away}`]={
       hg:sim.hg,
       ag:sim.ag,
       date:round.date,
       engine:{
-        version:"2.0",
+        version:"2.1",
         homeXG:Math.round(sim.homeXG*100)/100,
         awayXG:Math.round(sim.awayXG*100)/100,
         home:{
-          formation:sim.homeContext.formation,
+          formation:sim.homeInitial.formation,
           overall:Math.round(sim.homeContext.overall*10)/10,
           attack:Math.round(sim.homeContext.attack*10)/10,
           defence:Math.round(sim.homeContext.defence*10)/10,
@@ -2909,27 +3431,36 @@ function simulateFixtureRound(round){
           control:Math.round(sim.homeContext.control*10)/10
         },
         away:{
-          formation:sim.awayContext.formation,
+          formation:sim.awayInitial.formation,
           overall:Math.round(sim.awayContext.overall*10)/10,
           attack:Math.round(sim.awayContext.attack*10)/10,
           defence:Math.round(sim.awayContext.defence*10)/10,
           goalkeeper:Math.round(sim.awayContext.goalkeeper*10)/10,
           control:Math.round(sim.awayContext.control*10)/10
         }
+      },
+      substitutions:{
+        home:sim.homeSubs,
+        away:sim.awaySubs
+      },
+      usage:{
+        home:sim.homeUsage,
+        away:sim.awayUsage
       }
     };
     applyResult(game.home,game.away,sim.hg,sim.ag);
   });
 
-  const mine=round.games.find(game=>game.home===state.club||game.away===state.club);
   if(!mine) return;
   const res=state.results[`${round.week}-${mine.home}-${mine.away}`];
   const myGoals=mine.home===state.club?res.hg:res.ag;
   const opGoals=mine.home===state.club?res.ag:res.hg;
   const opp=mine.home===state.club?mine.away:mine.home;
   const outcome=myGoals>opGoals?"W":myGoals===opGoals?"D":"L";
+  const myUsage=mine.home===state.club?res.usage.home:res.usage.away;
+  const mySubs=mine.home===state.club?res.substitutions.home:res.substitutions.away;
 
-  const matchReport=trackPlayerMatchStats(myGoals,opGoals,matchSelection);
+  const matchReport=trackPlayerMatchStats(myGoals,opGoals,matchSelection,{usage:myUsage,substitutions:mySubs});
   res.matchReport={
     ...matchReport,
     engine:res.engine,
@@ -2977,6 +3508,8 @@ function simulateFixtureRound(round){
   state.season.phase="season";
   addNews(`${state.club} ${myGoals}–${opGoals} ${opp}.`);
 
+  if(typeof checkManagerDepthComplaints==="function") checkManagerDepthComplaints();
+
   return res.matchReport;
 }
 
@@ -3014,7 +3547,7 @@ function buildSeasonArchive(){
     const s=state.playerStats?.[p.id]||{};
     playerStats[p.id]={
       name:p.name,club:state.club,appearances:s.appearances||0,starts:s.starts||0,
-      goals:s.goals||0,assists:s.assists||0,
+      minutes:s.minutes||0,goals:s.goals||0,assists:s.assists||0,
       avgRating:(s.ratedApps||0)>0?(s.ratingTotal||0)/s.ratedApps:null,
       overall:p.overall
     };
@@ -3274,13 +3807,16 @@ function renderMatchReport(report){
   q("matchReportPitch").innerHTML=renderFormationPitch(report);
 
   q("matchReportBench").innerHTML=report.bench?.length
-    ? report.bench.map(p=>`<button class="bench-player player-link" data-player-id="${p.playerId}" type="button"><span>${p.name}</span><b>${p.overall}</b></button>`).join("")
+    ? report.bench.map(p=>`<button class="bench-player player-link" data-player-id="${p.playerId}" type="button"><span>${p.name}${p.minutes?` <span class="muted small">(${p.minutes}')</span>`:""}</span><b>${p.rating!=null?p.rating.toFixed(1):p.overall}</b></button>`).join("")
     : `<span class="muted small">No bench stored.</span>`;
 
   const events=report.goalEvents||[];
-  q("matchReportEvents").innerHTML=events.length
-    ? events.map((e,i)=>`<div class="match-event-row"><span>⚽ ${e.scorerName}</span><span class="muted">${e.assisterName?`🎯 ${e.assisterName}`:"Unassisted"}</span></div>`).join("")
-    : `<span class="muted small">No goals scored by ${state.club}.</span>`;
+  const subs=report.substitutions||[];
+  const goalRows=events.map(e=>`<div class="match-event-row"><span>⚽ ${e.scorerName}</span><span class="muted">${e.assisterName?`🎯 ${e.assisterName}`:"Unassisted"}</span></div>`);
+  const subRows=subs.map(s=>`<div class="match-event-row substitution-row"><span>🔄 ${s.minute}' ${s.playerInName}</span><span class="muted">for ${s.playerOutName} • ${s.reason}</span></div>`);
+  q("matchReportEvents").innerHTML=(goalRows.length||subRows.length)
+    ? [...goalRows,...subRows].join("")
+    : `<span class="muted small">No goals or substitutions recorded for ${state.club}.</span>`;
 
   q("matchReportModal").classList.remove("hide");
   setModalScrollLock(true);

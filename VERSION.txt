@@ -1,62 +1,91 @@
-Football CEO v0.17.0 — Match Simulation 2.0
+Football CEO v0.17.2 — Squad Condition, Rotation & Substitutions
 
-Built on v0.16.2c PWA.
+Built on v0.17.0 Match Simulation 2.0.
 
-CORE RESULT ENGINE
-- Replaces the old best-16-average + broad Poisson model.
-- Every fixture now uses the manager-selected starting XI for both clubs.
-- Team quality is split into:
-  attack
-  defence
-  goalkeeper
-  midfield/control
-  overall XI quality.
-- Positional suitability affects each player's effective match contribution.
-- Missing/vacant formation slots create a meaningful team penalty.
-- Home advantage remains built into the expected-goals baseline.
-- Match-day randomness remains, but is tightly limited so squad quality has much stronger season-long influence.
+CONDITION
+- Every known player now has a 20–100 condition value.
+- Existing saves migrate automatically with players beginning around 96–100%.
+- Player profile shows condition %, condition label and 14-day workload.
+- Squad status shows condition when the player is not injured/listed.
+- Condition bands:
+  90–100 Fresh
+  75–89 Good
+  60–74 Tired
+  45–59 Fatigued
+  below 45 High risk.
+- Match minutes reduce condition.
+- 90 minutes normally costs roughly 18–22 condition points, adjusted by age and manager intensity.
+- Daily recovery is affected by age; user-club medical facilities and physio quality also contribute.
+- Injured players recover condition more slowly.
 
-MANAGER IDENTITY
-- Existing manager profiles now affect match simulation.
-- Possession influences control and defensive suppression.
-- Pressing influences attacking pressure and defensive quality.
-- Verticality increases attacking threat but can trade against defensive security.
-- Flexibility provides a small tactical consistency/matchup effect.
-- These modifiers remain deliberately smaller than player-quality effects.
+WORKLOAD
+- Match minutes are logged for 21 days.
+- UI uses a 14-day workload:
+  Light / Normal / Heavy / Very heavy.
+- Workload feeds manager rotation decisions.
 
-FORM
-- Every Premier League club now keeps a rolling five-match engine-form record.
-- Form has a small capped impact on expected goals.
-- It cannot snowball enough to overpower underlying squad quality.
+MATCH PERFORMANCE / INJURY RISK
+- Match Engine 2.0 now uses condition when calculating effective player contribution.
+- Condition decline is progressive rather than a hard cliff.
+- Later match phases apply additional in-match fatigue.
+- Low condition increases injury probability:
+  below 70% small increase;
+  below 60% meaningful increase;
+  below 50% high;
+  below 40% very high.
 
-PLAYER GOALS / ASSISTS
-- Goal attribution now uses the role actually occupied in the manager-selected XI.
-- Open-play scorer weighting strongly favours strikers, wingers and attacking midfielders.
-- Full-backs and centre-backs are substantially less likely to score from open play.
-- Separate set-piece scoring logic gives centre-backs a realistic route to occasional goals.
-- Penalties use a separate attacking-player weighting and are never credited with assists.
-- Assists favour creators, wide players, central midfielders and attacking full-backs.
+MANAGER ROTATION
+- Manager-selected XI now considers:
+  player ability
+  positional suitability
+  recent form
+  condition
+  workload
+  match importance
+  manager rotation tendency.
+- Rotation tendency derives from existing manager depth demand, youth trust, pressing intensity and flexibility.
+- Important fixtures make managers more willing to risk a tired star.
+- Rotation-minded managers penalise fatigue earlier.
+- No CEO lineup control is added.
 
-FUTURE FITNESS / SUBSTITUTION ARCHITECTURE
-- Match contribution passes through matchPlayerFitnessMultiplier().
-- v0.17 defaults every player to full fitness.
-- A future fitness system can plug into globalThis.FootballCEOFitnessMultiplier without rewriting team-strength calculations.
-- simulateMatchPhase() has been introduced.
-- v0.17 simulates one 90-minute phase.
-- Future substitutions can split a match into phases, change the active XI, rebuild team context, and simulate the remaining minutes using the same engine.
-- Match reports already store 90 starter minutes, 0 bench minutes and an empty substitutions array ready for expansion.
+SUBSTITUTIONS
+- Matches are now simulated in three phases:
+  0–60
+  60–75
+  75–90.
+- Managers can make up to five substitutions.
+- Substitution decisions consider:
+  player condition / fatigue
+  score state
+  fresh replacement quality
+  positional suitability
+  match importance
+  manager rotation tendency.
+- Losing managers become more proactive with attacking/fresh options.
+- Leading managers are more willing to protect tired attackers and stabilise the side.
+- Substitutions rebuild the active XI and therefore alter Match Engine attack/defence/control for the remaining phase.
+- The system currently uses two substitution windows (60 and 75 minutes).
 
-SAVE / REPORTING
-- Match result data stores Match Engine 2.0 diagnostics:
-  expected goals
-  formation
-  XI overall
-  attack
-  defence
-  goalkeeper
-  control.
-- Existing match-report structure remains compatible.
-- Existing saves migrate automatically; club form history starts building from the first match played under v0.17.
+PLAYER STATS / MATCH REPORT
+- Apps and Starts now separate correctly.
+- Substitutes receive appearances but not starts.
+- Player minutes are tracked.
+- Season archive stores minutes.
+- Match report bench shows substitute minutes and ratings when used.
+- Match events show substitutions, minute, players in/out and broad reason.
+- Unused substitutes remain on zero minutes.
+
+MANAGER DEPTH COMPLAINTS
+- Rejected recruitment requests are remembered by position/role.
+- If the manager later genuinely lacks enough fit, credible options in that position because of injury/fatigue/depth, he can raise an inbox complaint.
+- Complaint explicitly references the earlier rejected depth request.
+- The complaint does not trigger merely because a request was rejected: there must be a current squad-depth crisis.
+- Choices:
+  Back manager — improves relationship and creates a fresh recruitment vacancy/reassessment.
+  Defend decision — worsens manager relationship/backing.
+  Use the squad — effect depends partly on the manager's youth trust.
+- A complaint only fires once for that rejected request.
+- Player-side playing-time/condition complaints are deliberately NOT included.
 
 PWA
-- Cache version bumped to football-ceo-v0.17.0-pwa-1.
+- Cache bumped to football-ceo-v0.17.2-pwa-1.

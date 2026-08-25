@@ -673,7 +673,20 @@ function resolveManagerRequest(id,accepted){
       state.managerRequestRejections[`renew-${req.playerId}`]=currentCareerDay();
     }
     if(req.type!=="sign") state.managerBacking=clamp((state.managerBacking||70)-3,0,100);
-    if(req.type==="sign") recordManagerTransferChoice(false);
+    if(req.type==="sign"){
+      recordManagerTransferChoice(false);
+      if(!state.managerDepthRequestRejections) state.managerDepthRequestRejections=[];
+      state.managerDepthRequestRejections.push({
+        id:`mdr${Date.now()}${Math.floor(Math.random()*1000)}`,
+        requestId:req.id,
+        position:req.position,
+        squadRole:req.squadRole||"backup",
+        manager:req.manager,
+        rejectedDay:currentCareerDay(),
+        complaintRaised:false
+      });
+      state.managerDepthRequestRejections=state.managerDepthRequestRejections.slice(-20);
+    }
     addNews(`You rejected ${req.manager}'s recommendation regarding ${p.name}.`);
   }
 
@@ -2055,11 +2068,68 @@ function playerFitsFormationSlot(p,slot){
   return positionSuitability(p,slot)>0;
 }
 
-function managerSelectXI(club){
+
+function managerRotationTendency(club){
+  const p=managerProfileForClub(club);
+  if(!p) return 55;
+  // Depth-demanding / youth-trusting managers are more willing to use the squad.
+  return clamp(
+    42+
+    ((p.depthDemand||70)-70)*0.45+
+    ((p.youthTrust||60)-60)*0.22+
+    ((p.pressing||65)-65)*0.18+
+    ((p.flexibility||65)-65)*0.12,
+    28,84
+  );
+}
+
+function managerSelectionImportance(context={}){
+  return clamp(Number(context.importance??60),30,100);
+}
+
+function managerConditionSelectionAdjustment(player,club,context={}){
+  if(typeof playerCondition!=="function") return 0;
+  const condition=playerCondition(player);
+  const importance=managerSelectionImportance(context);
+  const rotation=managerRotationTendency(club);
+
+  // Big matches make managers more willing to risk a tired star. Rotation-heavy
+  // managers penalise fatigue earlier.
+  const toleranceBoost=(importance-60)*0.10;
+  const rotationPenalty=(rotation-50)*0.035;
+  const effectiveThreshold=75+toleranceBoost-rotationPenalty;
+
+  if(condition>=90) return 1.5;
+  if(condition>=80) return 0.5;
+  if(condition>=effectiveThreshold) return -1;
+  if(condition>=65) return -4-(effectiveThreshold-condition)*0.18;
+  if(condition>=55) return -8-(65-condition)*0.32;
+  if(condition>=45) return -13-(55-condition)*0.42;
+  return -21;
+}
+
+function managerFixtureImportance(club,opponent=null){
+  let importance=60;
+  if(opponent){
+    const own=byClub(club)?.reputation||70;
+    const opp=byClub(opponent)?.reputation||70;
+    if(opp>=88) importance+=12;
+    else if(opp>=82) importance+=7;
+    if(Math.abs(own-opp)<=3) importance+=3;
+  }
+  // Late-season league position pressure.
+  if(state.week>=30){
+    const pos=typeof clubLeaguePosition==="function"?clubLeaguePosition(club):10;
+    if(pos<=5 || pos>=16) importance+=8;
+  }
+  return clamp(importance,40,92);
+}
+
+function managerSelectXI(club,context={}){
   const formation=managerFormationForClub(club);
   const shape=MANAGER_FORMATIONS[formation]||MANAGER_FORMATIONS["4-2-3-1"];
   const available=clubSquadPlayers(club)
-    .filter(p=>club!==state.club || !state.injuries?.[p.id]);
+    .filter(p=>!state.injuries?.[p.id]);
 
   const used=new Set();
   const xi=[];
@@ -2072,7 +2142,11 @@ function managerSelectXI(club){
         if(suitability<=0) return null;
         const stats=club===state.club ? state.playerStats?.[p.id] : null;
         const formBonus=stats?.lastRating ? (stats.lastRating-6.5)*0.8 : 0;
-        const score=(p.overall||0)*0.72+suitability*0.28+formBonus;
+        const conditionAdj=managerConditionSelectionAdjustment(p,club,context);
+        const workloadAdj=typeof workloadMinutes==="function" && workloadMinutes(p,14)>=320
+          ? -(managerRotationTendency(club)/100)*2.4
+          : 0;
+        const score=(p.overall||0)*0.72+suitability*0.28+formBonus+conditionAdj+workloadAdj;
         return {p,suitability,score};
       })
       .filter(Boolean)
@@ -2083,30 +2157,36 @@ function managerSelectXI(club){
     xi.push({
       slot,slotIndex,playerId:chosen?.id||null,player:chosen||null,
       overall:chosen?.overall||0,
-      suitability:chosen?positionSuitability(chosen,slot):0
+      suitability:chosen?positionSuitability(chosen,slot):0,
+      condition:chosen&&typeof playerCondition==="function"?playerCondition(chosen):100
     });
   });
 
-  return {formation,slots:shape.slots,xi};
+  return {formation,slots:shape.slots,xi,importance:managerSelectionImportance(context)};
 }
 
-function managerSelectMatchdaySquad(club){
-  const selection=managerSelectXI(club);
+function managerSelectMatchdaySquad(club,context={}){
+  const selection=managerSelectXI(club,context);
   const used=new Set(selection.xi.filter(x=>x.playerId).map(x=>String(x.playerId)));
   const remaining=clubSquadPlayers(club)
-    .filter(p=>club!==state.club || !state.injuries?.[p.id])
+    .filter(p=>!state.injuries?.[p.id])
     .filter(p=>!used.has(String(p.id)))
-    .sort((a,b)=>(b.overall||0)-(a.overall||0));
+    .sort((a,b)=>{
+      const ac=typeof playerCondition==="function"?playerCondition(a):100;
+      const bc=typeof playerCondition==="function"?playerCondition(b):100;
+      return ((b.overall||0)*0.86+bc*0.14)-((a.overall||0)*0.86+ac*0.14);
+    });
 
-  // Seven-player bench for the current prototype. We store it now even before
-  // substitutions are introduced so historical manager usage remains available.
   const bench=[];
   const wantedGroups=["GK","CB","RB","LB","DM","CM","AM","RW","LW","ST"];
   wantedGroups.forEach(slot=>{
     if(bench.length>=7) return;
     const best=remaining
       .filter(p=>!bench.some(b=>String(b.id)===String(p.id)))
-      .map(p=>({p,score:(p.overall||0)*0.75+positionSuitability(p,slot)*0.25}))
+      .map(p=>{
+        const condition=typeof playerCondition==="function"?playerCondition(p):100;
+        return {p,score:(p.overall||0)*0.67+positionSuitability(p,slot)*0.23+condition*0.10};
+      })
       .filter(x=>positionSuitability(x.p,slot)>0)
       .sort((a,b)=>b.score-a.score)[0]?.p;
     if(best) bench.push(best);
