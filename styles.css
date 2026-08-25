@@ -1249,3 +1249,19 @@ html.modal-open,body.modal-open{overflow:hidden!important;height:100%!important}
 .status-fit.warn{color:var(--warn,#f2b84b)}
 .status-fit.bad{color:var(--bad,#ff7777)}
 .manager-complaint-actions{gap:6px;flex-wrap:wrap}
+
+/* v0.18 dynamic recruitment market */
+.database-toolbar{display:grid;grid-template-columns:minmax(240px,1fr) 180px 210px;gap:8px;margin:12px 0 6px}
+.database-toolbar .search{margin:0;max-width:none}
+.database-filter{appearance:auto}
+.database-market-note{margin:0 0 10px}
+.database-table{min-width:980px}
+.availability-chip{display:inline-block;padding:4px 7px;border-radius:999px;background:#eef1f5;font-size:11px;font-weight:700;white-space:nowrap}
+.availability-chip.listed{background:#fff0e8}
+.availability-chip.open{background:#eef6ff}
+.market-opportunity{display:inline-block;margin-top:4px;padding:2px 6px;border-radius:999px;background:#edf8ef;font-size:10px;font-weight:800}
+@media(max-width:700px){
+  .database-toolbar{grid-template-columns:1fr}
+  .database-toolbar .database-filter{width:100%}
+  .database-table{min-width:920px}
+}

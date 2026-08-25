@@ -529,7 +529,29 @@
   </div>
 </div>
 
-<div id="database" class="tab hide"><div class="panel pad"><div class="sectiontitle"><h2>Premier League player database</h2><span class="pill">FC26 ratings</span></div><input id="dbSearch" class="search" placeholder="Search player, club, nationality or position…" oninput="renderDatabase()"><div class="scroll"><table><thead><tr><th>Player</th><th>Club</th><th>Pos</th><th>OVR</th><th>POT</th><th>Age</th><th>Value</th></tr></thead><tbody id="dbRows"></tbody></table></div></div></div>
+<div id="database" class="tab hide">
+  <div class="panel pad">
+    <div class="sectiontitle"><h2>Premier League player database</h2><span class="pill">Dynamic market</span></div>
+    <div class="database-toolbar">
+      <input id="dbSearch" class="search" placeholder="Search player, club, nationality or position…" oninput="renderDatabase()">
+      <select id="dbAvailability" class="search database-filter" onchange="renderDatabase()">
+        <option value="all">All availability</option>
+        <option value="Transfer listed">Transfer listed</option>
+        <option value="Open to offers">Open to offers</option>
+        <option value="Not for sale">Not for sale</option>
+      </select>
+      <select id="dbSort" class="search database-filter" onchange="renderDatabase()">
+        <option value="ovr">Sort: Overall</option>
+        <option value="cost">Expected cost: Low to high</option>
+        <option value="value">Market value: Low to high</option>
+        <option value="discount">Best value opportunity</option>
+        <option value="age">Age: Youngest</option>
+      </select>
+    </div>
+    <div class="muted small database-market-note">Market value estimates the player as an asset. Expected cost reflects contract leverage, player interest, selling-club resistance, rivalry and availability.</div>
+    <div class="scroll"><table class="database-table"><thead><tr><th>Player</th><th>Club</th><th>Pos</th><th>OVR</th><th>POT</th><th>Age</th><th>Market value</th><th>Expected cost</th><th>Availability</th></tr></thead><tbody id="dbRows"></tbody></table></div>
+  </div>
+</div>
 
 <div id="fixtures" class="tab hide"><div class="panel pad"><div class="sectiontitle"><h2>Premier League fixtures</h2><span class="pill">38 matchweeks</span></div><div id="fixturesList"></div></div></div>
 <div id="table" class="tab hide"><div class="panel pad"><div class="sectiontitle"><h2>Premier League table</h2><span class="pill" id="tableWeek"></span></div><div class="scroll"><table><thead><tr><th>#</th><th>Club</th><th>P</th><th>W</th><th>D</th><th>L</th><th>GF</th><th>GA</th><th>GD</th><th>Pts</th></tr></thead><tbody id="tableRows"></tbody></table></div></div></div>
@@ -925,7 +947,9 @@
         <h3 style="margin-top:0">Status</h3>
         <div class="notice"><b>Position</b><br><span id="profilePosition"></span></div>
         <div class="notice"><b>Value</b><br><span id="profileValue"></span></div>
+        <div class="notice"><b>Development</b><br><span id="profileDevelopment"></span></div>
         <div class="notice"><b>Wage</b><br><span id="profileWage"></span></div>
+        <div class="notice"><b>Manager view</b><br><span id="profileManagerRole"></span><br><span class="muted small">Internal football role — not a contractual promise.</span></div>
         <div class="notice"><b>Availability</b><br><span id="profileAvailability"></span></div>
         <div class="notice"><b>Squad status</b><br><span id="profileListStatus"></span></div>
         <div class="notice"><b>Supporter status</b><br><span id="profileSupporterStatus"></span></div>

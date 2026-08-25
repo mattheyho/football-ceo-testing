@@ -1,52 +1,78 @@
-v0.17.2 SQUAD MANAGEMENT TEST REPORT
+v0.18.0 TEST REPORT
 
 STATIC / SYNTAX
-PASS — game.js syntax
-PASS — transfers.js syntax
-PASS — sw.js syntax
+PASS — game.js JavaScript syntax
+PASS — transfers.js JavaScript syntax
+PASS — sw.js JavaScript syntax
+PASS — no duplicate function declarations in changed JS
 PASS — no duplicate static HTML IDs
-PASS — v0.17 Match Engine 2.0 retained
-PASS — v0.16 transfer/contract/external-buyer systems retained
+PASS — PWA cache updated to v0.18.0
 
-CONDITION / WORKLOAD
-PASS — automatic migration/initial condition state
-PASS — daily condition recovery hook
-PASS — match-minute condition cost
-PASS — age/intensity modifiers
-PASS — medical/physio user-club recovery modifier
-PASS — 14-day workload calculation
-PASS — progressive condition performance multiplier
-PASS — fatigue-related injury multiplier
+DEVELOPMENT
+PASS — persistent playerDevelopment migration state
+PASS — potential remains a ceiling, not guaranteed growth
+PASS — development curve allows meaningful growth through 26-27
+PASS — stronger taper begins from 28
+PASS — minutes affect development
+PASS — performance affects user-player development
+PASS — training facilities affect user-player development
+PASS — manager youth trust affects young user-player development
+PASS — AI players receive estimated usage rather than zero-minute treatment
+PASS — October / January / April visible development checkpoints
+PASS — year-end development and decline assessment
+PASS — seasonal growth/decline caps
+PASS — player profile development status and OVR change
+PASS — long and severe injury history tracking
+PASS — very long injury can probabilistically reduce OVR
 
-ROTATION
-PASS — manager XI scoring includes condition
-PASS — manager XI scoring includes workload
-PASS — manager-specific rotation tendency
-PASS — match importance alters fatigue tolerance
-PASS — CEO does not select XI
+MARKET VALUES
+PASS — dynamic OVR/value curve
+PASS — upper-middle/elite value curve steepened
+PASS — age modifier
+PASS — potential/upside modifier
+PASS — club-level modifier
+PASS — performance/playing-time modifier
+PASS — contract-length modifier
+PASS — injury-history modifier
+PASS — values persisted to playerWorldOverrides
 
-SUBSTITUTIONS
-PASS — three match phases
-PASS — substitution windows at 60 and 75
-PASS — maximum five changes per side
-PASS — replacement requires positional suitability and usable condition
-PASS — score state changes substitution priorities
-PASS — active XI is rebuilt before later phases
-PASS — later phases use changed XI strength
-PASS — substitution usage map records starter/substitute minutes
-PASS — Apps / Starts / Minutes logic separates substitute appearances
-PASS — match report renders substitution events
+EXPECTED COST
+PASS — market value separated from expected cost
+PASS — seller contract leverage
+PASS — transfer-list/open-to-offers modifier
+PASS — AI seller financial-pressure modifier
+PASS — player willingness / step-up modifier
+PASS — same-league competitive-rival premium
+PASS — AI transfer-listed expected price forced below market
+PASS — expected-cost range shown in transfer dossier
 
-MANAGER COMPLAINTS
-PASS — rejected signing request creates persistent depth-rejection memory
-PASS — complaint requires a later genuine positional depth crisis
-PASS — complaint references earlier rejected request
-PASS — one complaint maximum per rejected request
-PASS — Back manager response creates recruitment vacancy + reassessment
-PASS — Defend decision affects manager happiness/backing
-PASS — Use squad response is sensitive to manager youth trust
-PASS — no player-side complaint system added
+AI MARKET
+PASS — AI availability state
+PASS — AI transfer-list generation during windows
+PASS — listed/open players remain browsable
+PASS — AI buyers prioritise listed/value opportunities
+PASS — AI transfer attempt cadence increased
+PASS — affordability/SCR checks retained
+PASS — all completed AI transfers surface in news
 
-NOTE
-Full iPhone/GitHub Pages E2E has not been run here.
-Current Premier League-only calendar is normally one match per week, so condition-driven rotation will become substantially more visible once cups/European fixture congestion is added.
+PLAYER DATABASE
+PASS — dynamic market value column
+PASS — expected cost column
+PASS — availability column
+PASS — availability filtering
+PASS — expected-cost/value/discount/age sorting
+PASS — Good value signal
+
+REGRESSION PRESERVATION
+PASS — v0.17.3 manager rejection-memory hooks retained
+PASS — v0.17.3 manager squad-utilisation hooks retained
+PASS — v0.17.2 fitness state retained
+PASS — v0.17.2 substitution engine retained
+PASS — v0.17 Match Engine 2.x retained
+PASS — v0.16 financial regulation hooks retained
+
+LIMITATIONS / HONEST TEST NOTE
+- These checks validate syntax, integration hooks, state migration paths and static regression preservation.
+- A full GitHub Pages/iPhone Home Screen end-to-end playthrough has NOT been run in this environment.
+- AI clubs still do not store exact individual match minutes; v0.18 estimates AI-player usage from positional squad rank for development.
+- Explicit AI contract-renewal negotiations are not simulated yet; stale expired launch-database AI contracts are treated as rolling two-year deals for valuation purposes so future-season values do not collapse.
