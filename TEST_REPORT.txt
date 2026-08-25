@@ -1,15 +1,51 @@
+v0.17.0 MATCH ENGINE TEST REPORT
 
-
-v0.16.2c SALE REACTION REGRESSION
-PASS — recordStarSale no longer fires before affordability/completion checks
-PASS — star status captured while player still belongs to user club
-PASS — SCR context captured pre-sale
-PASS — stakeholder reaction fires after transferPlayerToClub
-PASS — rejected/collapsed offers cannot trigger completed-sale reaction
-PASS — one-time affected-save repair present
-PASS — repair reverses false happiness delta
-PASS — repair removes false recent-change history
-PASS — transfers.js syntax
+SYNTAX / INTEGRATION
 PASS — game.js syntax
+PASS — transfers.js syntax
 PASS — service worker syntax
-PASS — PWA cache version bumped
+PASS — manager-selected XI feeds the result engine
+PASS — same user XI is reused for result generation and match report
+PASS — attack / defence / goalkeeper / control ratings are separate
+PASS — positional suitability affects effective match contribution
+PASS — existing manager-profile attributes feed match simulation
+PASS — form modifier is capped
+PASS — engine diagnostics persist with match result
+PASS — PWA cache bumped
+
+MONTE CARLO MATCH TEST
+Synthetic 86 OVR elite-profile team vs 76 OVR weaker-profile team, 30,000 matches:
+- Strong team at home: approximately 73% wins, 19% draws, 8% defeats
+- Strong team away: approximately 61% wins, 23% draws, 15% defeats
+- Equal 80 OVR teams: approximately 43% home wins, 28% draws, 30% away wins
+PASS — meaningful hierarchy while preserving football upsets
+PASS — home advantage visible without guaranteeing home result
+
+SYNTHETIC SEASON TEST
+120 double-round-robin seasons across 20 teams ranging from 88 to 72 OVR:
+- highest-rated club average finish approximately 2.5
+- fifth-rated club average finish approximately 5.0
+- middle club average finish approximately 11.0
+- lowest-rated club average finish approximately 18.9
+- highest-rated club finished top four around 90% of runs
+- lowest-rated club was relegated around 83% of runs
+PASS — season table strongly correlates with team quality without hard-coding standings
+
+GOALSCORER TEST
+20,000 single-goal events using an equal-80-OVR 4-3-3:
+- striker / wide-forward share approximately 69%
+- defenders approximately 8.5%
+- centre-backs retain set-piece scoring route
+- penalties and set pieces are separately modelled
+PASS — defenders no longer receive disproportionate open-play scoring weight
+
+FUTURE ARCHITECTURE
+PASS — matchPlayerFitnessMultiplier() hook present
+PASS — simulateMatchPhase() present
+PASS — starter minutes stored
+PASS — bench minutes stored
+PASS — substitutions array reserved
+
+NOTE
+These are gameplay calibration tests, not claims that exact real-world Premier League probabilities are being reproduced.
+Full iPhone/GitHub Pages E2E has not been run in this environment.

@@ -181,10 +181,11 @@ function trackPlayerMatchStats(myGoals,oppGoals=0,matchSelection=null){
 
   const selection=matchSelection || (typeof managerSelectMatchdaySquad==="function"
     ? managerSelectMatchdaySquad(state.club)
-    : {formation:"4-2-3-1",xi:selectMatchSquad().map((p,i)=>({slot:"",slotIndex:i,player:p,playerId:p.id})),bench:[]});
+    : {formation:"4-2-3-1",xi:selectMatchSquad().map((p,i)=>({slot:"",slotIndex:i,player:p,playerId:p.id,suitability:100})),bench:[]});
 
-  const starters=selection.xi.map(x=>x.player).filter(Boolean);
-  starters.forEach(p=>{
+  const starters=selection.xi.filter(x=>x.player);
+  starters.forEach(x=>{
+    const p=x.player;
     const s=state.playerStats[p.id];
     s.appearances=(s.appearances||0)+1;
     s.starts=(s.starts||0)+1;
@@ -194,42 +195,66 @@ function trackPlayerMatchStats(myGoals,oppGoals=0,matchSelection=null){
   const assistsByPlayer={};
   const goalEvents=[];
 
-  const scorerWeight=p=>{
-    let w=Math.max(1,(p.overall||70)-55);
-    const pos=String(p.positions||"");
-    if(pos.includes("ST")||pos.includes("CF")) w*=2.15;
-    else if(pos.includes("LW")||pos.includes("RW")) w*=1.75;
-    else if(pos.includes("CAM")||pos.includes("LM")||pos.includes("RM")) w*=1.35;
-    else if(pos.includes("CM")||pos.includes("CDM")) w*=0.78;
-    else if(pos.includes("CB")||pos.includes("LB")||pos.includes("RB")) w*=0.38;
-    else if(pos.includes("GK")) w*=0.02;
-    return w;
+  const weightedLineupPick=(entries,weightFn,excludeIds=new Set())=>{
+    const usable=entries.filter(x=>x.player && !excludeIds.has(String(x.player.id)));
+    if(!usable.length) return null;
+    const weights=usable.map(x=>Math.max(0.001,weightFn(x)));
+    const total=weights.reduce((a,b)=>a+b,0);
+    let r=Math.random()*total;
+    for(let i=0;i<usable.length;i++){
+      r-=weights[i];
+      if(r<=0) return usable[i];
+    }
+    return usable[usable.length-1];
   };
 
-  const assistWeight=p=>{
-    let w=Math.max(1,(p.overall||70)-58);
-    const pos=String(p.positions||"");
-    if(pos.includes("CAM")||pos.includes("RW")||pos.includes("LW")||pos.includes("RM")||pos.includes("LM")) w*=1.75;
-    else if(pos.includes("CM")) w*=1.45;
-    else if(pos.includes("RB")||pos.includes("LB")||pos.includes("RWB")||pos.includes("LWB")) w*=1.18;
-    else if(pos.includes("ST")||pos.includes("CF")) w*=1.05;
-    else if(pos.includes("CB")) w*=0.42;
-    else if(pos.includes("GK")) w*=0.08;
-    return w;
+  const qualityMultiplier=x=>{
+    const p=x.player;
+    const ability=Math.pow(1.05,clamp((p.overall||72)-75,-15,15));
+    const suitability=0.78+0.22*clamp(Number(x.suitability??100),0,100)/100;
+    const fitness=matchPlayerFitnessMultiplier(p,state.club,{slot:x.slot,selection});
+    return ability*suitability*fitness;
+  };
+
+  const openPlayScorerBase={
+    ST:8.0,RW:5.2,LW:5.2,AM:4.5,RM:3.4,LM:3.4,
+    CM:1.8,DM:0.82,RB:0.38,LB:0.38,CB:0.13,GK:0.005
+  };
+  const setPieceScorerBase={
+    ST:4.2,RW:2.1,LW:2.1,AM:2.5,RM:2.0,LM:2.0,
+    CM:2.0,DM:1.8,RB:0.95,LB:0.95,CB:2.25,GK:0.01
+  };
+  const penaltyScorerBase={
+    ST:7.0,RW:4.0,LW:4.0,AM:5.0,RM:3.5,LM:3.5,
+    CM:3.0,DM:1.6,RB:0.45,LB:0.45,CB:0.30,GK:0.01
+  };
+  const assistBase={
+    ST:2.6,RW:5.0,LW:5.0,AM:5.5,RM:4.2,LM:4.2,
+    CM:3.8,DM:1.8,RB:2.7,LB:2.7,CB:0.45,GK:0.04
   };
 
   for(let i=0;i<myGoals;i++){
-    const scorer=weightedPick(starters,scorerWeight);
-    if(!scorer) break;
+    const roll=Math.random();
+    const goalType=roll<0.08?"penalty":roll<0.22?"set-piece":"open-play";
+    const scorerMap=goalType==="penalty"?penaltyScorerBase:goalType==="set-piece"?setPieceScorerBase:openPlayScorerBase;
+
+    const scorerEntry=weightedLineupPick(starters,x=>(scorerMap[x.slot]??0.9)*qualityMultiplier(x));
+    if(!scorerEntry) break;
+    const scorer=scorerEntry.player;
 
     state.playerStats[scorer.id].goals=(state.playerStats[scorer.id].goals||0)+1;
     goalsByPlayer[scorer.id]=(goalsByPlayer[scorer.id]||0)+1;
 
-    // Most goals get an assist; some are unassisted (rebounds, solo goals etc.).
-    let assister=null;
-    if(Math.random()<0.82){
-      assister=weightedPick(starters,assistWeight,new Set([String(scorer.id)]));
-      if(assister){
+    let assisterEntry=null;
+    // Penalties are not assisted; around 80% of other goals are.
+    if(goalType!=="penalty" && Math.random()<0.80){
+      assisterEntry=weightedLineupPick(
+        starters,
+        x=>(assistBase[x.slot]??1.0)*qualityMultiplier(x),
+        new Set([String(scorer.id)])
+      );
+      if(assisterEntry){
+        const assister=assisterEntry.player;
         state.playerStats[assister.id].assists=(state.playerStats[assister.id].assists||0)+1;
         assistsByPlayer[assister.id]=(assistsByPlayer[assister.id]||0)+1;
       }
@@ -238,8 +263,11 @@ function trackPlayerMatchStats(myGoals,oppGoals=0,matchSelection=null){
     goalEvents.push({
       scorerId:scorer.id,
       scorerName:scorer.name,
-      assisterId:assister?.id||null,
-      assisterName:assister?.name||null
+      scorerSlot:scorerEntry.slot,
+      assisterId:assisterEntry?.player?.id||null,
+      assisterName:assisterEntry?.player?.name||null,
+      assisterSlot:assisterEntry?.slot||null,
+      type:goalType
     });
   }
 
@@ -253,12 +281,12 @@ function trackPlayerMatchStats(myGoals,oppGoals=0,matchSelection=null){
     const quality=((p.overall||75)-75)*0.018;
     const goalBonus=(goalsByPlayer[p.id]||0)*0.70;
     const assistBonus=(assistsByPlayer[p.id]||0)*0.38;
-    const variance=(Math.random()-.5)*1.15;
+    const variance=(Math.random()-.5)*0.95;
     let rating=6.45+resultBase+quality+goalBonus+assistBonus+variance;
 
-    const pos=String(p.positions||"");
-    if(pos.includes("GK") && oppGoals===0) rating+=0.30;
-    if((x.slot==="CB"||x.slot==="LB"||x.slot==="RB") && oppGoals===0) rating+=0.20;
+    if(x.slot==="GK" && oppGoals===0) rating+=0.35;
+    if((x.slot==="CB"||x.slot==="LB"||x.slot==="RB") && oppGoals===0) rating+=0.22;
+    if((x.slot==="DM"||x.slot==="CM") && oppGoals===0) rating+=0.10;
 
     rating=clamp(Math.round(rating*10)/10,4.0,10.0);
     const s=state.playerStats[p.id];
@@ -269,16 +297,18 @@ function trackPlayerMatchStats(myGoals,oppGoals=0,matchSelection=null){
     playerMatchData[p.id]={
       playerId:p.id,name:p.name,slot:x.slot,slotIndex:x.slotIndex,
       rating,goals:goalsByPlayer[p.id]||0,assists:assistsByPlayer[p.id]||0,
-      overall:p.overall||0,suitability:x.suitability??100
+      overall:p.overall||0,suitability:x.suitability??100,
+      minutes:90 // v0.18 substitutions will replace this with actual minutes.
     };
   });
 
   return {
     formation:selection.formation,
     lineup:selection.xi.map(x=>x.player ? playerMatchData[x.player.id] : {
-      playerId:null,name:"Vacant",slot:x.slot,slotIndex:x.slotIndex,rating:null,goals:0,assists:0,suitability:0
+      playerId:null,name:"Vacant",slot:x.slot,slotIndex:x.slotIndex,rating:null,goals:0,assists:0,suitability:0,minutes:0
     }),
-    bench:(selection.bench||[]).map(p=>({playerId:p.id,name:p.name,overall:p.overall||0})),
+    bench:(selection.bench||[]).map(p=>({playerId:p.id,name:p.name,overall:p.overall||0,minutes:0})),
+    substitutions:[], // reserved for v0.18
     goalEvents
   };
 }
@@ -2364,18 +2394,267 @@ function poisson(lambda){
   do{k++;p*=Math.random()}while(p>L);
   return k-1;
 }
-function simulateGame(home,away){
-  const hs=strength(home),as=strength(away),diff=(hs-as)/8;
-  const hx=Math.max(.35,1.35+diff*.42+.23);
-  const ax=Math.max(.25,1.12-diff*.42);
-  return [Math.min(6,poisson(hx)),Math.min(6,poisson(ax))];
+
+/* --------------------------------------------------------------------------
+   MATCH ENGINE 2.0 — v0.17
+   --------------------------------------------------------------------------
+   The engine works from explicit match selections rather than generic squad
+   strength. That is deliberate groundwork for fitness, rotation and in-match
+   substitutions: a future update can alter the active XI / fitness multipliers
+   without replacing the result model again.
+   -------------------------------------------------------------------------- */
+
+function ensureMatchEngineState(){
+  if(!state.matchEngine) state.matchEngine={};
+  if(!state.matchEngine.form) state.matchEngine.form={};
 }
+
+function recordMatchEngineForm(club,result){
+  ensureMatchEngineState();
+  if(!state.matchEngine.form[club]) state.matchEngine.form[club]=[];
+  state.matchEngine.form[club].push(result);
+  state.matchEngine.form[club]=state.matchEngine.form[club].slice(-5);
+}
+
+function clubMatchEngineFormModifier(club){
+  ensureMatchEngineState();
+  const form=state.matchEngine.form[club]||[];
+  if(!form.length) return 0;
+  const points=form.reduce((sum,r)=>sum+(r==="W"?3:r==="D"?1:0),0);
+  const perGame=points/form.length;
+  // Form matters, but is deliberately capped so momentum cannot overwhelm
+  // squad quality and create runaway seasons.
+  return clamp((perGame-1.35)*0.035,-0.055,0.055);
+}
+
+function matchPlayerFitnessMultiplier(player,club,matchContext={}){
+  // v0.17 intentionally returns full fitness. v0.18 can read a condition /
+  // fatigue value here and the whole engine will immediately respect it.
+  if(typeof globalThis.FootballCEOFitnessMultiplier==="function"){
+    return clamp(Number(globalThis.FootballCEOFitnessMultiplier(player,club,matchContext))||1,0.55,1.05);
+  }
+  return 1;
+}
+
+function fallbackMatchSelection(club){
+  const players=squad(club).slice().sort((a,b)=>(b.overall||0)-(a.overall||0)).slice(0,11);
+  return {
+    formation:"4-2-3-1",
+    xi:players.map((p,i)=>({
+      player:p,playerId:p.id,slot:["GK","RB","CB","CB","LB","DM","DM","RW","AM","LW","ST"][i]||"CM",
+      slotIndex:i,suitability:100
+    })),
+    bench:[]
+  };
+}
+
+function matchSelectionForClub(club,provided=null){
+  if(provided) return provided;
+  if(typeof managerSelectMatchdaySquad==="function") return managerSelectMatchdaySquad(club);
+  return fallbackMatchSelection(club);
+}
+
+function matchSlotWeights(slot){
+  const map={
+    GK:{attack:0.02,defence:0.25,control:0.10,gk:1.00},
+    RB:{attack:0.45,defence:1.00,control:0.55,gk:0},
+    LB:{attack:0.45,defence:1.00,control:0.55,gk:0},
+    CB:{attack:0.12,defence:1.35,control:0.28,gk:0},
+    DM:{attack:0.42,defence:1.05,control:1.10,gk:0},
+    CM:{attack:0.72,defence:0.67,control:1.25,gk:0},
+    RM:{attack:1.02,defence:0.43,control:0.82,gk:0},
+    LM:{attack:1.02,defence:0.43,control:0.82,gk:0},
+    RW:{attack:1.28,defence:0.25,control:0.72,gk:0},
+    LW:{attack:1.28,defence:0.25,control:0.72,gk:0},
+    AM:{attack:1.22,defence:0.28,control:1.02,gk:0},
+    ST:{attack:1.55,defence:0.12,control:0.35,gk:0}
+  };
+  return map[slot]||{attack:0.65,defence:0.65,control:0.65,gk:0};
+}
+
+function managerMatchProfile(club){
+  if(typeof managerProfileForClub==="function"){
+    const p=managerProfileForClub(club);
+    if(p) return p;
+  }
+  return {possession:65,pressing:65,verticality:65,flexibility:65};
+}
+
+function buildMatchTeamContext(club,selection=null,matchContext={}){
+  const selected=matchSelectionForClub(club,selection);
+  const profile=managerMatchProfile(club);
+  const entries=(selected.xi||[]).map(x=>{
+    const p=x.player;
+    if(!p) return {...x,effectiveOverall:50,fitness:1};
+    const suitability=clamp(Number(x.suitability??(typeof positionSuitability==="function"?positionSuitability(p,x.slot):100)),0,100);
+    const positionFactor=0.82+0.18*(suitability/100);
+    const fitness=matchPlayerFitnessMultiplier(p,club,{...matchContext,slot:x.slot,selection:selected});
+    return {
+      ...x,
+      suitability,
+      fitness,
+      effectiveOverall:(p.overall||65)*positionFactor*fitness
+    };
+  });
+
+  const weightedAverage=(key)=>{
+    let total=0,weight=0;
+    entries.forEach(x=>{
+      const w=matchSlotWeights(x.slot)[key]||0;
+      if(w<=0) return;
+      total+=x.effectiveOverall*w;
+      weight+=w;
+    });
+    return weight?total/weight:65;
+  };
+
+  let attack=weightedAverage("attack");
+  let defence=weightedAverage("defence");
+  let control=weightedAverage("control");
+  let goalkeeper=weightedAverage("gk");
+  const filled=entries.filter(x=>x.player).length;
+  const xiOverall=entries.length
+    ? entries.reduce((s,x)=>s+x.effectiveOverall,0)/entries.length
+    : 60;
+
+  // Manager identity now matters. Effects are intentionally a few rating
+  // points rather than giant multipliers: players remain the main driver.
+  attack+=(profile.verticality-65)*0.025+(profile.pressing-65)*0.014+(profile.possession-65)*0.010;
+  defence+=(profile.possession-65)*0.018+(profile.pressing-65)*0.020-(profile.verticality-65)*0.008;
+  control+=(profile.possession-65)*0.030+(profile.pressing-65)*0.012;
+
+  // Vacant formation slots should hurt badly rather than being silently ignored.
+  const vacancyPenalty=Math.max(0,11-filled);
+  attack-=vacancyPenalty*2.2;
+  defence-=vacancyPenalty*2.8;
+  control-=vacancyPenalty*2.4;
+
+  return {
+    club,
+    formation:selected.formation||"Unknown",
+    selection:selected,
+    entries,
+    profile,
+    attack:clamp(attack,50,96),
+    defence:clamp(defence,50,96),
+    control:clamp(control,50,96),
+    goalkeeper:clamp(goalkeeper,45,96),
+    overall:clamp(xiOverall,50,96),
+    formModifier:clubMatchEngineFormModifier(club),
+    vacancyPenalty
+  };
+}
+
+function matchTacticalModifier(team,opponent){
+  const flexibilityEdge=(team.profile.flexibility-opponent.profile.flexibility)/100;
+  const controlEdge=(team.control-opponent.control)/20;
+  const directness=(team.profile.verticality-65)/100;
+
+  // Flexible/control-heavy sides gain a small consistency edge; vertical sides
+  // trade some control for attacking threat. Capped tightly.
+  return clamp(
+    flexibilityEdge*0.045+
+    controlEdge*0.035+
+    directness*0.030,
+    -0.09,0.09
+  );
+}
+
+function expectedGoalsForMatch(homeCtx,awayCtx){
+  const qualityEdge=homeCtx.overall-awayCtx.overall;
+  const homeTactic=matchTacticalModifier(homeCtx,awayCtx);
+  const awayTactic=matchTacticalModifier(awayCtx,homeCtx);
+
+  // Calibrated around a roughly 2.6–2.9 goal Premier League environment.
+  // Attack/defence/GK quality and the actual selected XI have much more
+  // explanatory power than the old best-16 squad average.
+  let homeXG=
+    1.36+
+    (homeCtx.attack-76)*0.036-
+    (awayCtx.defence-76)*0.027-
+    (awayCtx.goalkeeper-76)*0.012+
+    qualityEdge*0.018+
+    homeTactic;
+
+  let awayXG=
+    1.10+
+    (awayCtx.attack-76)*0.036-
+    (homeCtx.defence-76)*0.027-
+    (homeCtx.goalkeeper-76)*0.012-
+    qualityEdge*0.018+
+    awayTactic;
+
+  homeXG*=1+homeCtx.formModifier-awayCtx.formModifier*0.45;
+  awayXG*=1+awayCtx.formModifier-homeCtx.formModifier*0.45;
+
+  // Small match-day variance keeps football unpredictable without letting
+  // randomness dominate the season.
+  homeXG*=0.94+Math.random()*0.12;
+  awayXG*=0.94+Math.random()*0.12;
+
+  return {
+    homeXG:clamp(homeXG,0.22,3.35),
+    awayXG:clamp(awayXG,0.18,3.10)
+  };
+}
+
+function simulateMatchPhase(homeContext,awayContext,share=1){
+  share=clamp(Number(share||1),0.05,1);
+  const xg=expectedGoalsForMatch(homeContext,awayContext);
+  const homeXG=xg.homeXG*share;
+  const awayXG=xg.awayXG*share;
+  return {
+    share,
+    homeXG,
+    awayXG,
+    hg:Math.min(7,poisson(homeXG)),
+    ag:Math.min(7,poisson(awayXG))
+  };
+}
+
+function simulateGameDetailed(home,away,options={}){
+  const homeContext=buildMatchTeamContext(home,options.homeSelection||null,{home:true,opponent:away,phase:"full"});
+  const awayContext=buildMatchTeamContext(away,options.awaySelection||null,{home:false,opponent:home,phase:"full"});
+
+  // v0.17 is one 90-minute phase. v0.18 can split this into e.g. 0–60 and
+  // 60–90 phases, rebuild either context after substitutions, and reuse the
+  // same simulation model without changing the engine's core maths.
+  const phase=simulateMatchPhase(homeContext,awayContext,1);
+
+  return {
+    hg:phase.hg,
+    ag:phase.ag,
+    homeXG:phase.homeXG,
+    awayXG:phase.awayXG,
+    homeContext,
+    awayContext,
+    phases:[phase]
+  };
+}
+
+function simulateGame(home,away,options={}){
+  const result=simulateGameDetailed(home,away,options);
+  // Backward-compatible tuple for any older call sites.
+  return [result.hg,result.ag];
+}
+
 function applyResult(home,away,hg,ag){
   const h=state.table[home],a=state.table[away];
   h.p++;a.p++;h.gf+=hg;h.ga+=ag;a.gf+=ag;a.ga+=hg;
-  if(hg>ag){h.w++;h.pts+=3;a.l++}
-  else if(hg<ag){a.w++;a.pts+=3;h.l++}
-  else{h.d++;a.d++;h.pts++;a.pts++}
+
+  let homeOutcome="D",awayOutcome="D";
+  if(hg>ag){
+    h.w++;h.pts+=3;a.l++;
+    homeOutcome="W";awayOutcome="L";
+  }else if(hg<ag){
+    a.w++;a.pts+=3;h.l++;
+    homeOutcome="L";awayOutcome="W";
+  }else{
+    h.d++;a.d++;h.pts++;a.pts++;
+  }
+
+  recordMatchEngineForm(home,homeOutcome);
+  recordMatchEngineForm(away,awayOutcome);
 }
 
 
@@ -2597,17 +2876,52 @@ function processWeeklyClubCycle(){
 function simulateFixtureRound(round){
   if(!round) return null;
 
+  // Select the user's XI once and reuse that exact selection for both the result
+  // engine and player stats. This closes the old disconnect where the match
+  // report showed one XI while the score was generated from generic squad strength.
   const matchSelection=typeof managerSelectMatchdaySquad==="function"
     ? managerSelectMatchdaySquad(state.club)
     : null;
 
-  round.games.forEach(g=>{
-    const [hg,ag]=simulateGame(g.home,g.away);
-    state.results[`${round.week}-${g.home}-${g.away}`]={hg,ag,date:round.date};
-    applyResult(g.home,g.away,hg,ag);
+  round.games.forEach(game=>{
+    const homeSelection=game.home===state.club
+      ? matchSelection
+      : (typeof managerSelectMatchdaySquad==="function"?managerSelectMatchdaySquad(game.home):null);
+    const awaySelection=game.away===state.club
+      ? matchSelection
+      : (typeof managerSelectMatchdaySquad==="function"?managerSelectMatchdaySquad(game.away):null);
+
+    const sim=simulateGameDetailed(game.home,game.away,{homeSelection,awaySelection});
+    state.results[`${round.week}-${game.home}-${game.away}`]={
+      hg:sim.hg,
+      ag:sim.ag,
+      date:round.date,
+      engine:{
+        version:"2.0",
+        homeXG:Math.round(sim.homeXG*100)/100,
+        awayXG:Math.round(sim.awayXG*100)/100,
+        home:{
+          formation:sim.homeContext.formation,
+          overall:Math.round(sim.homeContext.overall*10)/10,
+          attack:Math.round(sim.homeContext.attack*10)/10,
+          defence:Math.round(sim.homeContext.defence*10)/10,
+          goalkeeper:Math.round(sim.homeContext.goalkeeper*10)/10,
+          control:Math.round(sim.homeContext.control*10)/10
+        },
+        away:{
+          formation:sim.awayContext.formation,
+          overall:Math.round(sim.awayContext.overall*10)/10,
+          attack:Math.round(sim.awayContext.attack*10)/10,
+          defence:Math.round(sim.awayContext.defence*10)/10,
+          goalkeeper:Math.round(sim.awayContext.goalkeeper*10)/10,
+          control:Math.round(sim.awayContext.control*10)/10
+        }
+      }
+    };
+    applyResult(game.home,game.away,sim.hg,sim.ag);
   });
 
-  const mine=round.games.find(g=>g.home===state.club||g.away===state.club);
+  const mine=round.games.find(game=>game.home===state.club||game.away===state.club);
   if(!mine) return;
   const res=state.results[`${round.week}-${mine.home}-${mine.away}`];
   const myGoals=mine.home===state.club?res.hg:res.ag;
@@ -2618,6 +2932,7 @@ function simulateFixtureRound(round){
   const matchReport=trackPlayerMatchStats(myGoals,opGoals,matchSelection);
   res.matchReport={
     ...matchReport,
+    engine:res.engine,
     date:round.date,
     week:round.week,
     home:mine.home,

@@ -1,9 +1,62 @@
+Football CEO v0.17.0 — Match Simulation 2.0
 
+Built on v0.16.2c PWA.
 
-Patch v0.16.2c — Rejected Sale Stakeholder Fix
-- Stakeholder reactions to outgoing star transfers now fire only after the player has actually transferred.
-- Rejecting an incoming offer or having a buying club withdraw no longer produces "player sold" fan/owner/manager reactions.
-- If a deal collapses after acceptance because the buyer cannot complete it financially, no sale reaction is recorded.
-- Pre-sale star status and SCR impact are captured before the move, then applied only after transfer completion.
-- One-time migration repairs affected saves by reversing/removing false sale reactions linked to rejected incoming offers where the player is still at the club.
-- PWA cache bumped to v0.16.2c-pwa-1.
+CORE RESULT ENGINE
+- Replaces the old best-16-average + broad Poisson model.
+- Every fixture now uses the manager-selected starting XI for both clubs.
+- Team quality is split into:
+  attack
+  defence
+  goalkeeper
+  midfield/control
+  overall XI quality.
+- Positional suitability affects each player's effective match contribution.
+- Missing/vacant formation slots create a meaningful team penalty.
+- Home advantage remains built into the expected-goals baseline.
+- Match-day randomness remains, but is tightly limited so squad quality has much stronger season-long influence.
+
+MANAGER IDENTITY
+- Existing manager profiles now affect match simulation.
+- Possession influences control and defensive suppression.
+- Pressing influences attacking pressure and defensive quality.
+- Verticality increases attacking threat but can trade against defensive security.
+- Flexibility provides a small tactical consistency/matchup effect.
+- These modifiers remain deliberately smaller than player-quality effects.
+
+FORM
+- Every Premier League club now keeps a rolling five-match engine-form record.
+- Form has a small capped impact on expected goals.
+- It cannot snowball enough to overpower underlying squad quality.
+
+PLAYER GOALS / ASSISTS
+- Goal attribution now uses the role actually occupied in the manager-selected XI.
+- Open-play scorer weighting strongly favours strikers, wingers and attacking midfielders.
+- Full-backs and centre-backs are substantially less likely to score from open play.
+- Separate set-piece scoring logic gives centre-backs a realistic route to occasional goals.
+- Penalties use a separate attacking-player weighting and are never credited with assists.
+- Assists favour creators, wide players, central midfielders and attacking full-backs.
+
+FUTURE FITNESS / SUBSTITUTION ARCHITECTURE
+- Match contribution passes through matchPlayerFitnessMultiplier().
+- v0.17 defaults every player to full fitness.
+- A future fitness system can plug into globalThis.FootballCEOFitnessMultiplier without rewriting team-strength calculations.
+- simulateMatchPhase() has been introduced.
+- v0.17 simulates one 90-minute phase.
+- Future substitutions can split a match into phases, change the active XI, rebuild team context, and simulate the remaining minutes using the same engine.
+- Match reports already store 90 starter minutes, 0 bench minutes and an empty substitutions array ready for expansion.
+
+SAVE / REPORTING
+- Match result data stores Match Engine 2.0 diagnostics:
+  expected goals
+  formation
+  XI overall
+  attack
+  defence
+  goalkeeper
+  control.
+- Existing match-report structure remains compatible.
+- Existing saves migrate automatically; club form history starts building from the first match played under v0.17.
+
+PWA
+- Cache version bumped to football-ceo-v0.17.0-pwa-1.
