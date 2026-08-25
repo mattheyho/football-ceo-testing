@@ -128,14 +128,17 @@ function ensurePlayerState(){
 function ensureFitnessState(){
   if(!state.playerCondition) state.playerCondition={};
   if(!state.playerMinuteLog) state.playerMinuteLog={};
-
+  if(state._fitnessInitialized) return;
+  const activeClubNames=new Set((DB.clubs||[]).map(c=>c.name));
   DB.players.forEach(p=>{
+    if(!activeClubNames.has(p.club)) return;
     if(state.playerCondition[p.id]==null){
       const seed=((String(p.id).split("").reduce((s,c)=>s+c.charCodeAt(0),0)%5));
       state.playerCondition[p.id]=96+seed;
     }
     if(!state.playerMinuteLog[p.id]) state.playerMinuteLog[p.id]=[];
   });
+  state._fitnessInitialized=true;
 }
 
 function playerCondition(pOrId){
@@ -191,6 +194,8 @@ function conditionPerformanceMultiplier(condition){
 function recordPlayerMinutes(player,minutes,club=player?.club){
   if(!player || minutes<=0) return;
   ensureFitnessState();
+  if(state.playerCondition[player.id]==null) state.playerCondition[player.id]=100;
+  if(!state.playerMinuteLog[player.id]) state.playerMinuteLog[player.id]=[];
   const day=typeof currentCareerDay==="function"?currentCareerDay():0;
   state.playerMinuteLog[player.id].push({day,minutes,club});
   state.playerMinuteLog[player.id]=state.playerMinuteLog[player.id]
@@ -211,9 +216,11 @@ function processDailyConditionRecovery(){
   ensureFitnessState();
   const medical=typeof facilityRating==="function"?facilityRating("medical"):70;
   const physio=state.staff?.physio?.rating||70;
+  const activeClubNames=new Set((DB.clubs||[]).map(c=>c.name));
 
   DB.players.forEach(p=>{
-    const current=playerCondition(p);
+    if(!activeClubNames.has(p.club)) return;
+    const current=Number(state.playerCondition[p.id]??100);
     const age=p.age||25;
     let recovery=5.0;
     if(age<=23) recovery+=0.5;
@@ -2221,7 +2228,7 @@ function showTab(id){
 let pendingMonthlyAfterMatch=null;
 let pendingSeasonAfterMatch=false;
 
-function advanceDay(){
+async function advanceDay(){
   ensureCalendarState();
 
   // Season review must be acknowledged before time moves again.
@@ -2247,8 +2254,8 @@ function advanceDay(){
 
   // Development is visible through the season rather than arriving only as
   // one arbitrary June roll. Three checkpoints allow realistic +1/-1 steps.
-  if(/-(10-01|01-01|04-01)$/.test(nextDate)){
-    processPlayerDevelopmentCheckpoint();
+  if(/-(10|01|04)-0[1-7]$/.test(nextDate)){
+    processPlayerDevelopmentCheckpoint(nextDate);
   }
 
   // Off-season rolls into the next football year on 1 June, but remains a
@@ -2256,7 +2263,8 @@ function advanceDay(){
   if(state.season.phase==="offseason" &&
      nextDate>=startOfNextSeasonYearDate(currentSeasonStartYear()+1) &&
      !completedMonthlySummary){
-    performSeasonRollover();
+    await performSeasonRollover();
+    return;
   }
 
   // Fitness recovers on the daily calendar before injury/recovery processing.
@@ -2266,6 +2274,8 @@ function advanceDay(){
   processInjuries();
   if(typeof checkManagerDepthComplaints==="function") checkManagerDepthComplaints();
   if(typeof processTransferDay==="function") processTransferDay();
+  if(typeof processScheduledWorldMarketUpdate==="function") processScheduledWorldMarketUpdate(nextDate);
+  if(typeof runScheduledAIClubReview==="function" && isTransferWindowOpen()) runScheduledAIClubReview(nextDate);
   if(typeof processChampionshipDay==="function") processChampionshipDay(nextDate);
 
   // Event-triggered manager reassessment happens the day after a significant
@@ -2280,7 +2290,6 @@ function advanceDay(){
   }
 
   if(isMonday(nextDate)){
-    if(typeof runAITransferReview==="function") runAITransferReview();
     if(!managerReviewed && typeof maybeGenerateManagerSquadRequest==="function") maybeGenerateManagerSquadRequest();
   }
 
@@ -2320,7 +2329,6 @@ function advanceDay(){
 function renderAll(){
   ensurePlayerDevelopmentState();
   if(typeof ensurePlayerMarketState==="function") ensurePlayerMarketState();
-  if(typeof recalculateAllPlayerMarketValues==="function") recalculateAllPlayerMarketValues();
   const c=byClub(state.club);
   q("clubTitle").textContent=state.club;
   q("subTitle").textContent=`CEO • ${state.staff.manager.name} • ${currentSeasonLabel()} • ${formatGameDate(currentGameDateISO(),{weekday:false})}` + (storageAvailable ? "" : " • Session save only");
@@ -2589,6 +2597,9 @@ function renderInbox(){
         actions=`<div class="inbox-action"><button class="btn primary incoming-offer-btn" data-offer-id="${offer.id}">Review offer</button></div>`;
       }
     }
+    if(n.developmentReviewId){
+      actions=`<div class="inbox-action"><button class="btn primary development-review-btn" data-review-id="${n.developmentReviewId}">View development review</button></div>`;
+    }
     if(n.managerComplaintId){
       const complaint=state.managerDepthComplaints?.find(c=>c.id===n.managerComplaintId);
       if(complaint && !complaint.resolved){
@@ -2606,6 +2617,7 @@ function renderInbox(){
   document.querySelectorAll(".manager-request-btn").forEach(btn=>{
     btn.addEventListener("click",()=>resolveManagerRequest(btn.dataset.requestId,btn.dataset.accept==="1"));
   });
+  document.querySelectorAll(".development-review-btn").forEach(btn=>btn.addEventListener("click",()=>openDevelopmentReview(btn.dataset.reviewId)));
   document.querySelectorAll(".manager-complaint-btn").forEach(btn=>{
     btn.addEventListener("click",()=>resolveManagerDepthComplaint(btn.dataset.complaintId,btn.dataset.response));
   });
@@ -3657,6 +3669,7 @@ function stakeholderSummerReset(v){ return Math.round(v*.70+70*.30); }
 function ensurePlayerDevelopmentState(){
   if(!state) return;
   if(!state.playerDevelopment) state.playerDevelopment={};
+  if(state._developmentKnownCount===DB.players.length) return;
   DB.players.forEach(p=>{
     const key=String(p.id);
     if(!state.playerDevelopment[key]){
@@ -3669,6 +3682,7 @@ function ensurePlayerDevelopmentState(){
       };
     }
   });
+  state._developmentKnownCount=DB.players.length;
 }
 
 function playerDevelopmentStatus(p){
@@ -3822,85 +3836,70 @@ function developmentLabelFromChange(delta,age){
 }
 
 
-function processPlayerDevelopmentCheckpoint(){
-  ensurePlayerDevelopmentState();
-  if(typeof ensurePlayerMarketState==="function") ensurePlayerMarketState();
-
-  DB.players.forEach(p=>{
-    const d=state.playerDevelopment[String(p.id)];
-    if(!d) return;
-    const seasonChange=(p.overall||0)-(d.seasonStartOverall??p.overall??0);
-    const projected=calculatePlayerYearEndChange(p);
+function developmentCheckpointKey(dateISO=currentGameDateISO()){
+  const md=dateISO.slice(5);const label=md.startsWith('10-')?'Autumn':md.startsWith('01-')?'Mid-season':'Spring';
+  return `${currentSeasonLabel()}-${label}`;
+}
+function developmentWorldBucketForPlayer(p){
+  const club=String(p.club||'Free Agent');let h=0;for(const c of club)h=(h+c.charCodeAt(0))%997;return 2+(h%6);
+}
+function lightweightBackgroundDevelopmentStep(p){
+  const d=state.playerDevelopment[String(p.id)],before=p.overall||0,gap=Math.max(0,(p.potential??before)-before),age=p.age||25;
+  const trait=typeof stablePlayerTrait==='function'?stablePlayerTrait(p,`checkpoint-${developmentCheckpointKey()}`):Math.random();
+  let step=0;
+  if(age<=24&&gap>0){const chance=age<=20?.52:age<=22?.40:.25;if(trait<chance)step=1;}
+  else if(age>=31){const chance=Math.min(.55,.08+(age-30)*.075);if(trait<chance)step=-1;}
+  const seasonChange=before-(d?.seasonStartOverall??before);
+  if(step>0&&seasonChange>=3)step=0;if(step<0&&seasonChange<=-2)step=0;
+  return step;
+}
+function applyDevelopmentCheckpointToPlayers(players,{userReport=false}={}){
+  ensurePlayerDevelopmentState();if(typeof ensurePlayerMarketState==='function')ensurePlayerMarketState();const changes=[];
+  (players||[]).forEach(p=>{
+    const d=state.playerDevelopment[String(p.id)];if(!d)return;const before=p.overall||0,seasonChange=before-(d.seasonStartOverall??before);
     let step=0;
-
-    if(projected>0 && seasonChange<3 && (p.overall||0)<(p.potential??p.overall)){
-      step=1;
-    }else if(projected<0 && seasonChange>-2){
-      step=-1;
-    }
-
-    if(step){
-      const before=p.overall||0;
-      const ceiling=Math.max(before,p.potential??before);
-      p.overall=clamp(before+step,55,ceiling);
-      const actual=p.overall-before;
-      if(actual){
-        d.status=developmentLabelFromChange(actual,p.age||25);
-        state.playerWorldOverrides=state.playerWorldOverrides||{};
-        state.playerWorldOverrides[p.id]={...(state.playerWorldOverrides[p.id]||{}),overall:p.overall};
-      }
-    }else{
-      d.status=seasonChange>0?"Progressing":seasonChange<0?"Declining":((p.age||25)<=25?"Stagnating":"Stable");
-    }
+    if(p.club===state.club){
+      const projected=calculatePlayerYearEndChange(p);
+      if(projected>0&&seasonChange<3&&before<(p.potential??before))step=1;else if(projected<0&&seasonChange>-2)step=-1;
+    }else step=lightweightBackgroundDevelopmentStep(p);
+    if(step){const ceiling=Math.max(before,p.potential??before);p.overall=clamp(before+step,55,ceiling);const actual=p.overall-before;if(actual){d.status=developmentLabelFromChange(actual,p.age||25);state.playerWorldOverrides=state.playerWorldOverrides||{};state.playerWorldOverrides[p.id]={...(state.playerWorldOverrides[p.id]||{}),overall:p.overall};if(typeof updatePlayerStoredMarketValue==='function')updatePlayerStoredMarketValue(p);changes.push({playerId:p.id,name:p.name,age:p.age,before,after:p.overall,change:actual,potential:p.potential??p.overall});}}
+    else d.status=seasonChange>0?'Progressing':seasonChange<0?'Declining':((p.age||25)<=25?'Stagnating':'Stable');
   });
-
-  if(typeof recalculateAllPlayerMarketValues==="function") recalculateAllPlayerMarketValues();
+  if(userReport&&changes.length)createDevelopmentReview(changes);
+  return changes;
+}
+function createDevelopmentReview(changes){
+  state.developmentReviews=state.developmentReviews||[];const date=currentGameDateISO(),key=developmentCheckpointKey(date);const id=`dev-${Date.now()}-${Math.floor(Math.random()*1000)}`;
+  const sorted=[...changes].sort((a,b)=>b.change-a.change||b.after-a.after);const best=sorted[0],decline=sorted.find(x=>x.change<0);const manager=state.staff?.manager?.name||'The manager';
+  const report={id,key,date,season:currentSeasonLabel(),manager,changes:sorted};state.developmentReviews.unshift(report);state.developmentReviews=state.developmentReviews.slice(0,12);
+  let summary=`${changes.length} player${changes.length===1?' has':'s have'} changed overall rating in the latest squad development review.`;
+  if(best?.change>=2)summary+=` ${best.name} has made the strongest progress (+${best.change}).`;else if(best?.change>0)summary+=` ${best.name} showed the strongest progress.`;
+  if(decline)summary+=` ${decline.name} has shown signs of decline.`;
+  state.news.unshift({week:state.week,date,developmentReviewId:id,text:`${manager}: Squad Development Update — ${summary}`});
+}
+function openDevelopmentReview(id){
+  const report=state.developmentReviews?.find(r=>r.id===id);if(!report)return;const modal=q('developmentReviewModal');if(!modal)return;
+  q('developmentReviewTitle').textContent=`${report.key} Development Review`;q('developmentReviewMeta').textContent=`${report.manager} • ${formatGameDate(report.date,{weekday:false})}`;
+  const positives=report.changes.filter(x=>x.change>0).length,declines=report.changes.filter(x=>x.change<0).length;
+  q('developmentReviewSummary').textContent=`${positives} improved • ${declines} declined • ${report.changes.length} rating changes`;
+  q('developmentReviewRows').innerHTML=report.changes.map(x=>`<tr><td><b>${x.name}</b></td><td>${x.age}</td><td>${x.potential??'—'}</td><td>${x.before}</td><td><span class="rating">${x.after}</span></td><td class="${x.change>0?'good':'bad'}"><b>${x.change>0?'+':''}${x.change}</b>${x.change>=2?' <span class="breakthrough-badge">★ Breakthrough</span>':''}</td></tr>`).join('');
+  modal.classList.remove('hide');setModalScrollLock(true);
+}
+function closeDevelopmentReview(){q('developmentReviewModal')?.classList.add('hide');setModalScrollLock(false);}
+function processPlayerDevelopmentCheckpoint(dateISO=currentGameDateISO()){
+  if(!/-(10|01|04)-0[1-7]$/.test(dateISO))return;state.developmentWindows=state.developmentWindows||{};const key=developmentCheckpointKey(dateISO);const w=state.developmentWindows[key]||(state.developmentWindows[key]={user:false,buckets:[]});const day=Number(dateISO.slice(8,10));
+  if(day===1&&!w.user){applyDevelopmentCheckpointToPlayers(squad(state.club),{userReport:true});w.user=true;return;}
+  if(day>=2&&day<=7&&!w.buckets.includes(day)){const players=DB.players.filter(p=>p.club!==state.club&&developmentWorldBucketForPlayer(p)===day);applyDevelopmentCheckpointToPlayers(players);w.buckets.push(day);}
 }
 
-function processPlayerYearEnd(){
-  ensurePlayerDevelopmentState();
-  if(typeof ensurePlayerMarketState==="function") ensurePlayerMarketState();
-
-  DB.players.forEach(p=>{
-    const before=p.overall||0;
-    const d=state.playerDevelopment[String(p.id)];
-    const seasonSoFar=before-(d?.seasonStartOverall??before);
-    const proposed=calculatePlayerYearEndChange(p);
-    const delta=clamp(proposed,-3-seasonSoFar,4-seasonSoFar);
-    const potential=Math.max(before,p.potential??before);
-    p.overall=clamp(before+delta,55,Math.max(potential,before));
-    const actual=p.overall-before;
-
-    d.lastSeasonChange=seasonSoFar+actual;
-    d.status=developmentLabelFromChange(actual,p.age||25);
-    d.history=(d.history||[]).slice(-7);
-    d.history.push({
-      season:currentSeasonLabel(),
-      start:d.seasonStartOverall,
-      end:p.overall,
-      change:seasonSoFar+actual,
-      minutes:playerSeasonMinutes(p)
-    });
-
-    state.playerWorldOverrides=state.playerWorldOverrides||{};
-    state.playerWorldOverrides[p.id]={
-      ...(state.playerWorldOverrides[p.id]||{}),
-      overall:p.overall
-    };
-
-    p.age=(p.age||0)+1;
-    d.seasonStartOverall=p.overall;
-
-    if(state.playerMarket?.[String(p.id)]){
-      state.playerMarket[String(p.id)].severeInjuriesThisSeason=0;
-      state.playerMarket[String(p.id)].seasonStartValue=p.value||0;
-    }
-  });
-
-  if(typeof recalculateAllPlayerMarketValues==="function"){
-    recalculateAllPlayerMarketValues({recordHistory:true});
-  }
+function processPlayerYearEnd(players=DB.players){
+  ensurePlayerDevelopmentState();if(typeof ensurePlayerMarketState==='function')ensurePlayerMarketState();
+  (players||[]).forEach(p=>{const before=p.overall||0,d=state.playerDevelopment[String(p.id)];if(!d)return;const seasonSoFar=before-(d.seasonStartOverall??before);let proposed;
+    if(p.club===state.club)proposed=calculatePlayerYearEndChange(p);else{const age=p.age||25,gap=Math.max(0,(p.potential??before)-before),trait=typeof stablePlayerTrait==='function'?stablePlayerTrait(p,`yearend-${currentSeasonStartYear()}`):Math.random();proposed=age<=24&&gap>0&&trait<.45?1:age>=31&&trait<Math.min(.68,.12+(age-30)*.08)?-1:0;}
+    const delta=clamp(proposed,-3-seasonSoFar,4-seasonSoFar),potential=Math.max(before,p.potential??before);p.overall=clamp(before+delta,55,Math.max(potential,before));const actual=p.overall-before;d.lastSeasonChange=seasonSoFar+actual;d.status=developmentLabelFromChange(actual,p.age||25);d.history=(d.history||[]).slice(-7);d.history.push({season:currentSeasonLabel(),start:d.seasonStartOverall,end:p.overall,change:seasonSoFar+actual,minutes:p.club===state.club?playerSeasonMinutes(p):null});state.playerWorldOverrides=state.playerWorldOverrides||{};state.playerWorldOverrides[p.id]={...(state.playerWorldOverrides[p.id]||{}),overall:p.overall};p.age=(p.age||0)+1;d.seasonStartOverall=p.overall;if(state.playerMarket?.[String(p.id)]){state.playerMarket[String(p.id)].severeInjuriesThisSeason=0;state.playerMarket[String(p.id)].seasonStartValue=p.value||0;}}
+  );
 }
+
 function resetSeasonPlayerStats(){ state.playerStats={}; state.playerMorale={}; ensurePlayerState(); }
 function expireContractsAndHandleFreeAgents(){
   const newYear=currentSeasonStartYear()+1;
@@ -3955,80 +3954,27 @@ function beginNextSeason(){
   renderAll();
 }
 
-function performSeasonRollover(){
-  const archive=state.careerHistory?.seasons?.find(x=>x.year===currentSeasonStartYear()) || archiveCurrentSeason();
-  if(typeof processFinancialRegulationAssessment==="function") processFinancialRegulationAssessment();
+function seasonPrepShow(percent,status){const o=q('seasonPrepOverlay');if(!o)return;q('seasonPrepSeason').textContent=`Preparing the ${currentSeasonStartYear()+1}/${String((currentSeasonStartYear()+2)%100).padStart(2,'0')} season`;q('seasonPrepPercent').textContent=`${percent}%`;q('seasonPrepStatus').textContent=status;q('seasonPrepBar').style.width=`${percent}%`;o.classList.remove('hide');}
+async function seasonPrepStage(percent,status,fn){seasonPrepShow(percent,status);await new Promise(r=>requestAnimationFrame(()=>setTimeout(r,0)));if(fn)await fn();await new Promise(r=>setTimeout(r,0));}
+function seasonPrepHide(){q('seasonPrepOverlay')?.classList.add('hide');}
+async function performSeasonRollover(){
+  const archive=state.careerHistory?.seasons?.find(x=>x.year===currentSeasonStartYear())||archiveCurrentSeason();const oldYear=currentSeasonStartYear();
+  await seasonPrepStage(5,'Closing the previous season',()=>{if(typeof processFinancialRegulationAssessment==='function')processFinancialRegulationAssessment();});
   const offSeasonCarryPL=(state.seasonPL||0)-(archive.seasonProfitLoss||0);
-
-  processPlayerYearEnd();
-  if(typeof processFacilityYearEnd==="function") processFacilityYearEnd();
-  expireContractsAndHandleFreeAgents();
-  updateReputationFromSeason(archive.leagueFinish);
-
-  state.season.year+=1;
-  state.season.number+=1;
-  state.season.label=`${state.season.year}/${String((state.season.year+1)%100).padStart(2,"0")}`;
-  state.season.phase="preseason";
-  state.week=0;
-  state.seasonComplete=false;
-  state.seasonSummaryViewed=false;
-
-  state.fixtures=generateFixtures(DB.clubs.map(x=>x.name),state.season.year);
-  state.table=blankTable();
-  if(typeof resetChampionshipCompetitionForSeason==="function") resetChampionshipCompetitionForSeason();
-  state.results={};
-  state.form=[];
-  state.matchdayStats={revenue:0,attendance:0,homeGames:0};
-  state.seasonPL=offSeasonCarryPL;
-  state.transferFinance={spent:0,received:0};
-  state.managerChangesThisSeason=0;
-  state.managerPressureNotified=false;
-  state.managerRequests=[];
-  state.managerRequestCooldowns={};
-  state.managerRequestsByWeek={};
-  state.managerRoleFulfilledUntil={};
-  state.managerSquadVacancies=[];
-  state.transferReviewsRun={};
-  state.incomingTransferOffers=[];
-  state.transferNegotiations={};
-  state.aiTransferPlans={};
-
-  resetSeasonPlayerStats();
-  resetMonthlyTracker();
-  state.calendar.monthlyMonthKey=currentGameDateISO().slice(0,7);
-
-  Object.keys(state.happiness).forEach(k=>state.happiness[k]=stakeholderSummerReset(state.happiness[k]));
-
-  const fr=ensureFinancialRegulationState();
-  const grossAvailable=nextSeasonBudgetForUser(archive);
-  const sanctionMultiplier=fr.nextInvestmentMultiplier??1;
-  fr.availableInvestment=Math.max(5_000_000,Math.round((grossAvailable*sanctionMultiplier)/250000)*250000);
-  fr.pendingTransferBudget=Math.round((fr.availableInvestment*.70)/5_000_000)*5_000_000;
-  fr.nextInvestmentMultiplier=1;
-  state.budget=fr.pendingTransferBudget;
-  if(typeof rollFinancialRegulationsSeason==="function") rollFinancialRegulationsSeason();
-
-  resetAIClubFinancesForNewSeason();
-
-  if(state.sponsorship){
-    if(state.sponsorship.seasonsRemaining==null) state.sponsorship.seasonsRemaining=state.sponsorship.years||1;
-    state.sponsorship.seasonsRemaining=Math.max(0,state.sponsorship.seasonsRemaining-1);
-    if(state.sponsorship.seasonsRemaining<=0){
-      addNews(`${state.sponsorship.name}'s sponsorship agreement has expired.`);
-      state.sponsorship=null;
-      state.sponsorOffers=[];
-    }else{
-      state.sponsorOffers=[];
-      state.sponsorship.totalValue=state.sponsorship.annualValue*state.sponsorship.seasonsRemaining;
-    }
-  }else state.sponsorOffers=[];
-
-  state.pricingLocked=false;
-  if(!state.pricing) state.pricing=defaultPricing(state.club);
-  state.managerBacking=Math.round((state.managerBacking||70)*.75+70*.25);
-
-  addNews(`The ${currentSeasonLabel()} season has begun. ${money(state.financialRegulations?.availableInvestment||state.budget)} is available for football investment; you must now set the transfer budget.`);
-  openSeasonSetup();
+  const cohorts=[DB.players.filter(p=>p.club===state.club||p.leagueId==='premier-league'),DB.players.filter(p=>p.leagueId==='championship'),DB.players.filter(p=>['la-liga','bundesliga'].includes(p.leagueId)),DB.players.filter(p=>['serie-a','ligue-1'].includes(p.leagueId)),DB.players.filter(p=>p.leagueId==='saudi-pro-league')];
+  const pct=[18,24,30,36,40];const labels=['Updating Premier League players','Updating Championship players','Updating La Liga & Bundesliga players','Updating Serie A & Ligue 1 players','Updating Saudi market players'];
+  for(let i=0;i<cohorts.length;i++)await seasonPrepStage(pct[i],labels[i],()=>processPlayerYearEnd(cohorts[i]));
+  await seasonPrepStage(45,'Updating player market values',()=>{if(typeof recalculateAllPlayerMarketValues==='function')recalculateAllPlayerMarketValues({recordHistory:true});});
+  await seasonPrepStage(52,'Processing contracts and club infrastructure',()=>{if(typeof processFacilityYearEnd==='function')processFacilityYearEnd();expireContractsAndHandleFreeAgents();updateReputationFromSeason(archive.leagueFinish);});
+  await seasonPrepStage(60,'Rebuilding club squads',()=>{if(typeof invalidateClubSquadCache==='function')invalidateClubSquadCache();if(typeof invalidateWorldStrengthCache==='function')invalidateWorldStrengthCache();});
+  await seasonPrepStage(70,'Calculating background squad strengths',()=>{if(typeof worldMatchStrength==='function')(DB.worldClubs||[]).filter(c=>c.leagueId!=='saudi-pro-league').forEach(c=>worldMatchStrength(c.name));});
+  state.season.year+=1;state.season.number+=1;state.season.label=`${state.season.year}/${String((state.season.year+1)%100).padStart(2,'0')}`;state.season.phase='preseason';state.week=0;state.seasonComplete=false;state.seasonSummaryViewed=false;
+  await seasonPrepStage(80,'Preparing league competitions',()=>{state.fixtures=generateFixtures(DB.clubs.map(x=>x.name),state.season.year);state.table=blankTable();if(typeof resetChampionshipCompetitionForSeason==='function')resetChampionshipCompetitionForSeason();state.results={};state.form=[];state.matchdayStats={revenue:0,attendance:0,homeGames:0};});
+  await seasonPrepStage(86,'Resetting season records',()=>{state.seasonPL=offSeasonCarryPL;state.transferFinance={spent:0,received:0};state.managerChangesThisSeason=0;state.managerPressureNotified=false;state.managerRequests=[];state.managerRequestCooldowns={};state.managerRequestsByWeek={};state.managerRoleFulfilledUntil={};state.managerSquadVacancies=[];state.transferReviewsRun={};state.incomingTransferOffers=[];state.transferNegotiations={};state.aiTransferPlans={};state.developmentWindows={};state.saudiPremiumWindows={};resetSeasonPlayerStats();resetMonthlyTracker();state.calendar.monthlyMonthKey=currentGameDateISO().slice(0,7);Object.keys(state.happiness).forEach(k=>state.happiness[k]=stakeholderSummerReset(state.happiness[k]));});
+  await seasonPrepStage(90,'Updating the transfer market',()=>{resetAIClubFinancesForNewSeason();if(typeof reviewAIClubs==='function')reviewAIClubs(DB.clubs.filter(c=>c.name!==state.club));});
+  await seasonPrepStage(96,'Setting budgets and expectations',()=>{const fr=ensureFinancialRegulationState(),grossAvailable=nextSeasonBudgetForUser(archive),sanctionMultiplier=fr.nextInvestmentMultiplier??1;fr.availableInvestment=Math.max(5000000,Math.round((grossAvailable*sanctionMultiplier)/250000)*250000);fr.pendingTransferBudget=Math.round((fr.availableInvestment*.70)/5000000)*5000000;fr.nextInvestmentMultiplier=1;state.budget=fr.pendingTransferBudget;if(typeof rollFinancialRegulationsSeason==='function')rollFinancialRegulationsSeason();if(state.sponsorship){if(state.sponsorship.seasonsRemaining==null)state.sponsorship.seasonsRemaining=state.sponsorship.years||1;state.sponsorship.seasonsRemaining=Math.max(0,state.sponsorship.seasonsRemaining-1);if(state.sponsorship.seasonsRemaining<=0){addNews(`${state.sponsorship.name}'s sponsorship agreement has expired.`);state.sponsorship=null;state.sponsorOffers=[];}else{state.sponsorOffers=[];state.sponsorship.totalValue=state.sponsorship.annualValue*state.sponsorship.seasonsRemaining;}}else state.sponsorOffers=[];state.pricingLocked=false;if(!state.pricing)state.pricing=defaultPricing(state.club);state.managerBacking=Math.round((state.managerBacking||70)*.75+70*.25);});
+  await seasonPrepStage(100,`${currentSeasonLabel()} ready`,()=>{addNews(`The ${currentSeasonLabel()} season has begun. ${money(state.financialRegulations?.availableInvestment||state.budget)} is available for football investment; you must now set the transfer budget.`);saveGame(false);});
+  await new Promise(r=>setTimeout(r,180));seasonPrepHide();renderAll();openSeasonSetup();
 }
 
 function tableArray(){
@@ -4953,15 +4899,30 @@ function init(){
       renderSquad();
     });
   });
-  q("advanceBtn")?.addEventListener("click",()=>{
+  q("advanceBtn")?.addEventListener("click",async()=>{
+    const btn=q("advanceBtn");
+    if(!btn || btn.disabled) return;
+    const original=btn.innerHTML;
+    btn.disabled=true;
+    btn.classList.add("is-processing");
+    btn.innerHTML=`<span class="continue-processing"><span class="continue-spinner" aria-hidden="true"></span>Processing…</span><strong>•••</strong>`;
+
+    // Give Safari/Chrome a frame to paint the loading state before the
+    // synchronous simulation work begins. Two frames is more reliable on iOS.
+    await new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)));
+
     try{
-      advanceDay();
+      await advanceDay();
     }catch(err){
       console.error("Continue failed:",err);
       addNews(`A simulation error prevented the calendar from advancing: ${err?.message||"Unknown error"}.`);
       saveGame(false);
       renderDashboard();
       renderInbox();
+    }finally{
+      btn.innerHTML=original;
+      btn.classList.remove("is-processing");
+      btn.disabled=false;
     }
   });
   q("importSaveStartBtn")?.addEventListener("click",triggerImportSave);
@@ -4970,6 +4931,7 @@ function init(){
   q("manualSaveBtn")?.addEventListener("click",()=>saveGame(true));
   q("exportCurrentSaveBtn")?.addEventListener("click",exportCurrentSave);
   q("closeSaveManagerBtn")?.addEventListener("click",closeSaveManager);
+  q("closeDevelopmentReviewBtn")?.addEventListener("click",closeDevelopmentReview);
   q("saveManagerModal")?.addEventListener("click",e=>{if(e.target===q("saveManagerModal")) closeSaveManager();});
   document.querySelectorAll("#matchday .step-btn").forEach(btn=>{
     btn.addEventListener("click",()=>updatePrice(btn.dataset.price,Number(btn.dataset.step)));

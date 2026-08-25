@@ -1093,6 +1093,25 @@
   </div>
 </div>
 
+<div id="developmentReviewModal" class="development-review-overlay hide">
+  <div class="development-review-card">
+    <div class="sectiontitle"><div><div class="eyebrow">MANAGER DEVELOPMENT REPORT</div><h2 id="developmentReviewTitle" style="margin:4px 0 0">Development Review</h2><div class="muted" id="developmentReviewMeta"></div></div><button id="closeDevelopmentReviewBtn" class="close-x" type="button">×</button></div>
+    <div class="notice" style="margin-top:14px"><b id="developmentReviewSummary">Squad development update</b></div>
+    <div class="development-review-table-wrap"><table class="development-review-table"><thead><tr><th>Player</th><th>Age</th><th>Potential</th><th>Previous</th><th>New OVR</th><th>Change</th></tr></thead><tbody id="developmentReviewRows"></tbody></table></div>
+  </div>
+</div>
+
+<div id="seasonPrepOverlay" class="season-prep-overlay hide" aria-live="polite">
+  <div class="season-prep-card">
+    <div class="eyebrow">FOOTBALL CEO</div>
+    <h2 id="seasonPrepSeason">Preparing the new season</h2>
+    <div id="seasonPrepPercent" class="season-prep-percent">0%</div>
+    <div class="season-prep-progress"><span id="seasonPrepBar"></span></div>
+    <div id="seasonPrepStatus" class="season-prep-status">Preparing the new season</div>
+    <div class="muted small" style="margin-top:10px">Updating the football world. This may take a few seconds.</div>
+  </div>
+</div>
+
 <script>
 if ("serviceWorker" in navigator) {
   window.addEventListener("load", () => {

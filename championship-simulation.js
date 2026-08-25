@@ -1,78 +1,79 @@
-/* Championship standard-simulation foundation v0.19.
-   Designed to coexist with the current PL engine and become the source for
-   promotion/relegation once season rollover is wired in. */
+/* Football CEO v0.19.1 — lightweight background league simulation.
+   Championship, La Liga, Bundesliga, Serie A and Ligue 1 are simulated.
+   Saudi Pro League is deliberately transfer-market only. */
+
+const BACKGROUND_LEAGUE_CONFIG={
+  'championship':{start:'08-09',end:'05-02'},
+  'la-liga':{start:'08-16',end:'05-24'},
+  'bundesliga':{start:'08-22',end:'05-16'},
+  'serie-a':{start:'08-23',end:'05-24'},
+  'ligue-1':{start:'08-15',end:'05-16'}
+};
+
+let WORLD_STRENGTH_CACHE=new Map();
+let WORLD_STRENGTH_CACHE_PLAYER_COUNT=0;
+function invalidateWorldStrengthCache(club=null){
+  if(club) WORLD_STRENGTH_CACHE.delete(club); else WORLD_STRENGTH_CACHE.clear();
+}
+function worldMatchStrength(club){
+  if(WORLD_STRENGTH_CACHE_PLAYER_COUNT!==DB.players.length){WORLD_STRENGTH_CACHE.clear();WORLD_STRENGTH_CACHE_PLAYER_COUNT=DB.players.length;}
+  if(WORLD_STRENGTH_CACHE.has(club))return WORLD_STRENGTH_CACHE.get(club);
+  const players=DB.players.filter(p=>p.club===club).sort((a,b)=>(b.overall||0)-(a.overall||0)).slice(0,16);
+  const fallback=worldClubByName(club)?.standard||72;
+  const strength=players.length?players.reduce((s,p)=>s+(p.overall||0),0)/players.length:fallback;
+  WORLD_STRENGTH_CACHE.set(club,strength);return strength;
+}
 function worldRoundRobin(names){
-  const arr=[...names]; if(arr.length%2)arr.push(null);
-  const n=arr.length, rounds=[]; let rot=[...arr];
+  let arr=[...names]; if(arr.length%2)arr.push(null); const n=arr.length,rounds=[];
   for(let r=0;r<n-1;r++){
     const games=[];
-    for(let i=0;i<n/2;i++){
-      const a=rot[i],b=rot[n-1-i]; if(a&&b)games.push(r%2?{home:b,away:a}:{home:a,away:b});
-    }
-    rounds.push(games); rot=[rot[0],rot[n-1],...rot.slice(1,n-1)];
+    for(let i=0;i<n/2;i++){const a=arr[i],b=arr[n-1-i];if(a&&b)games.push(r%2?{home:b,away:a}:{home:a,away:b});}
+    rounds.push(games);arr=[arr[0],arr[n-1],...arr.slice(1,n-1)];
   }
-  return [...rounds,...rounds.map(g=>g.map(x=>({home:x.away,away:x.home})))];
+  return [...rounds,...rounds.map(gs=>gs.map(g=>({home:g.away,away:g.home})))];
 }
-function blankWorldTable(clubs){const t={};clubs.forEach(c=>t[c.name]={p:0,w:0,d:0,l:0,gf:0,ga:0,pts:0});return t;}
-function ensureChampionshipState(){
-  if(!state)return;
+function blankWorldTable(id){const t={};clubsInLeague(id).forEach(c=>t[c.name]={p:0,w:0,d:0,l:0,gf:0,ga:0,pts:0});return t;}
+function ensureWorldCompetitionState(id){
+  if(!BACKGROUND_LEAGUE_CONFIG[id])return null;
   state.worldCompetitions=state.worldCompetitions||{};
-  if(state.worldCompetitions.championship)return;
-  const clubs=clubsInLeague('championship');
-  state.worldCompetitions.championship={leagueId:'championship',seasonYear:state.season?.year||2025,week:0,
-    fixtures:worldRoundRobin(clubs.map(c=>c.name)),table:blankWorldTable(clubs),results:{}};
+  const names=clubsInLeague(id).map(c=>c.name);
+  let c=state.worldCompetitions[id];
+  if(!c||!Array.isArray(c.fixtures)||c.clubCount!==names.length){c=state.worldCompetitions[id]={leagueId:id,clubCount:names.length,week:0,fixtures:worldRoundRobin(names),table:blankWorldTable(id),results:{}};}
+  return c;
 }
-function worldMatchStrength(name){const s=typeof strength==='function'?strength(name):70;const c=worldClubByName(name);return (s&&s>60)?s:(c?.standard||70);}
-function simulateChampionshipWeek(targetWeek){
-  ensureChampionshipState(); const comp=state.worldCompetitions.championship; if(!comp||targetWeek<=comp.week)return;
-  for(let w=comp.week+1;w<=Math.min(targetWeek,comp.fixtures.length);w++){
-    const games=comp.fixtures[w-1]||[];
-    games.forEach(g=>{
-      const hs=worldMatchStrength(g.home)+2.2,as=worldMatchStrength(g.away);
-      const hg=Math.max(0,Math.round(1.25+(hs-as)/13+(Math.random()-.5)*2.1));
-      const ag=Math.max(0,Math.round(1.05+(as-hs)/13+(Math.random()-.5)*2.1));
-      const H=comp.table[g.home],A=comp.table[g.away]; if(!H||!A)return;
-      H.p++;A.p++;H.gf+=hg;H.ga+=ag;A.gf+=ag;A.ga+=hg;
-      if(hg>ag){H.w++;A.l++;H.pts+=3;}else if(ag>hg){A.w++;H.l++;A.pts+=3;}else{H.d++;A.d++;H.pts++;A.pts++;}
-      comp.results[`${w}:${g.home}:${g.away}`]={home:g.home,away:g.away,hg,ag};
-    }); comp.week=w;
-  }
+function ensureChampionshipState(){return ensureWorldCompetitionState('championship');}
+function worldGoalSample(strength,opp,home=false){
+  const edge=(strength-opp)*0.035+(home?0.16:0);let lambda=Math.max(.45,1.28+edge);let goals=0;
+  for(let x=Math.random(),p=Math.exp(-lambda);x>p&&goals<7;goals++)x*=Math.random();return goals;
 }
-function championshipStandings(){
-  ensureChampionshipState();const t=state.worldCompetitions?.championship?.table||{};
-  return Object.entries(t).map(([club,r])=>({club,...r,gd:r.gf-r.ga})).sort((a,b)=>b.pts-a.pts||b.gd-a.gd||b.gf-a.gf);
+function applyWorldResult(t,home,away,hg,ag){
+  const h=t[home],a=t[away]; if(!h||!a)return; h.p++;a.p++;h.gf+=hg;h.ga+=ag;a.gf+=ag;a.ga+=hg;
+  if(hg>ag){h.w++;a.l++;h.pts+=3;}else if(ag>hg){a.w++;h.l++;a.pts+=3;}else{h.d++;a.d++;h.pts++;a.pts++;}
 }
-function championshipPromotionPlaces(){const s=championshipStandings();return {automatic:s.slice(0,2),playoffs:s.slice(2,8)};}
-
-
-function championshipSeasonProgressTarget(dateISO=currentGameDateISO()){
-  ensureChampionshipState();
-  const comp=state.worldCompetitions?.championship;
-  if(!comp) return 0;
-  const y=comp.seasonYear||currentSeasonStartYear();
-  const start=Date.parse(`${y}-08-09T00:00:00Z`);
-  const end=Date.parse(`${y+1}-05-02T00:00:00Z`);
-  const now=Date.parse(`${dateISO}T00:00:00Z`);
-  if(now<=start) return 0;
-  if(now>=end) return comp.fixtures.length;
-  const ratio=(now-start)/(end-start);
-  return Math.min(comp.fixtures.length,Math.floor(ratio*comp.fixtures.length));
+function simulateWorldLeagueRound(id,roundNo){
+  const c=ensureWorldCompetitionState(id); if(!c||roundNo<1||roundNo>c.fixtures.length||roundNo<=c.week)return false;
+  const games=c.fixtures[roundNo-1];
+  games.forEach((g,i)=>{const hs=worldMatchStrength(g.home),as=worldMatchStrength(g.away);const hg=worldGoalSample(hs,as,true),ag=worldGoalSample(as,hs,false);c.results[`${roundNo}-${i}`]={home:g.home,away:g.away,hg,ag};applyWorldResult(c.table,g.home,g.away,hg,ag);});
+  c.week=roundNo;return true;
 }
-
-function processChampionshipDay(dateISO=currentGameDateISO()){
-  ensureChampionshipState();
-  const comp=state.worldCompetitions?.championship;
-  if(!comp) return;
-  if(comp.seasonYear!==currentSeasonStartYear()){
-    delete state.worldCompetitions.championship;
-    ensureChampionshipState();
-  }
-  simulateChampionshipWeek(championshipSeasonProgressTarget(dateISO));
+function worldLeagueStandings(id){
+  const c=ensureWorldCompetitionState(id);if(!c)return[];
+  return Object.entries(c.table).map(([name,x])=>({name,...x,gd:x.gf-x.ga})).sort((a,b)=>b.pts-a.pts||b.gd-a.gd||b.gf-a.gf||a.name.localeCompare(b.name));
 }
-
+function backgroundDate(year,md){const [m,d]=md.split('-');const y=Number(m)<=6?year+1:year;return `${y}-${m}-${d}`;}
+function bgDateDiff(a,b){return Math.round((Date.parse(`${b}T00:00:00Z`)-Date.parse(`${a}T00:00:00Z`))/86400000);}
+function backgroundLeagueProgressTarget(id,dateISO){
+  const cfg=BACKGROUND_LEAGUE_CONFIG[id],c=ensureWorldCompetitionState(id);if(!cfg||!c)return 0;
+  const y=typeof currentSeasonStartYear==='function'?currentSeasonStartYear():2025;const start=backgroundDate(y,cfg.start),end=backgroundDate(y,cfg.end);
+  if(dateISO<start)return 0;if(dateISO>=end)return c.fixtures.length;
+  const total=Math.max(1,bgDateDiff(start,end)),done=Math.max(0,bgDateDiff(start,dateISO));return Math.min(c.fixtures.length,Math.floor((done/total)*c.fixtures.length));
+}
+function processBackgroundLeaguesDay(dateISO){
+  Object.keys(BACKGROUND_LEAGUE_CONFIG).forEach(id=>{const c=ensureWorldCompetitionState(id);const target=backgroundLeagueProgressTarget(id,dateISO);while(c.week<target)simulateWorldLeagueRound(id,c.week+1);});
+}
+function processChampionshipDay(dateISO){return processBackgroundLeaguesDay(dateISO);}
+function championshipStandings(){return worldLeagueStandings('championship');}
+function championshipPromotionPlaces(){const s=championshipStandings();return{automatic:s.slice(0,2),playoffs:s.slice(2,6)};}
 function resetChampionshipCompetitionForSeason(){
-  if(!state) return;
-  state.worldCompetitions=state.worldCompetitions||{};
-  delete state.worldCompetitions.championship;
-  ensureChampionshipState();
+  state.worldCompetitions={};Object.keys(BACKGROUND_LEAGUE_CONFIG).forEach(id=>ensureWorldCompetitionState(id));invalidateWorldStrengthCache();
 }

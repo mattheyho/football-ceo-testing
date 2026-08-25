@@ -1,46 +1,29 @@
-Football CEO v0.19.0 — Embedded FC26 Expanded World
+Football CEO v0.19.1
+Expanded Football World + Scalability Update
 
-BUILT ON v0.18.1 + multi-league foundation
+Baseline: v0.18.1 stable Premier League build.
 
-EMBEDDED PLAYER DATABASE
-- 1,665 FC26 player records are stored directly inside world-players.js.
-- No player-data download, API request or first-launch import occurs at runtime.
-- Total launch database in the tested build: 2,212 players (547 existing PL + 1,665 expanded-world players).
-- Imported world players cover all registered 2025/26 Championship, La Liga and Bundesliga clubs.
-- Championship: 650 players.
-- La Liga: 500 players.
-- Bundesliga: 515 players.
-- All 62 registered world clubs have source players; smallest source squad is 19 players.
-- Source-backed fields include identity, club, nationality, age, positions, preferred foot, weak foot, skill moves, height and FC26 OVR.
-- Potential, value, wage and contract expiry are Football CEO estimates because the supplied FC26 CSV does not contain those fields.
+Major changes:
+- 3,614-player runtime: 547 existing PL players + 3,067 embedded world players.
+- Background leagues: Championship, La Liga, Bundesliga, Serie A, Ligue 1.
+- Saudi Pro League registered as a transfer-market feature only; no Saudi table/fixtures.
+- Staggered AI recruitment reviews across the week.
+- Staggered background player market updates across days 1-7 of each month.
+- Staggered player development windows across 1-7 Oct, Jan and Apr.
+- User club development always runs on day 1 and creates a manager Development Review inbox report when ratings change.
+- Development Review modal shows previous OVR, new OVR, potential and rating change.
+- Continue button retains Processing spinner / double-click protection.
+- New season uses a real staged progress overlay, including player updates, market values, squad cache rebuilds, background strengths, competitions and transfer-market preparation.
+- Club squad / world-strength caches are invalidated only for affected clubs after transfers.
+- Background players do not receive unnecessary daily PL-style fitness simulation.
+- Player database pagination/performance fixes retained.
+- World player data is embedded locally; no runtime fetch.
 
-LEAGUE WORLD
-- Premier League remains the only playable/full simulation league.
-- Championship: 24 clubs, standard background simulation, 46 rounds.
-- La Liga: 20 registered lite-simulation clubs.
-- Bundesliga: 18 registered lite-simulation clubs.
+Saudi premium approaches:
+- targets user-club players aged 28-35, OVR 72+
+- strongest weighting around ages 31-32
+- bid = expected transfer cost +12% to +28%
+- major expected wage increase
+- capped to an occasional special approach rather than ordinary Saudi buyer behaviour
 
-CHAMPIONSHIP
-- Background simulation advances through the daily Continue calendar.
-- 24 clubs play 46 league matches each / 552 fixtures total.
-- Competition reaches round 46 by early May.
-- State resets for the next season.
-
-TRANSFERS
-- Expanded-world players appear in Player Database, manager recruitment and AI recruitment.
-- Championship/La Liga/Bundesliga clubs have lightweight persistent transfer finances.
-- World clubs can bid for Premier League players.
-- Premier League clubs can sign world players.
-- Selling world clubs receive transfer income.
-- Player willingness, reputation, expected transfer cost and wages remain active.
-- Existing external buyer-only clubs outside the registered leagues remain supported.
-
-PERFORMANCE
-- Player-market state initialization is cached by database size.
-- Position-indexed transfer searches reduce repeated 2,000+ player scans.
-- Incoming offers reuse weekly AI recruitment plans.
-- AI clubs no longer run a full recruitment reassessment immediately after each completed deal.
-
-PWA
-- world-players.js is included directly in the app shell.
-- Cache version: football-ceo-v0.19.0-pwa-3.
+This build does NOT yet make the background leagues playable and does NOT yet activate promotion/relegation between the Premier League and Championship.

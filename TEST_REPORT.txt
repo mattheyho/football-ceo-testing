@@ -1,78 +1,55 @@
-v0.19.0 EMBEDDED FC26 — FINAL TEST REPORT
+Football CEO v0.19.1 — Test Report
+Date: 25 Aug 2026
+Environment: headless Chromium, local in-memory harness. Physical iPhone/MacBook testing NOT performed by ChatGPT.
 
-ACTUAL SOURCE IMPORT
-PASS — uploaded ea_fc26_players.csv read successfully
-PASS — 1,665 target players extracted
-PASS — 62/62 registered world clubs represented
-PASS — Championship 650 players
-PASS — La Liga 500 players
-PASS — Bundesliga 515 players
-PASS — zero unknown target clubs
-PASS — zero duplicate imported player IDs
-PASS — zero invalid OVR/POT/value/wage numeric fields
-PASS — all 1,665 imported records retain FC26 OVR source marker
-PASS — world-players.js generated at ~737 KB
-PASS — no runtime network fetch is required
+PASS — expanded data registry
+- DB.players: 3,614
+- embedded WORLD_PLAYERS: 3,067
+- world clubs: 118
+- Championship 24; La Liga 20; Bundesliga 18; Serie A 20; Ligue 1 18; Saudi 18
 
-REAL DATA EXAMPLES VERIFIED IN BROWSER
-PASS — Kylian Mbappé: Real Madrid, OVR 91
-PASS — Jude Bellingham: Real Madrid, OVR 90
-PASS — Harry Kane: Bayern Munich, OVR 89
-PASS — Adam Armstrong: Southampton, OVR 73
+PASS — repeated Continue performance, full 3,614-player runtime
+Sample from new Aston Villa career after sponsor setup:
+- 2 Aug: 604.6 ms
+- 3 Aug: 82.0 ms
+- 4 Aug (Monday manager + staggered AI work): 975.9 ms
+- 5 Aug: 75.7 ms
+- 6 Aug: 74.5 ms
+- 7 Aug: 80.3 ms
+- 8 Aug: 62.9 ms
+No browser error observed in this run.
 
-STARTUP / DATABASE
-PASS — 20 playable PL start cards
-PASS — Aston Villa career starts with 24-player squad and Unai Emery
-PASS — total database 2,212 players
-PASS — Player Database renders 2,188 non-user rows
-PASS — Real Madrid, Bayern Munich and Southampton players visible
-PASS — expanded DB render ~1.41s in headless 390x844 mobile Chromium
-PASS — zero browser/page errors
+PASS — background league completion
+- Championship: 46 rounds / 552 matches
+- La Liga: 38 / 380
+- Bundesliga: 34 / 306
+- Serie A: 38 / 380
+- Ligue 1: 34 / 306
+Full background-season batch in test: 7.8 ms after strength caching.
+Saudi competition object: false (expected).
 
-TRANSFER INTEGRATION
-PASS — world players returned as realistic targets across all ten positional groups
-PASS — world market values and expected-cost bands are finite
-PASS — Real Madrid seller received £25m in direct accounting probe
-PASS — 31-day transfer-window stress completed
-PASS — sampled 5 AI transfers / 5 unique buyers
-PASS — world sellers participated
-PASS — zero repeat-player transfers
-PASS — zero negative PL AI transfer budgets
-PASS — average sampled transfer-day processing ~175ms
-PASS — maximum sampled transfer day ~933ms
-PASS — 31-day transfer logic ~6.1s total in headless test
-NOTE — exact AI deal count varies naturally because transfer activity is probabilistic.
+PASS — player development report
+Forced checkpoint test produced a Development Review, linked manager inbox item and player change rows.
 
-CHAMPIONSHIP
-PASS — 24 clubs
-PASS — 46 rounds
-PASS — 552 league fixtures
-PASS — every club finishes on 46 games
-PASS — daily-calendar progression
-PASS — season reset retained
+PASS — Saudi premium feature
+Forced offer created from a Saudi club for an eligible age-28-35 user player.
+Observed premium in test: 21.2%, within required +12% to +28% range.
+Saudi remains excluded from standard background league simulation.
 
-CORE REGRESSION
-PASS — first Premier League round produces 10 results
-PASS — all 20 PL clubs register one match played
-PASS — manager proactive recruitment still works
-PASS — Aston Villa manager produced six current recruitment needs in test
-PASS — state JSON serialization/deserialization
-PASS — stress-state save approximately 0.9–1.0 MB
-PASS — 62 world-club finance records coexist with existing state
-PASS — no browser console/page errors
+PASS — season preparation / rollover
+2025/26 -> 2026/27 completed successfully.
+Progress reached 100%, overlay closed, season entered preseason.
+Test rollover runtime: ~1.27 s headless.
 
-PWA / STATIC
-PASS — world-players.js JavaScript syntax
-PASS — world-leagues.js JavaScript syntax
-PASS — championship-simulation.js JavaScript syntax
-PASS — transfers.js JavaScript syntax
-PASS — game.js JavaScript syntax
-PASS — service worker JavaScript syntax
-PASS — world-players.js included in service-worker app shell
-PASS — cache bumped to football-ceo-v0.19.0-pwa-3
-PASS — no duplicate static HTML IDs
+STATIC CHECKS
+- game.js syntax: pass
+- transfers.js syntax: pass
+- championship-simulation.js syntax: pass
+- world-leagues.js syntax: pass
+- world-players.js syntax: pass
 
-IMPORTANT DATA NOTE
-- FC26 OVR and the other source-backed identity/physical fields come from the uploaded FC26 CSV.
-- Potential, value, wage and contract expiry for the 1,665 newly imported players are Football CEO gameplay estimates, not fields claimed to come from FC26.
-- Physical iPhone Home Screen PWA performance still requires the final device smoke test.
+LIMITATIONS / NEXT TESTS
+- Real Safari/iOS/MacBook performance must still be physically verified by the user.
+- Promotion/relegation not yet activated.
+- Background leagues are not playable yet.
+- European/domestic cup competitions are not implemented in this version.

@@ -1265,3 +1265,27 @@ html.modal-open,body.modal-open{overflow:hidden!important;height:100%!important}
   .database-toolbar .database-filter{width:100%}
   .database-table{min-width:920px}
 }
+
+/* Continue processing indicator — performance UX hotfix */
+.advance-week-btn.is-processing{cursor:progress;opacity:.96;transform:none!important}
+.advance-week-btn:disabled{cursor:progress}
+.continue-processing{display:inline-flex;align-items:center;gap:9px}
+.continue-spinner{width:16px;height:16px;border:2px solid rgba(255,255,255,.38);border-top-color:#fff;border-radius:50%;display:inline-block;animation:continue-spin .7s linear infinite;flex:0 0 auto}
+@keyframes continue-spin{to{transform:rotate(360deg)}}
+@media (prefers-reduced-motion:reduce){.continue-spinner{animation-duration:1.6s}}
+
+/* v0.19.1 development review + season preparation */
+.development-review-overlay,.season-prep-overlay{position:fixed;inset:0;z-index:1200;background:rgba(7,10,18,.92);display:flex;align-items:center;justify-content:center;padding:18px;}
+.development-review-overlay.hide,.season-prep-overlay.hide{display:none;}
+.development-review-card{width:min(820px,100%);max-height:88vh;overflow:auto;background:var(--panel,#141b2b);border:1px solid rgba(255,255,255,.1);border-radius:18px;padding:18px;box-shadow:0 24px 80px rgba(0,0,0,.45);}
+.development-review-table-wrap{overflow-x:auto;margin-top:14px;}
+.development-review-table{width:100%;border-collapse:collapse;min-width:620px;}
+.development-review-table th,.development-review-table td{padding:11px 9px;border-bottom:1px solid rgba(255,255,255,.08);text-align:left;}
+.breakthrough-badge{font-size:11px;white-space:nowrap;}
+.season-prep-card{width:min(560px,100%);background:var(--panel,#141b2b);border:1px solid rgba(255,255,255,.11);border-radius:20px;padding:26px;box-shadow:0 26px 90px rgba(0,0,0,.5);text-align:center;}
+.season-prep-card h2{margin:6px 0 18px;}
+.season-prep-percent{font-size:42px;font-weight:800;letter-spacing:-1px;margin:4px 0 12px;}
+.season-prep-progress{height:12px;border-radius:999px;background:rgba(255,255,255,.10);overflow:hidden;margin:0 0 14px;}
+.season-prep-progress span{display:block;height:100%;width:0;border-radius:999px;background:currentColor;transition:width .18s ease;}
+.season-prep-status{min-height:24px;font-weight:650;}
+.saudi-premium-notice{margin-bottom:12px;}
