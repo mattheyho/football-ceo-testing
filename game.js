@@ -1293,7 +1293,7 @@ const money=n=>{
   if(n>=1000) return sign+"£"+Math.round(n/1000)+"k";
   return sign+"£"+Math.round(n);
 };
-const byClub=name=>DB.clubs.find(c=>c.name===name);
+const byClub=name=>(typeof worldClubByName==="function"?worldClubByName(name):DB.clubs.find(c=>c.name===name));
 const squad=name=>DB.players.filter(p=>p.club===name);
 const strength=name=>{
   const a=squad(name).map(p=>p.overall).sort((a,b)=>b-a).slice(0,16);
@@ -1725,6 +1725,7 @@ function createCareer(club){
   if(typeof ensureFinancialRegulationState==="function") ensureFinancialRegulationState();
   // Build the initial recruitment picture before the first matchweek so the
   // manager and AI clubs enter the season with real squad priorities.
+  if(typeof ensureChampionshipState==="function") ensureChampionshipState();
   if(typeof runAITransferReview==="function") runAITransferReview();
   enterGame();
   saveGame(false);
@@ -2265,6 +2266,7 @@ function advanceDay(){
   processInjuries();
   if(typeof checkManagerDepthComplaints==="function") checkManagerDepthComplaints();
   if(typeof processTransferDay==="function") processTransferDay();
+  if(typeof processChampionshipDay==="function") processChampionshipDay(nextDate);
 
   // Event-triggered manager reassessment happens the day after a significant
   // sale/injury; normal squad reviews happen once a week on Monday.
@@ -3585,6 +3587,7 @@ function simulateFixtureRound(round){
 }
 
 function advanceMatchweek(){
+  if(typeof simulateChampionshipWeek==="function") simulateChampionshipWeek((state?.week||0)+1);
   // Backwards-compatible alias used by older UI code/saves.
   return advanceDay();
 }
@@ -3972,6 +3975,7 @@ function performSeasonRollover(){
 
   state.fixtures=generateFixtures(DB.clubs.map(x=>x.name),state.season.year);
   state.table=blankTable();
+  if(typeof resetChampionshipCompetitionForSeason==="function") resetChampionshipCompetitionForSeason();
   state.results={};
   state.form=[];
   state.matchdayStats={revenue:0,attendance:0,homeGames:0};

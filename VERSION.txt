@@ -1,64 +1,46 @@
-Football CEO v0.18.0 — Player Development, Dynamic Values & Living Transfer Market
+Football CEO v0.19.0 — Embedded FC26 Expanded World
 
-BUILT ON v0.17.3
+BUILT ON v0.18.1 + multi-league foundation
 
-PLAYER DEVELOPMENT
-- Proper career development replaces the old simple age<=24 annual roll.
-- Development can occur visibly during the season at October, January and April checkpoints, plus the year-end assessment.
-- Potential is a ceiling/opportunity, not a guaranteed destination.
-- Development is driven by age, potential gap, actual/estimated minutes, performance, training environment and player-specific variation.
-- Meaningful improvement remains possible through age 26-27; the curve tapers more strongly from 28 onward.
-- Young players with strong minutes/performance can improve rapidly; annual movement is capped to keep careers believable.
-- AI-controlled players receive estimated usage based on their positional squad rank so the wider football world also develops.
-- Older players face variable age-based decline rather than a universal fixed-age drop.
-- Player profiles show current-season OVR movement and a development status: Developing rapidly / Progressing / Stable / Stagnating / Declining.
+EMBEDDED PLAYER DATABASE
+- 1,665 FC26 player records are stored directly inside world-players.js.
+- No player-data download, API request or first-launch import occurs at runtime.
+- Total launch database in the tested build: 2,212 players (547 existing PL + 1,665 expanded-world players).
+- Imported world players cover all registered 2025/26 Championship, La Liga and Bundesliga clubs.
+- Championship: 650 players.
+- La Liga: 500 players.
+- Bundesliga: 515 players.
+- All 62 registered world clubs have source players; smallest source squad is 19 players.
+- Source-backed fields include identity, club, nationality, age, positions, preferred foot, weak foot, skill moves, height and FC26 OVR.
+- Potential, value, wage and contract expiry are Football CEO estimates because the supplied FC26 CSV does not contain those fields.
 
-INJURIES & DEVELOPMENT
-- Injury history is stored in player-market state.
-- 90+ day injuries count as long injuries and reduce future development/market confidence.
-- Very long injuries (105+ days in the current injury-duration model) create a probabilistic risk of a direct OVR loss at year end.
-- Older players are more vulnerable to failing to regain their previous level.
-- Long injuries do not guarantee permanent decline.
+LEAGUE WORLD
+- Premier League remains the only playable/full simulation league.
+- Championship: 24 clubs, standard background simulation, 46 rounds.
+- La Liga: 20 registered lite-simulation clubs.
+- Bundesliga: 18 registered lite-simulation clubs.
 
-DYNAMIC MARKET VALUES
-- Embedded launch values are replaced in-career by a dynamic valuation model.
-- Value uses OVR, age, potential/upside, club level, current-user performance, playing time, contract length and injury history.
-- The OVR/value curve is deliberately steeper at the upper-middle and elite end than the old database values.
-- Values are recalculated in career and persisted through player-world overrides.
-- Value history is stored at season rollover.
+CHAMPIONSHIP
+- Background simulation advances through the daily Continue calendar.
+- 24 clubs play 46 league matches each / 552 fixtures total.
+- Competition reaches round 46 by early May.
+- State resets for the next season.
 
-MARKET VALUE VS EXPECTED COST
-- Market value and expected transfer cost are separate concepts.
-- Expected cost uses market value plus contract leverage, availability, selling-club financial pressure, club stature difference, player willingness to make a step up and same-league/direct-rival resistance.
-- Strong player interest in a major upward move can soften seller resistance without producing extreme unrealistic discounts.
-- Similar-strength Premier League clubs charge a competitive/rival premium.
-- Player dossier now shows Market value, Expected cost range, availability and major seller-context drivers.
+TRANSFERS
+- Expanded-world players appear in Player Database, manager recruitment and AI recruitment.
+- Championship/La Liga/Bundesliga clubs have lightweight persistent transfer finances.
+- World clubs can bid for Premier League players.
+- Premier League clubs can sign world players.
+- Selling world clubs receive transfer income.
+- Player willingness, reputation, expected transfer cost and wages remain active.
+- Existing external buyer-only clubs outside the registered leagues remain supported.
 
-AI PLAYER AVAILABILITY
-- AI clubs now classify players as Not for sale / Open to offers / Transfer listed.
-- Availability is reviewed during transfer windows based on positional depth, age, wage burden, upside and squad rank.
-- Transfer-listed players are genuine opportunities: expected midpoint is capped below market value and the displayed expected range remains below market.
-- Listings are visible in the Player Database.
-- AI buyers also prioritise appropriate listed/value opportunities.
+PERFORMANCE
+- Player-market state initialization is cached by database size.
+- Position-indexed transfer searches reduce repeated 2,000+ player scans.
+- Incoming offers reuse weekly AI recruitment plans.
+- AI clubs no longer run a full recruitment reassessment immediately after each completed deal.
 
-LIVING AI TRANSFER MARKET
-- AI transfer attempts are substantially more frequent than v0.17.3, while still requiring squad need and affordability.
-- AI clubs identify needs through existing squad evaluation and now search a wider target pool.
-- Listed players receive recruitment priority where they fit the buyer.
-- Completed AI-to-AI Premier League transfers are now always surfaced in the news feed, not only marquee deals.
-- Existing AI budgets, wage limits and SCR logic remain in force.
-
-PLAYER DATABASE
-- Market value column updated to dynamic value.
-- Added Expected cost range.
-- Added Availability.
-- Added filters for Transfer listed / Open to offers / Not for sale.
-- Added sorting by OVR, expected cost, market value, best-value discount and age.
-- Players materially available below market receive a subtle Good value indicator.
-
-COMPATIBILITY
-- Existing saves migrate automatically via new optional state objects.
-- Existing v0.17.3 manager recruitment-memory and squad-utilisation systems retained.
-- Existing v0.17.2 fitness/workload/rotation/substitution systems retained.
-- Existing v0.16 financial/SCR and contract systems retained.
-- PWA cache: football-ceo-v0.18.0-pwa-1.
+PWA
+- world-players.js is included directly in the app shell.
+- Cache version: football-ceo-v0.19.0-pwa-3.

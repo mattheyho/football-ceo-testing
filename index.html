@@ -364,7 +364,7 @@
 
 <input id="importSaveInput" type="file" accept=".json,application/json" class="hide">
 
-<div class="notice small muted" style="margin-top:14px"><b>Database:</b> 20 clubs • 547 embedded players • FC26 overall/potential/value/wage/contract fields • 38 league matchweeks • no web connection required.</div>
+<div class="notice small muted" style="margin-top:14px"><b>Database:</b> 20 playable Premier League clubs • multi-league world registry • FC26-ready player market • 38 PL matchweeks • no web connection required.</div>
 </section>
 
 <section id="game" class="hide">
@@ -531,7 +531,7 @@
 
 <div id="database" class="tab hide">
   <div class="panel pad">
-    <div class="sectiontitle"><h2>Premier League player database</h2><span class="pill">Dynamic market</span></div>
+    <div class="sectiontitle"><h2>Player database</h2><span class="pill">Multi-league market</span></div>
     <div class="database-toolbar">
       <input id="dbSearch" class="search" placeholder="Search player, club, nationality or position…" oninput="renderDatabase()">
       <select id="dbAvailability" class="search database-filter" onchange="renderDatabase()">
@@ -727,6 +727,9 @@
 </section>
 </div>
 <script src="database.js"></script>
+<script src="world-leagues.js"></script>
+<script src="world-players.js"></script>
+<script src="championship-simulation.js"></script>
 <script src="state.js"></script>
 <script src="stakeholders.js"></script>
 <script src="staff.js"></script>

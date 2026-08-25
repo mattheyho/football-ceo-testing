@@ -763,6 +763,8 @@ function maybeGenerateManagerSquadRequest(){
 
       if(need.score>=75) priority+=2;
       if(performancePressure>=2 && need.role!=="backup") priority+=2;
+      if(need.needType==="upgrade" || need.needType==="opportunity") priority+=2;
+      if((need.investmentAppetite||0)>=0.75) priority+=1;
 
       options.push({
         type:"sign",
@@ -775,6 +777,7 @@ function maybeGenerateManagerSquadRequest(){
           playerId:x.player.id,role:x.role,asking:x.asking,interest:x.interest
         })),
         urgency:need.score>=72?"critical":need.score>=50?"important":"normal",
+        needType:need.needType||"squad",
         reason:need.reason
       });
     });
@@ -876,6 +879,7 @@ function maybeGenerateManagerSquadRequest(){
       alternatives:pick.alternatives||[],
       shortlist:pick.shortlist||[],
       urgency:pick.urgency||null,
+      needType:pick.needType||null,
       reason:pick.reason||null,
       resolved:false,
       manager:manager.name
@@ -2485,6 +2489,145 @@ function formationSlotToRecruitmentGroup(slot){
   return ({GK:"GK",RB:"RB",LB:"LB",CB:"CB",DM:"DM",CM:"CM",AM:"AM",RM:"RW",LM:"LW",RW:"RW",LW:"LW",ST:"ST"})[slot]||slot;
 }
 
+
+/* --------------------------------------------------------------------------
+   PROACTIVE RECRUITMENT APPETITE — v0.18.1
+   Clubs recruit to improve as well as to replace departures.
+   -------------------------------------------------------------------------- */
+function recruitmentInvestmentContext(club){
+  const revenue=financialProfileForClub(club)?.revenue||180_000_000;
+
+  if(club===state.club){
+    const scr=typeof userSCRSnapshot==="function"?userSCRSnapshot():null;
+    const budget=Math.max(0,state.budget||0);
+    const headroom=scr?.headroom??revenue*.08;
+    const budgetPower=clamp(budget/Math.max(18_000_000,revenue*.13),0,1.35);
+    const scrPower=clamp(headroom/Math.max(8_000_000,revenue*.08),0,1.2);
+    return {budget,revenue,budgetPower,scrPower,appetite:clamp(budgetPower*.68+scrPower*.32,0,1.25)};
+  }
+
+  const f=typeof aiFinance==="function"?aiFinance(club):null;
+  const budget=Math.max(0,f?.transferBudget||0);
+  const headroom=typeof aiSCRHeadroom==="function"?Math.max(0,aiSCRHeadroom(club)):revenue*.07;
+  const budgetPower=clamp(budget/Math.max(15_000_000,revenue*.12),0,1.35);
+  const scrPower=clamp(headroom/Math.max(7_000_000,revenue*.075),0,1.2);
+  return {budget,revenue,budgetPower,scrPower,appetite:clamp(budgetPower*.70+scrPower*.30,0,1.25)};
+}
+
+function clubSquadQualityBenchmark(club){
+  const ratings=clubSquadPlayers(club).map(p=>p.overall||0).sort((a,b)=>b-a).slice(0,16);
+  if(!ratings.length) return 70;
+  const core=ratings.slice(0,Math.min(11,ratings.length));
+  return core.reduce((a,b)=>a+b,0)/core.length;
+}
+
+
+let TRANSFER_POSITION_INDEX=null;
+let TRANSFER_POSITION_INDEX_COUNT=0;
+
+function ensureTransferPositionIndex(){
+  const count=DB.players.length;
+  if(TRANSFER_POSITION_INDEX && TRANSFER_POSITION_INDEX_COUNT===count) return TRANSFER_POSITION_INDEX;
+  const groups=["GK","RB","CB","LB","DM","CM","AM","RW","LW","ST"];
+  const index={};
+  groups.forEach(g=>index[g]=[]);
+  DB.players.forEach(p=>{
+    groups.forEach(g=>{
+      if(playsPositionGroup(p,g)) index[g].push(p);
+    });
+  });
+  TRANSFER_POSITION_INDEX=index;
+  TRANSFER_POSITION_INDEX_COUNT=count;
+  return index;
+}
+
+function transferPlayersForPosition(position){
+  const index=ensureTransferPositionIndex();
+  return index[position]||DB.players;
+}
+
+function proactiveMarketOpportunity(club,position,currentStarter,context){
+  if(!context || context.budget<=0 || context.appetite<0.32) return null;
+  if(typeof aiAvailabilityStatus!=="function" || typeof expectedTransferCost!=="function") return null;
+
+  return transferPlayersForPosition(position)
+    .filter(p=>p.club!==club && p.club!=="Free Agent" && !isExternalTransferClub(p.club))
+    // Availability first: at multi-league scale most players are not actively
+    // available, so avoid running expensive interest/fit checks on thousands
+    // of irrelevant records for every positional assessment.
+    .filter(p=>{
+      const status=aiAvailabilityStatus(p);
+      return status==="Transfer listed" || status==="Open to offers";
+    })
+    .filter(p=>!playerRecentlyTransferred(p,120))
+    .filter(p=>transferTargetAttainableForClub(p,club))
+    .map(p=>{
+      const cost=expectedTransferCost(p,club);
+      const improvement=(p.overall||0)-(currentStarter||0);
+      const value=dynamicPlayerMarketValue(p);
+      const discount=value>0?1-cost.mid/value:0;
+      let score=improvement*5+Math.max(0,discount)*22;
+      if(aiAvailabilityStatus(p)==="Transfer listed") score+=7;
+      return {player:p,cost,improvement,affordable:cost.mid<=context.budget*.62,score};
+    })
+    .filter(x=>x.affordable && x.improvement>=1)
+    .sort((a,b)=>b.score-a.score)[0]||null;
+}
+
+function proactiveRecruitmentNeed(club,position,slotInfo){
+  const context=recruitmentInvestmentContext(club);
+  if(context.appetite<0.28 || context.budget<5_000_000) return null;
+
+  const profile=managerProfileForClub(club);
+  const squadBenchmark=clubSquadQualityBenchmark(club);
+  const currentStarter=slotInfo.weakestStarter||slotInfo.starters?.[0]?.overall||0;
+  const starterStandard=slotInfo.starterStandard||72;
+  const age=slotInfo.starters?.slice(-1)[0]?.age||26;
+
+  const targetLevel=Math.max(starterStandard-1,Math.round(squadBenchmark-1));
+  const qualityGap=Math.max(0,targetLevel-currentStarter);
+
+  let score=0, needType=null, reason="", role="starter";
+
+  if(qualityGap>=1){
+    score=24+qualityGap*7+context.appetite*12+(profile.recruitmentAggression-65)*.12;
+    needType="upgrade";
+    reason=`The manager believes ${positionLabel(position)} is an area where the squad can be improved while investment is available.`;
+  }
+
+  if(age>=30 && context.appetite>=0.45){
+    const ageScore=22+(age-29)*5+context.appetite*8;
+    if(ageScore>score){
+      score=ageScore;
+      needType="strategic";
+      role=age>=32?"starter":"competition";
+      reason=`The manager wants to strengthen ${positionLabel(position)} before an ageing first-team option becomes a problem.`;
+    }
+  }
+
+  const opportunity=proactiveMarketOpportunity(club,position,currentStarter,context);
+  if(opportunity){
+    const opportunityScore=27+opportunity.improvement*5+context.appetite*9+
+      (aiAvailabilityStatus(opportunity.player)==="Transfer listed"?5:0);
+    if(opportunityScore>score){
+      score=opportunityScore;
+      needType="opportunity";
+      role=opportunity.improvement>=3?"starter":"competition";
+      reason=`A strong ${positionLabel(position)} option has become available at an attainable price and the manager sees an opportunity to improve the squad.`;
+    }
+  }
+
+  if(!needType || score<24) return null;
+  return {
+    role,
+    score:clamp(Math.round(score),0,76),
+    reason,
+    needType,
+    investmentAppetite:context.appetite,
+    opportunityPlayerId:opportunity?.player?.id||null
+  };
+}
+
 function managerSquadNeedsFromFormation(club){
   const depth=managerDepthChart(club);
   const rep=byClub(club)?.reputation||72;
@@ -2503,55 +2646,66 @@ function managerSquadNeedsFromFormation(club){
     const filledStarters=starters.length;
     const weakestStarter=starters[starters.length-1]?.overall||0;
     const bestBackup=backups[0]?.overall||0;
+    const position=formationSlotToRecruitmentGroup(slot);
 
-    // One credible senior understudy is sufficient for a single GK slot.
-    // Other positions scale depth expectations with how many slots the formation uses
-    // and with the manager's profile.
     const seniorBackupsRequired = slot==="GK"
       ? 1
       : Math.max(1,Math.min(2,requiredStarters + (profile.depthDemand>=88?1:0)));
-
     const credibleSeniorBackups=backups.filter(p=>(p.overall||0)>=backupStandard-6).length;
 
     const prospectCandidates=clubSquadPlayers(club).filter(p=>{
-      if(!playerFitsFormationSlot(p,slot)) return false;
-      if(p.age>22) return false;
+      if(!playerFitsFormationSlot(p,slot) || p.age>22) return false;
       const potential=p.potential||p.overall||0;
       return potential>=Math.max(competitionStandard,starterStandard-2);
     });
 
-    let role="none",score=0,reason="";
+    let role="none",score=0,reason="",needType="none";
 
     if(filledStarters<requiredStarters){
-      role="starter"; score=92;
+      role="starter"; score=92; needType="replacement";
       reason=`The ${depth.formation} requires ${requiredStarters} ${slot} role${requiredStarters>1?"s":""}, but only ${filledStarters} is currently filled.`;
     }else if(weakestStarter<starterStandard-3){
-      role="starter"; score=65+(starterStandard-weakestStarter)*5;
+      role="starter"; score=65+(starterStandard-weakestStarter)*5; needType="upgrade";
       reason=`The current ${slot} starter is below the level expected for this club.`;
     }else if(bestBackup<competitionStandard-5){
-      role="competition"; score=46+(competitionStandard-bestBackup)*4;
+      role="competition"; score=46+(competitionStandard-bestBackup)*4; needType="depth";
       reason=`The manager wants stronger competition behind the ${slot} starter${requiredStarters>1?"s":""}.`;
     }else if(credibleSeniorBackups<seniorBackupsRequired){
-      role="backup";
+      role="backup"; needType="depth";
       score=26+(seniorBackupsRequired-credibleSeniorBackups)*10+(profile.depthDemand-70)*0.25;
       reason=`The ${slot} depth is below ${managerNameForClub(club)}'s preferred senior cover level.`;
-    }else if(
-      profile.youthTrust>=68 &&
-      prospectCandidates.length===0 &&
-      (slot==="GK" || profile.depthDemand>=78)
-    ){
-      role="prospect";
+    }else if(profile.youthTrust>=68 && prospectCandidates.length===0 && (slot==="GK" || profile.depthDemand>=78)){
+      role="prospect"; needType="strategic";
       score=20+(profile.youthTrust-60)*0.35+(profile.depthDemand-70)*0.15;
       reason=`Senior ${slot} cover is adequate, but ${managerNameForClub(club)} would like a young development option for the future.`;
     }
 
+    const proactive=proactiveRecruitmentNeed(club,position,{
+      starters,backups,weakestStarter,bestBackup,
+      starterStandard,competitionStandard,backupStandard
+    });
+
+    if(proactive && proactive.score>score){
+      role=proactive.role;
+      score=proactive.score;
+      reason=proactive.reason;
+      needType=proactive.needType;
+    }
+
     needs.push({
-      position:formationSlotToRecruitmentGroup(slot),
-      tacticalSlot:slot,role,score:clamp(Math.round(score),0,100),reason,
+      position,
+      tacticalSlot:slot,
+      role,
+      score:clamp(Math.round(score),0,100),
+      reason,
+      needType,
       formation:depth.formation,
-      starter:starters[0]?.overall||0,second:bestBackup,depth:starters.length+backups.length,
+      starter:starters[0]?.overall||0,
+      second:bestBackup,
+      depth:starters.length+backups.length,
       standards:{starter:starterStandard,competition:competitionStandard,backup:backupStandard},
-      managerProfile:profile
+      managerProfile:profile,
+      investmentAppetite:recruitmentInvestmentContext(club).appetite
     });
   });
 
@@ -2644,6 +2798,13 @@ function ensurePlayerMarketState(){
   if(!state) return;
   if(!state.playerMarket) state.playerMarket={};
   if(!state.aiPlayerAvailability) state.aiPlayerAvailability={};
+
+  // At multi-league scale this function is called thousands of times by value,
+  // availability and transfer-cost calculations. Do the O(n) migration only
+  // when the database size has actually changed rather than on every lookup.
+  const playerCount=DB.players.length;
+  if(state._playerMarketKnownCount===playerCount) return;
+
   DB.players.forEach(p=>{
     const key=String(p.id);
     if(!state.playerMarket[key]){
@@ -2657,6 +2818,7 @@ function ensurePlayerMarketState(){
       };
     }
   });
+  state._playerMarketKnownCount=playerCount;
 }
 
 function playerContractYearsRemaining(p){
@@ -2912,6 +3074,15 @@ function refreshAIPlayerAvailability(){
       group.sort((a,b)=>(b.overall||0)-(a.overall||0));
       group.forEach((p,rank)=>{
         const existing=state.aiPlayerAvailability[p.id];
+        if(playerRecentlyTransferred(p,120)){
+          state.aiPlayerAvailability[p.id]={
+            status:"Not for sale",
+            updatedDay:currentCareerDay(),
+            windowKey:currentTransferWindowKey(),
+            reason:"Recently joined"
+          };
+          return;
+        }
         // Preserve fresh listings for at least a window unless role changes strongly.
         let score=0;
         if(rank>=3) score+=3;
@@ -2962,6 +3133,41 @@ function expectedTransferWage(p,buyingClub=state.club){
   return Math.round(demand/step)*step;
 }
 
+
+function playerRecentlyTransferred(p,days=120){
+  if(!p || !state.transferLedger?.length) return false;
+  const current=typeof currentCareerDay==="function"?currentCareerDay():0;
+  for(let i=state.transferLedger.length-1;i>=0;i--){
+    const tx=state.transferLedger[i];
+    if(String(tx.playerId)!==String(p.id)) continue;
+    if(tx.careerDay!=null) return current-tx.careerDay<days;
+    // Legacy/current entries without careerDay: a move in the current season
+    // and current transfer window is treated as recent.
+    if(tx.season===currentSeasonLabel()) return true;
+    return false;
+  }
+  return false;
+}
+
+
+function transferTargetAttainableForClub(player,buyingClub){
+  if(!player || player.club===buyingClub) return false;
+  const interest=playerInterestScore(player,buyingClub);
+  const buyerRep=byClub(buyingClub)?.reputation||70;
+  const sellerRep=byClub(player.club)?.reputation||70;
+  const availability=typeof aiAvailabilityStatus==="function"?aiAvailabilityStatus(player):"Not for sale";
+
+  // A player at a materially stronger club should not routinely move down the
+  // league simply because the buying club can fund the fee.
+  if(interest<32) return false;
+  if(sellerRep>=buyerRep+9 && availability==="Not for sale" && interest<55) return false;
+  if((player.overall||0)>=85 && buyerRep<82 && availability==="Not for sale") return false;
+
+  // Transfer-listed players are more attainable, but the player still has a say.
+  if(availability==="Transfer listed") return interest>=28;
+  return true;
+}
+
 function findTransferTargets(club,position,limit=6){
   const rep=byClub(club)?.reputation||70;
   const budget=club===state.club
@@ -2972,8 +3178,10 @@ function findTransferTargets(club,position,limit=6){
     return arr.length?arr.reduce((a,b)=>a+b,0)/arr.length:70;
   })();
 
-  return DB.players
-    .filter(p=>p.club!==club && !isExternalTransferClub(p.club) && playsPositionGroup(p,position))
+  return transferPlayersForPosition(position)
+    .filter(p=>p.club!==club && !isExternalTransferClub(p.club))
+    .filter(p=>!playerRecentlyTransferred(p,120))
+    .filter(p=>transferTargetAttainableForClub(p,club))
     .map(player=>{
       const interest=playerInterestScore(player,club);
       const asking=estimatedAskingPrice(player,club);
@@ -3006,8 +3214,12 @@ function transferPlayerToClub(p,newClub,fee,fromClub=p.club,details={}){
   p.club=newClub;
   p.joined=joined;
 
+  if(oldClub!==newClub && isWorldTransferClub(oldClub)){
+    applyWorldTransferSale(oldClub,fee);
+  }
+
   state.transferLedger.push({
-    id:"tx"+Date.now()+Math.floor(Math.random()*1000),week:state.week,date:currentGameDateISO(),playerId:p.id,playerName:p.name,
+    id:"tx"+Date.now()+Math.floor(Math.random()*1000),week:state.week,date:currentGameDateISO(),careerDay:currentCareerDay(),playerId:p.id,playerName:p.name,
     fromClub:oldClub,toClub:newClub,fee,kind:details.kind||"permanent",joined,season:currentSeasonLabel()
   });
   state.transferLedger=state.transferLedger.slice(-120);
@@ -3654,11 +3866,86 @@ const EXTERNAL_TRANSFER_CLUBS=[
   {name:"Rangers",division:"Scottish Premiership",country:"Scotland",reputation:80,budget:30_000_000,maxWage:65_000,standard:76}
 ];
 
+
+function isWorldTransferClub(name){
+  if(typeof worldClubByName!=="function") return false;
+  const c=worldClubByName(name);
+  return Boolean(c && c.leagueId && c.leagueId!=="premier-league");
+}
+
+function ensureWorldTransferFinanceState(){
+  if(!state) return;
+  if(!state.worldClubFinances) state.worldClubFinances={};
+  const seasonKey=typeof currentSeasonStartYear==="function"?currentSeasonStartYear():2025;
+  (DB.worldClubs||[]).forEach(c=>{
+    const old=state.worldClubFinances[c.name];
+    if(!old || old.seasonKey!==seasonKey){
+      const variance=.92+stablePlayerTrait({id:c.name},"world-finance")*.16;
+      state.worldClubFinances[c.name]={
+        seasonKey,
+        transferBudget:Math.round(((c.transferBudget||20_000_000)*variance)/250000)*250000,
+        maxWage:c.maxWage||50_000,
+        spent:0,
+        received:0,
+        signed:0
+      };
+    }
+  });
+}
+
+function worldClubFinance(name){
+  ensureWorldTransferFinanceState();
+  return state.worldClubFinances?.[name]||null;
+}
+
+function worldClubBudgetLeft(name){
+  const c=worldClubByName(name),f=worldClubFinance(name);
+  if(!c||!f) return 0;
+  return Math.max(0,(f.transferBudget||c.transferBudget||0)-(f.spent||0)+(f.received||0)*.55);
+}
+
+function worldExpectedWage(p,club){
+  const c=worldClubByName(club);
+  if(!c) return expectedTransferWage(p,club);
+  const current=Math.max(1000,state.playerContracts?.[p.id]?.wage??p.wage??1000);
+  const buyerRep=c.reputation||70;
+  const sellerRep=byClub(p.club)?.reputation||70;
+  let mult=buyerRep>=sellerRep+8?1.03:buyerRep>=sellerRep?1.08:buyerRep>=sellerRep-7?1.14:1.22;
+  let target=Math.min(current*mult,(c.maxWage||50_000)*1.12);
+  const step=target>=100000?5000:target>=50000?2500:1000;
+  return Math.max(1000,Math.round(target/step)*step);
+}
+
+function worldCanAffordTransfer(club,p,fee,weeklyWage){
+  const c=worldClubByName(club);
+  if(!c) return {ok:false,reason:"Unknown world club"};
+  if(fee>worldClubBudgetLeft(club)) return {ok:false,reason:"Transfer budget"};
+  if(weeklyWage>(c.maxWage||50_000)*1.12) return {ok:false,reason:"Wage level"};
+  const interest=playerInterestScore(p,club);
+  if(interest<28) return {ok:false,reason:"Player interest"};
+  return {ok:true,reason:"Affordable"};
+}
+
+function applyWorldTransferPurchase(club,fee){
+  const f=worldClubFinance(club);
+  if(!f) return;
+  f.spent=(f.spent||0)+fee;
+  f.signed=(f.signed||0)+1;
+}
+
+function applyWorldTransferSale(club,fee){
+  const f=worldClubFinance(club);
+  if(!f) return;
+  f.received=(f.received||0)+fee;
+}
+
 function externalTransferClub(name){
   return EXTERNAL_TRANSFER_CLUBS.find(c=>c.name===name)||null;
 }
 
 function isExternalTransferClub(name){
+  // Clubs registered in the multi-league world are real squad-bearing clubs, not buyer-only actors.
+  if(typeof worldClubByName==="function" && worldClubByName(name)) return false;
   return Boolean(externalTransferClub(name));
 }
 
@@ -3774,40 +4061,69 @@ function applyExternalTransferPurchase(club,fee){
 
 function externalMarketCandidatesForPlayer(p,{listed=false}={}){
   ensureExternalTransferMarketState();
-  return EXTERNAL_TRANSFER_CLUBS
+  ensureWorldTransferFinanceState();
+  const fair=incomingOfferFairValue(p);
+
+  const abstractCandidates=EXTERNAL_TRANSFER_CLUBS
+    .filter(club=>!isWorldTransferClub(club.name))
     .map(club=>({club,score:externalPlayerFitScore(p,club,listed)}))
     .filter(x=>x.score>=35)
     .filter(x=>{
       const wage=externalExpectedWage(p,x.club.name);
-      const fair=incomingOfferFairValue(p);
       const testFee=fair*(listed?0.70:0.84);
       return externalCanAffordTransfer(x.club.name,p,testFee,wage).ok;
     })
-    .sort((a,b)=>b.score-a.score)
-    .slice(0,18)
-    .map(x=>x.club);
+    .map(x=>({...x.club,marketType:"External"}));
+
+  const worldCandidates=(DB.worldClubs||[])
+    .map(club=>{
+      const interest=playerInterestScore(p,club.name);
+      const standard=club.standard||72;
+      let score=45+(p.overall-standard)*6+interest*.18;
+      if(listed) score+=8;
+      if(p.age<=23 && (p.potential||p.overall)>=standard+5) score+=5;
+      return {club,score};
+    })
+    .filter(x=>x.score>=34)
+    .filter(x=>{
+      const wage=worldExpectedWage(p,x.club.name);
+      const testFee=fair*(listed?.72:.86);
+      return worldCanAffordTransfer(x.club.name,p,testFee,wage).ok;
+    })
+    .map(x=>({...x.club,division:leagueForClub(x.club.name)?.name||"World",country:leagueForClub(x.club.name)?.country||"",marketType:"World"}));
+
+  return [...worldCandidates,...abstractCandidates]
+    .sort((a,b)=>(b.reputation||0)-(a.reputation||0))
+    .slice(0,24);
 }
 
 function buyerCompetitionLabel(club){
+  if(isWorldTransferClub(club)){
+    const league=leagueForClub(club);
+    return league?`${league.name} • ${league.country}`:"World club";
+  }
   const ext=externalTransferClub(club);
   return ext?`${ext.division} • ${ext.country}`:"Premier League";
 }
 
 
 function transferBuyerExpectedWage(p,buyerName){
+  if(isWorldTransferClub(buyerName)) return worldExpectedWage(p,buyerName);
   return isExternalTransferClub(buyerName)
     ? externalExpectedWage(p,buyerName)
     : expectedTransferWage(p,buyerName);
 }
 
 function transferBuyerCanAfford(buyerName,p,fee,weeklyWage){
+  if(isWorldTransferClub(buyerName)) return worldCanAffordTransfer(buyerName,p,fee,weeklyWage);
   return isExternalTransferClub(buyerName)
     ? externalCanAffordTransfer(buyerName,p,fee,weeklyWage)
     : aiCanAffordTransfer(buyerName,fee,weeklyWage);
 }
 
 function applyTransferBuyerPurchase(buyerName,fee,weeklyWage){
-  if(isExternalTransferClub(buyerName)) applyExternalTransferPurchase(buyerName,fee);
+  if(isWorldTransferClub(buyerName)) applyWorldTransferPurchase(buyerName,fee);
+  else if(isExternalTransferClub(buyerName)) applyExternalTransferPurchase(buyerName,fee);
   else applyAITransferPurchase(buyerName,fee,weeklyWage);
 }
 
@@ -3837,7 +4153,11 @@ function interestedBuyersForPlayer(p,{listed=false}={}){
   const premierLeague=DB.clubs
     .filter(c=>c.name!==state.club)
     .filter(c=>{
-      const needs=evaluateSquadNeeds(c.name).slice(0,needDepth);
+      // Reuse the club's weekly recruitment plan. Re-evaluating all 19 PL
+      // squads for every incoming-offer attempt became prohibitively expensive
+      // once the transfer database expanded beyond 2,000 players.
+      const cached=state.aiTransferPlans?.[c.name];
+      const needs=(cached?.length?cached:evaluateSquadNeeds(c.name)).slice(0,needDepth);
       return needs.some(n=>playsPositionGroup(p,n.position));
     })
     .filter(c=>{
@@ -4166,45 +4486,60 @@ function runAITransferReview(){
 
   DB.clubs.filter(c=>c.name!==state.club).forEach(c=>{
     const pressure=aiFinancialPressure(c.name);
-    state.aiTransferPlans[c.name]=evaluateSquadNeeds(c.name).slice(0,3).map(n=>({...n,financialPressure:pressure}));
+    state.aiTransferPlans[c.name]=evaluateSquadNeeds(c.name)
+      .filter(n=>n.role!=="none")
+      .slice(0,5)
+      .map(n=>({...n,financialPressure:pressure}));
   });
 }
 
 function simulateOneAITransfer(){
   ensureTransferMarketState();
   ensureAIClubFinances();
-  if(!isTransferWindowOpen()) return;
+  if(!isTransferWindowOpen()) return false;
 
   const clubs=DB.clubs.filter(c=>c.name!==state.club);
   const buyerPool=clubs.filter(c=>{
     const pressure=aiFinancialPressure(c.name);
-    return pressure==="Comfortable" || pressure==="Watch";
+    const investment=recruitmentInvestmentContext(c.name);
+    return (pressure==="Comfortable" || pressure==="Watch") &&
+      investment.budget>=5_000_000 && investment.appetite>=0.24;
   });
-  if(!buyerPool.length) return;
+  if(!buyerPool.length) return false;
 
-  const buyer=buyerPool[Math.floor(Math.random()*buyerPool.length)];
-  const needs=state.aiTransferPlans[buyer.name]||evaluateSquadNeeds(buyer.name).slice(0,3);
-  const need=needs.find(n=>n.score>=48);
-  if(!need) return;
+  const weighted=[];
+  buyerPool.forEach(c=>{
+    const ctx=recruitmentInvestmentContext(c.name);
+    const weight=Math.max(1,Math.round(1+ctx.appetite*4));
+    for(let i=0;i<weight;i++) weighted.push(c);
+  });
+  const buyer=weighted[Math.floor(Math.random()*weighted.length)];
 
-  let targets=findTransferTargets(buyer.name,need.position,18)
+  const needs=(state.aiTransferPlans[buyer.name]||evaluateSquadNeeds(buyer.name))
+    .filter(n=>n.role!=="none" && n.score>=24)
+    .sort((a,b)=>b.score-a.score);
+  if(!needs.length) return false;
+
+  const need=needs[Math.floor(Math.random()*Math.min(needs.length,3))];
+
+  let targets=findTransferTargets(buyer.name,need.position,20)
     .filter(x=>x.player.club!==state.club)
     .filter(x=>{
       const wage=expectedTransferWage(x.player,buyer.name);
       return aiCanAffordTransfer(buyer.name,x.asking,wage).ok;
     });
+  if(!targets.length) return false;
 
-  if(!targets.length) return;
-
-  // Listed players are genuine market opportunities and receive priority if
-  // they still fit the buyer's need and finances.
   targets=targets.sort((a,b)=>{
-    const av=aiAvailabilityStatus(a.player)==="Transfer listed"?8:aiAvailabilityStatus(a.player)==="Open to offers"?3:0;
-    const bv=aiAvailabilityStatus(b.player)==="Transfer listed"?8:aiAvailabilityStatus(b.player)==="Open to offers"?3:0;
-    const aval=valueOpportunityLabel(a.player,buyer.name)?3:0;
-    const bval=valueOpportunityLabel(b.player,buyer.name)?3:0;
-    return (bv+bval)-(av+aval);
+    const aAvail=aiAvailabilityStatus(a.player)==="Transfer listed"?9:aiAvailabilityStatus(a.player)==="Open to offers"?3:0;
+    const bAvail=aiAvailabilityStatus(b.player)==="Transfer listed"?9:aiAvailabilityStatus(b.player)==="Open to offers"?3:0;
+    const aValue=valueOpportunityLabel(a.player,buyer.name)?4:0;
+    const bValue=valueOpportunityLabel(b.player,buyer.name)?4:0;
+    const aUpgrade=Math.max(0,(a.player.overall||0)-(need.starter||0))*2.2;
+    const bUpgrade=Math.max(0,(b.player.overall||0)-(need.starter||0))*2.2;
+    return (bAvail+bValue+bUpgrade)-(aAvail+aValue+aUpgrade);
   });
+
   const target=targets[Math.floor(Math.random()*Math.min(4,targets.length))];
   const p=target.player;
   const seller=p.club;
@@ -4213,8 +4548,7 @@ function simulateOneAITransfer(){
   const newWage=expectedTransferWage(p,buyer.name);
   const expected=expectedTransferCost(p,buyer.name);
   const fee=Math.round(((expected.low+Math.random()*(expected.high-expected.low))/250000))*250000;
-
-  if(!aiCanAffordTransfer(buyer.name,fee,newWage).ok) return;
+  if(!aiCanAffordTransfer(buyer.name,fee,newWage).ok) return false;
 
   applyAITransferPurchase(buyer.name,fee,newWage);
   if(aiFinance(seller)) applyAITransferSale(seller,fee,sellerOldWage);
@@ -4225,7 +4559,19 @@ function simulateOneAITransfer(){
   refreshAIClubFinance(buyer.name);
   if(aiFinance(seller)) refreshAIClubFinance(seller);
 
+  // Do not run a full multi-league recruitment scan immediately after every
+  // completed deal. Remove the fulfilled positional priority and let the normal
+  // weekly AI review rebuild the club's complete plan. This avoids multi-second
+  // Continue-button stalls on mobile while preserving responsive squad planning.
+  state.aiTransferPlans[buyer.name]=(state.aiTransferPlans[buyer.name]||[])
+    .filter(n=>n.position!==need.position);
+
+  // Seller priorities are left intact until the scheduled weekly review.
+  // That keeps daily Continue fast; the weekly review will detect any new
+  // replacement need created by this sale.
+
   addNews(`${buyer.name} have signed ${p.name} from ${seller} for ${money(fee)}${wasListed?" after he was made available for transfer":""}.`);
+  return {buyer:buyer.name,seller,player:p.name,fee,needType:need.needType||"squad",position:need.position};
 }
 
 function processTransferDay(){
@@ -4243,8 +4589,8 @@ function processTransferDay(){
   if(Math.random()<(1-Math.pow(1-0.24,1/7))) generateIncomingOffer();
   // Living-market cadence: roughly 1.4 successful-attempt opportunities per week
   // across the league, subject to need, affordability and available targets.
-  if(Math.random()<0.20) simulateOneAITransfer();
-  if(Math.random()<0.045) simulateOneAITransfer();
+  if(Math.random()<0.24) simulateOneAITransfer();
+  if(Math.random()<0.055) simulateOneAITransfer();
 }
 
 function processTransferWeek(){

@@ -1,78 +1,78 @@
-v0.18.0 TEST REPORT
+v0.19.0 EMBEDDED FC26 — FINAL TEST REPORT
 
-STATIC / SYNTAX
-PASS — game.js JavaScript syntax
+ACTUAL SOURCE IMPORT
+PASS — uploaded ea_fc26_players.csv read successfully
+PASS — 1,665 target players extracted
+PASS — 62/62 registered world clubs represented
+PASS — Championship 650 players
+PASS — La Liga 500 players
+PASS — Bundesliga 515 players
+PASS — zero unknown target clubs
+PASS — zero duplicate imported player IDs
+PASS — zero invalid OVR/POT/value/wage numeric fields
+PASS — all 1,665 imported records retain FC26 OVR source marker
+PASS — world-players.js generated at ~737 KB
+PASS — no runtime network fetch is required
+
+REAL DATA EXAMPLES VERIFIED IN BROWSER
+PASS — Kylian Mbappé: Real Madrid, OVR 91
+PASS — Jude Bellingham: Real Madrid, OVR 90
+PASS — Harry Kane: Bayern Munich, OVR 89
+PASS — Adam Armstrong: Southampton, OVR 73
+
+STARTUP / DATABASE
+PASS — 20 playable PL start cards
+PASS — Aston Villa career starts with 24-player squad and Unai Emery
+PASS — total database 2,212 players
+PASS — Player Database renders 2,188 non-user rows
+PASS — Real Madrid, Bayern Munich and Southampton players visible
+PASS — expanded DB render ~1.41s in headless 390x844 mobile Chromium
+PASS — zero browser/page errors
+
+TRANSFER INTEGRATION
+PASS — world players returned as realistic targets across all ten positional groups
+PASS — world market values and expected-cost bands are finite
+PASS — Real Madrid seller received £25m in direct accounting probe
+PASS — 31-day transfer-window stress completed
+PASS — sampled 5 AI transfers / 5 unique buyers
+PASS — world sellers participated
+PASS — zero repeat-player transfers
+PASS — zero negative PL AI transfer budgets
+PASS — average sampled transfer-day processing ~175ms
+PASS — maximum sampled transfer day ~933ms
+PASS — 31-day transfer logic ~6.1s total in headless test
+NOTE — exact AI deal count varies naturally because transfer activity is probabilistic.
+
+CHAMPIONSHIP
+PASS — 24 clubs
+PASS — 46 rounds
+PASS — 552 league fixtures
+PASS — every club finishes on 46 games
+PASS — daily-calendar progression
+PASS — season reset retained
+
+CORE REGRESSION
+PASS — first Premier League round produces 10 results
+PASS — all 20 PL clubs register one match played
+PASS — manager proactive recruitment still works
+PASS — Aston Villa manager produced six current recruitment needs in test
+PASS — state JSON serialization/deserialization
+PASS — stress-state save approximately 0.9–1.0 MB
+PASS — 62 world-club finance records coexist with existing state
+PASS — no browser console/page errors
+
+PWA / STATIC
+PASS — world-players.js JavaScript syntax
+PASS — world-leagues.js JavaScript syntax
+PASS — championship-simulation.js JavaScript syntax
 PASS — transfers.js JavaScript syntax
-PASS — sw.js JavaScript syntax
-PASS — no duplicate function declarations in changed JS
+PASS — game.js JavaScript syntax
+PASS — service worker JavaScript syntax
+PASS — world-players.js included in service-worker app shell
+PASS — cache bumped to football-ceo-v0.19.0-pwa-3
 PASS — no duplicate static HTML IDs
-PASS — PWA cache updated to v0.18.0
 
-DEVELOPMENT
-PASS — persistent playerDevelopment migration state
-PASS — potential remains a ceiling, not guaranteed growth
-PASS — development curve allows meaningful growth through 26-27
-PASS — stronger taper begins from 28
-PASS — minutes affect development
-PASS — performance affects user-player development
-PASS — training facilities affect user-player development
-PASS — manager youth trust affects young user-player development
-PASS — AI players receive estimated usage rather than zero-minute treatment
-PASS — October / January / April visible development checkpoints
-PASS — year-end development and decline assessment
-PASS — seasonal growth/decline caps
-PASS — player profile development status and OVR change
-PASS — long and severe injury history tracking
-PASS — very long injury can probabilistically reduce OVR
-
-MARKET VALUES
-PASS — dynamic OVR/value curve
-PASS — upper-middle/elite value curve steepened
-PASS — age modifier
-PASS — potential/upside modifier
-PASS — club-level modifier
-PASS — performance/playing-time modifier
-PASS — contract-length modifier
-PASS — injury-history modifier
-PASS — values persisted to playerWorldOverrides
-
-EXPECTED COST
-PASS — market value separated from expected cost
-PASS — seller contract leverage
-PASS — transfer-list/open-to-offers modifier
-PASS — AI seller financial-pressure modifier
-PASS — player willingness / step-up modifier
-PASS — same-league competitive-rival premium
-PASS — AI transfer-listed expected price forced below market
-PASS — expected-cost range shown in transfer dossier
-
-AI MARKET
-PASS — AI availability state
-PASS — AI transfer-list generation during windows
-PASS — listed/open players remain browsable
-PASS — AI buyers prioritise listed/value opportunities
-PASS — AI transfer attempt cadence increased
-PASS — affordability/SCR checks retained
-PASS — all completed AI transfers surface in news
-
-PLAYER DATABASE
-PASS — dynamic market value column
-PASS — expected cost column
-PASS — availability column
-PASS — availability filtering
-PASS — expected-cost/value/discount/age sorting
-PASS — Good value signal
-
-REGRESSION PRESERVATION
-PASS — v0.17.3 manager rejection-memory hooks retained
-PASS — v0.17.3 manager squad-utilisation hooks retained
-PASS — v0.17.2 fitness state retained
-PASS — v0.17.2 substitution engine retained
-PASS — v0.17 Match Engine 2.x retained
-PASS — v0.16 financial regulation hooks retained
-
-LIMITATIONS / HONEST TEST NOTE
-- These checks validate syntax, integration hooks, state migration paths and static regression preservation.
-- A full GitHub Pages/iPhone Home Screen end-to-end playthrough has NOT been run in this environment.
-- AI clubs still do not store exact individual match minutes; v0.18 estimates AI-player usage from positional squad rank for development.
-- Explicit AI contract-renewal negotiations are not simulated yet; stale expired launch-database AI contracts are treated as rolling two-year deals for valuation purposes so future-season values do not collapse.
+IMPORTANT DATA NOTE
+- FC26 OVR and the other source-backed identity/physical fields come from the uploaded FC26 CSV.
+- Potential, value, wage and contract expiry for the 1,665 newly imported players are Football CEO gameplay estimates, not fields claimed to come from FC26.
+- Physical iPhone Home Screen PWA performance still requires the final device smoke test.

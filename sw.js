@@ -1,4 +1,4 @@
-const CACHE_NAME = "football-ceo-v0.18.0-pwa-1";
+const CACHE_NAME = "football-ceo-v0.19.0-pwa-3";
 
 // Everything required to boot the current Football CEO build offline.
 // These paths are relative so they work correctly from the GitHub Pages
@@ -11,6 +11,9 @@ const APP_SHELL = [
 
   // Core game runtime
   "./database.js",
+  "./world-leagues.js",
+  "./world-players.js",
+  "./championship-simulation.js",
   "./state.js",
   "./stakeholders.js",
   "./staff.js",
