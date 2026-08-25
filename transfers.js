@@ -534,6 +534,23 @@ function clubRecruitmentStrategyFit(player,club=state.club){
   return score;
 }
 
+function clubHasRecruitableSquad(name){
+  return Boolean(name && DB.players?.some(p=>p.club===name));
+}
+
+function playerSoldByUserClubRecently(p,days=365){
+  if(!p || !state.transferLedger?.length) return false;
+  const current=typeof currentCareerDay==="function"?currentCareerDay():0;
+  for(let i=state.transferLedger.length-1;i>=0;i--){
+    const tx=state.transferLedger[i];
+    if(String(tx.playerId)!==String(p.id)) continue;
+    if(tx.fromClub!==state.club) continue;
+    if(tx.careerDay!=null) return current-tx.careerDay<days;
+    return tx.season===currentSeasonLabel();
+  }
+  return false;
+}
+
 function realisticManagerTargetPool(position,limit=30){
   const club=state.club;
   const userRep=byClub(club)?.reputation||70;
@@ -541,6 +558,7 @@ function realisticManagerTargetPool(position,limit=30){
 
   return DB.players
     .filter(p=>p.club!==club && p.club!=="Free Agent" && playsPositionGroup(p,position))
+    .filter(p=>!playerSoldByUserClubRecently(p,365))
     .map(p=>{
       const sellingRep=byClub(p.club)?.reputation||68;
       const asking=estimatedAskingPrice(p,club);
@@ -696,12 +714,13 @@ function buildManagerShortlist(position,role="starter"){
   // Option 2: cheaper alternative, still role-appropriate.
   const cheaper=usable
     .filter(x=>x.player.id!==ideal?.player.id)
-    .filter(x=>x.asking<=ideal.asking*.78)
+    // A cheaper alternative must actually be materially cheaper. If no credible
+    // option exists, omit this card rather than applying a misleading label.
+    .filter(x=>x.asking<=ideal.asking*.80)
     .sort((a,b)=>{
       const oa=a.player.overall||0, ob=b.player.overall||0;
       return ((ob*2)-(b.asking/1e6*.28)+recruitmentFinancialFit(b,position)+(b.strategyFit||0))-((oa*2)-(a.asking/1e6*.28)+recruitmentFinancialFit(a,position)+(a.strategyFit||0));
-    })[0]
-    || usable.find(x=>x.player.id!==ideal?.player.id);
+    })[0];
 
   // Option 3: prospect. This can sit below immediate role standard if upside is strong.
   const used=new Set([ideal?.player.id,cheaper?.player.id].filter(Boolean));
@@ -3481,7 +3500,7 @@ function openTransferPlayerFile(id,context={}){
 
   q("transferFileName").textContent=p.name;
   q("transferFileSub").textContent=`${p.club} • ${p.positions} • ${p.age} • ${p.nationality}`;
-  const externalOwned=isExternalTransferClub(p.club);
+  const externalOwned=isExternalTransferClub(p.club) && !clubHasRecruitableSquad(p.club);
 
   q("transferFileBody").innerHTML=`
     ${offer.saudiPremium?`<div class="notice saudi-premium-notice"><b>Saudi premium approach</b><br><span class="muted small">This bid is ${Math.round((offer.premiumRate||0)*100)}% above the club's expected transfer cost and includes a major salary increase for the player.</span></div>`:""}
@@ -3504,7 +3523,7 @@ function openTransferPlayerFile(id,context={}){
     ${financialRegulationTransferPreviewHTML(p,d.asking,d.wage,4,"buy")}
     ${transferWindowStatusHTML()}
     <div id="transferNegotiationArea"></div>
-    ${externalOwned?`<div class="transfer-box"><b>External club</b><br><span class="muted small">This club exists as a transfer-market buyer only in v0.16.2. Recruitment from external/EFL clubs will be added when their player database is expanded.</span></div>`:""}
+    ${externalOwned?`<div class="transfer-box"><b>External club</b><br><span class="muted small">This club currently exists only as an abstract transfer-market actor and has no recruitable squad data.</span></div>`:""}
     <div class="transfer-actions">
       <button class="btn primary" id="authoriseTransferApproach" ${(isTransferWindowOpen()&&!externalOwned)?"":"disabled"}>${externalOwned?"External recruitment unavailable":isTransferWindowOpen()?(active?"Continue negotiation":"Authorise approach"):"Window closed"}</button>
     </div>`;
@@ -3537,8 +3556,8 @@ function beginTransferApproach(id,context={}){
   if(blockClosedWindow("authorise an approach")) return;
   const p=DB.players.find(x=>String(x.id)===String(id));
   if(!p || p.club===state.club) return;
-  if(isExternalTransferClub(p.club)){
-    addNews(`Recruitment from ${p.club} is not available yet because external clubs currently exist as buyer-only market actors.`);
+  if(isExternalTransferClub(p.club) && !clubHasRecruitableSquad(p.club)){
+    addNews(`Recruitment from ${p.club} is not available because this club currently exists only as an abstract transfer-market actor.`);
     return;
   }
   if(state.transferNegotiations[p.id] && context.managerRequestId && !state.transferNegotiations[p.id].managerRequestId){
