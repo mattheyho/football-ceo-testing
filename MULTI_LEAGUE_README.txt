@@ -1,4 +1,4 @@
-Football CEO v0.19.2 — Expanded World Tweaks
+Football CEO v0.19.3 — Expanded World / Recruitment / Database Fix
 
 Season flow
 - PL can finish before the rest of Europe.
@@ -38,3 +38,14 @@ Performance architecture retained
 - Paginated player database.
 - Continue spinner.
 - New-season preparation progress UI.
+
+
+v0.19.3 database correction
+- 3,067 embedded world players now use their real source birthdate/age instead of the former age=25 fallback.
+- Reference date for starting ages: 1 August 2025.
+- Age range in imported world: 16–41; 242 players are genuinely age 25.
+- Correct ages now feed recruitment strategy, Saudi targeting, development, decline and dynamic market values.
+- Potential remains a Football CEO estimate, not an FC/EA potential field.
+- Initial values are Football CEO estimates adjusted for the corrected age/potential.
+- Wages remain Football CEO estimates.
+- Player ageing is now saved into world overrides at season rollover.

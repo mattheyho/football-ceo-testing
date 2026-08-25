@@ -1,12 +1,28 @@
-Football CEO v0.19.2 — Tweaks
+Football CEO v0.19.3 — Recruitment & SCR Tweaks + Database Fix
 
-Changes from v0.19.1:
-- Premier League final match no longer ends the global football season. Calendar continues to 1 June; Season Review opens on 1 June after background leagues have completed.
-- Manager recruitment requests now become reminder messages after rejection, with refreshed shortlists.
-- Recruitment requests can be closed until the next transfer window; a material squad change (sale, meaningful injury/depth crisis) overrides the suppression.
-- Recruitment target scoring now includes club strategic fit. Top-six/European-chasing clubs favour prime/upside players and heavily downgrade ageing short-term targets.
-- Player development is more dependent on competitive minutes and performance.
-- Low/no-minute youngsters no longer receive near-automatic +1 gains at every development checkpoint.
-- Veteran decline is substantially softer, performance/minutes can protect against decline, and goalkeepers receive a later ageing curve.
-- Background development also uses estimated playing-time role.
-- PWA cache bumped to v0.19.2.
+RECRUITMENT
+- Explicit replacement requests remember the quality of the player sold.
+- A first-choice sale is no longer converted into a generic depth/competition search around the remaining backup.
+- Manager requests reserve the expected cost of their preferred target against the available transfer budget.
+- Managers therefore cannot stack several starter requests that all assume access to the same money.
+- New transfer income immediately increases the uncommitted recruitment budget.
+
+SCR / PLAYER SALES
+- SCR now recognises estimated net profit/loss on player disposals in current-season football revenue.
+- Sales still remove the player's annual wage/amortisation cost as before.
+- Starting-save players use an estimated book value from Football CEO's inherited regulated-cost model.
+- Players signed during the save use tracked remaining amortisation as book value.
+- Transfer-sale previews show estimated disposal profit as well as annual regulated-cost savings.
+- Disposal profit resets at the new-season boundary.
+
+EXPANDED-WORLD DATABASE FIX
+- Corrected the age=25 importer fallback affecting all 3,067 embedded Championship/European/Saudi players.
+- The FC26 source contains birthdates for all 3,067 imported players. Age is now calculated from birthdate at the data-pack reference date of 1 August 2025.
+- Birthdate is now retained in each imported player record.
+- Football CEO potential is regenerated from real age + current OVR using the game's own deterministic age-based model.
+- Initial embedded market values are rebalanced for corrected age and potential.
+- Existing Football CEO wage estimates are retained; the source dataset does not provide wage data.
+- Imported ages now persist through season rollover/save overrides rather than reverting to their launch-data age after reload.
+- No runtime web/data fetching has been added.
+
+PWA cache: football-ceo-v0.19.3-pwa-2

@@ -1,52 +1,93 @@
-Football CEO v0.19.2 — Tweaks Test Report
+Football CEO v0.19.3 — Recruitment & SCR Tweaks + Database Fix
+Automated regression report
 
-Basis: exact repo snapshot supplied 25 Aug 2026. Automated Chromium/headless tests only; no physical MacBook/iPhone test.
+TEST BASIS
+- Exact repository snapshot supplied by the user.
+- v0.19.2 tweaks + external recruitment/signing-flow fixes.
+- v0.19.3 recruitment/SCR changes.
+- Database rebuilt from the existing /mnt/data/ea_fc26_players.csv source already used by the project.
+- Automated Chromium/headless testing only. No physical iPhone/MacBook test performed by ChatGPT.
 
-PASS — June season boundary
-- PL final fixture no longer ends the global season.
-- Calendar continued through 31 May.
-- Season Review activated on 1 June.
-- Background leagues complete at review:
-  Championship 46/46 rounds (552 matches)
-  La Liga 38/38 (380)
-  Bundesliga 34/34 (306)
-  Serie A 38/38 (380)
-  Ligue 1 34/34 (306)
+DATABASE FIX — PASS
+- Imported world players: 3,067
+- Total runtime players with existing PL database: 3,614
+- Imported clubs: 118
+- Imported league counts:
+  Championship 650
+  La Liga 500
+  Bundesliga 515
+  Serie A 531
+  Ligue 1 457
+  Saudi Pro League 414
+- Source birthdate coverage: 3,067 / 3,067
+- Imported age range at 1 Aug 2025: 16–41
+- Genuine age-25 players: 242
+- Unique imported IDs: PASS
+- Potential >= OVR and <=94: PASS
 
-PASS — Villa recruitment strategy
-- Kyle Walker was not Aston Villa's ideal starter-RB target.
-- Test ideal: L. Geertruida, age 24, OVR 78.
-- Prime/upside age bands now score more highly for top-six/European-chasing clubs.
+Sample corrected records:
+- Lamine Yamal: age 18, OVR 89, Football CEO POT 94
+- Jude Bellingham: age 22, OVR 90, Football CEO POT 94
+- Kylian Mbappe: age 26, OVR 91, Football CEO POT 92
+- Harry Kane: age 32, OVR 89, Football CEO POT 89
+- De Gea: age 34, OVR 85, Football CEO POT 85
+- Manuel Neuer: age 39, OVR 84, Football CEO POT 84
 
-PASS — Manager request lifecycle
-- Rejected sign request returned as a reminder with refreshed shortlist.
-- Close until next window suppressed the current request.
-- Material squad change cleared suppression and reopened the need.
+AGE PERSISTENCE — PASS
+- Imported player age increments at year end.
+- Incremented age is written to state.playerWorldOverrides.
+- Test: Lamine Yamal 18 -> 19; saved override age = 19.
 
-PASS — Development rebalance
-- B. Burrowes, age 17, zero minutes: projected seasonal change 0.
-- M. Rogers with strong minutes/performance: strong positive projection.
-- Full-season smoke: Burrowes remained 65 OVR with zero minutes.
-- Three Villa development reviews still fired.
+REPLACEMENT RECRUITMENT — PASS
+Martinez £74m sale test:
+- Lost player: 85 OVR first-choice GK.
+- Vacancy retained as starter replacement with replacementOverall=85.
+- Corrected-age shortlist:
+  Mile Svilar 82 — Ideal target — ~£52.25m
+  Ivan Provedel 82 — Cheaper alternative — ~£38.0m
+  Bart Verbruggen 78 — Young prospect — ~£41.25m
+- Signing a credible first-choice replacement closes the explicit vacancy.
 
-PASS — Decline rebalance
-- Veteran decline pressure reduced.
-- Goalkeepers age later.
-- Strong minutes/performance protect against decline.
+MANAGER BUDGET DISCIPLINE — PASS
+- Villa transfer budget forced to £20m.
+- Four August manager-review dates processed.
+- Only one unresolved starter request remained:
+  RB starter, preferred expected cost ~£17.25m.
+- Other starter requests did not incorrectly assume access to the same £20m.
+
+SCR PLAYER-SALE IMPACT — PASS
+Martinez £74m regression:
+- Before: 81.3% SCR
+- Estimated book value: £14.5m
+- Estimated disposal profit: £59.5m
+- Annual regulated-cost saving: ~£11.88m
+- After: 65.5% SCR
+- Disposal profit recognised in current-season revenue and resets at new season.
+
+SIGNING FLOW — PASS
+- Foreign database player direct file opens and Authorise approach is enabled.
+- Player Database name click opens transfer file.
+- Manager shortlist Pursue target opens transfer file.
+- No page/JavaScript errors.
+
+40-DAY CAREER SMOKE — PASS
+- Average headless logic day: ~147ms
+- Slowest sampled day: ~766ms
+- 7 AI transfers in sampled run
+- No page errors
 
 FULL-SEASON SMOKE — PASS
-- 304 days: 1 Aug 2025 to 1 Jun 2026.
-- PL completed 38 rounds.
-- All background leagues completed.
-- 11 AI transfers in this run.
-- 3 development reviews.
-- No JS/page errors.
-- 20.93s headless wall time with render/save UI stubbed.
+- 304 days: 1 Aug 2025 -> 1 Jun 2026
+- Global season completed correctly on 1 June
+- 8 AI transfers in sampled random run
+- 5 manager requests in sampled random run
+- No JavaScript/page errors
+- ~16.73s headless wall time with rendering/save UI stubbed
 
-SYNTAX PASS
+SYNTAX — PASS
 game.js
 transfers.js
+world-players.js
 championship-simulation.js
 world-leagues.js
-world-players.js
 sw.js

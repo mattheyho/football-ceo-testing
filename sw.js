@@ -1,4 +1,4 @@
-const CACHE_NAME = "football-ceo-v0.19.2-pwa-3";
+const CACHE_NAME = "football-ceo-v0.19.3-pwa-2";
 
 // Everything required to boot the current Football CEO build offline.
 // These paths are relative so they work correctly from the GitHub Pages

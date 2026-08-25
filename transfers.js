@@ -237,6 +237,26 @@ function refreshManagerSquadVacancies(){
   if(!state.managerSquadVacancies) return;
   state.managerSquadVacancies.forEach(v=>{
     if(v.filled) return;
+
+    // An explicit first-choice sale remembers the level that was lost. Do not
+    // close an 85 OVR Martinez vacancy merely because 78 OVR Bizot is now the
+    // highest-rated goalkeeper left at the club.
+    if((v.role||"backup")==="starter" && (v.replacementTargetOverall||v.soldOverall||0)>0){
+      const target=v.replacementTargetOverall||v.soldOverall||0;
+      const required=managerRequiredStartingSlots(v.position,state.club);
+      const standards=managerPositionStandard(v.position);
+      const floor=Math.max(standards.expectedStarter-3,target-3);
+      const remaining=clubSquadPlayers(state.club)
+        .filter(p=>playsPositionGroup(p,v.position))
+        .filter(p=>!state.injuries?.[p.id])
+        .sort((a,b)=>(b.overall||0)-(a.overall||0));
+      if(remaining.slice(0,required).length>=required && remaining.slice(0,required).every(p=>(p.overall||0)>=floor)){
+        v.filled=true;
+        v.closedReason="A credible first-choice replacement is now in the squad";
+      }
+      return;
+    }
+
     if(managerRoleNeedSatisfied(v.position,v.role||"backup")){
       v.filled=true;
       v.closedReason="Existing squad now provides sufficient cover";
@@ -459,6 +479,9 @@ function registerManagerSquadVacancy(p,oldClub){
   const existing=state.managerSquadVacancies.find(v=>v.position===group && !v.filled);
   if(existing){
     existing.priority=Math.max(existing.priority||0,p.overall||0);
+    existing.replacementTargetOverall=Math.max(existing.replacementTargetOverall||0,p.overall||0);
+    existing.soldOverall=Math.max(existing.soldOverall||0,p.overall||0);
+    existing.soldPlayerName=p.name;
     existing.week=state.week;
     existing.role=requestedRole;
   }else{
@@ -468,6 +491,7 @@ function registerManagerSquadVacancy(p,oldClub){
       soldPlayerId:p.id,
       soldPlayerName:p.name,
       soldOverall:p.overall||0,
+      replacementTargetOverall:p.overall||0,
       week:state.week,
       filled:false,
       priority:p.overall||0
@@ -657,19 +681,35 @@ function recruitmentFinancialFit(option,position){
   return score;
 }
 
-function buildManagerShortlist(position,role="starter"){
-  const rawPool=realisticManagerTargetPool(position,40);
+function managerOpenRecruitmentCommitment(){
+  return (state.managerRequests||[])
+    .filter(r=>!r.resolved&&r.type==="sign")
+    .reduce((sum,r)=>{
+      const preferred=(r.shortlist||[]).find(x=>x.role==="Ideal target"||x.role==="Best prospect") || (r.shortlist||[])[0];
+      return sum+Math.max(0,Number(preferred?.asking||0));
+    },0);
+}
+
+function managerRecruitmentUncommittedBudget(){
+  return Math.max(0,(state.budget||0)-managerOpenRecruitmentCommitment());
+}
+
+function buildManagerShortlist(position,role="starter",context={}){
+  const rawPool=realisticManagerTargetPool(position,60);
   if(!rawPool.length) return [];
-  const affordable=rawPool.filter(x=>(x.asking||0)<=Math.max(0,state.budget||0));
+  const budgetCap=Math.max(0,Number(context.budgetCap??state.budget??0));
+  const affordable=rawPool.filter(x=>(x.asking||0)<=budgetCap);
   if(!affordable.length) return [];
   const pool=affordable;
 
   const need=evaluateSquadNeeds(state.club).find(n=>n.position===position);
   const standards=need?.standards || managerPositionStandard(position);
   const currentStarter=need?.starter||standards.starter||70;
+  const replacementTarget=Math.max(0,Number(context.replacementOverall||0));
+  const explicitStarterReplacement=Boolean(context.vacancy&&role==="starter"&&replacementTarget>0);
 
   const roleFloor =
-    role==="starter" ? Math.max(currentStarter-1,standards.starter-2) :
+    role==="starter" ? Math.max(currentStarter-1,standards.starter-2,explicitStarterReplacement?replacementTarget-3:0) :
     role==="competition" ? Math.max(standards.competition-3,currentStarter-5) :
     role==="prospect" ? 58 :
     Math.max(standards.backup-4,64);
@@ -691,7 +731,16 @@ function buildManagerShortlist(position,role="starter"){
     return o>=roleFloor && o<=roleCeiling;
   });
 
-  const usable=rolePool.length?rolePool:pool;
+  // A genuine first-choice replacement must not silently collapse into a
+  // depth search just because the remaining squad is weaker. If the exact
+  // quality band is unavailable, relax by only two additional OVR points.
+  let usable=rolePool.length?rolePool:pool;
+  if(explicitStarterReplacement && !rolePool.length){
+    const relaxedFloor=Math.max(currentStarter, replacementTarget-5);
+    const relaxed=pool.filter(x=>(x.player.overall||0)>=relaxedFloor);
+    usable=relaxed.length?relaxed:[];
+  }
+  if(!usable.length) return [];
 
   // Option 1: ideal for the REQUESTED ROLE, not simply best player available.
   const ideal=[...usable].sort((a,b)=>{
@@ -727,7 +776,8 @@ function buildManagerShortlist(position,role="starter"){
   const prospect=pool
     .filter(x=>!used.has(x.player.id))
     .filter(x=>x.player.age<=22)
-    .filter(x=>(x.player.potential||x.player.overall)>=Math.max(standards.competition,currentStarter))
+    .filter(x=>!explicitStarterReplacement || (x.player.overall||0)>=Math.max(currentStarter-1,replacementTarget-8))
+    .filter(x=>(x.player.potential||x.player.overall)>=Math.max(standards.competition,currentStarter,explicitStarterReplacement?replacementTarget-1:0))
     .sort((a,b)=>{
       const pa=a.player.potential||a.player.overall;
       const pb=b.player.potential||b.player.overall;
@@ -793,7 +843,7 @@ function maybeGenerateManagerSquadRequest(){
   // Explicit vacancies from sales.
   if(transferWindowOpen){
     (state.managerSquadVacancies||[]).filter(v=>!v.filled).forEach(v=>{
-      options.push({type:"sign",position:v.position,squadRole:v.role||"starter",priority:14,urgency:"critical",vacancy:true,reason:`A ${v.role||"starter"} replacement is needed after ${v.soldPlayerName}'s departure.`});
+      options.push({type:"sign",position:v.position,squadRole:v.role||"starter",priority:14,urgency:"critical",vacancy:true,replacementOverall:v.replacementTargetOverall||v.soldOverall||0,replacementName:v.soldPlayerName,reason:`A ${v.role||"starter"} replacement is needed after ${v.soldPlayerName}'s departure.`});
     });
   }
 
@@ -883,6 +933,11 @@ function maybeGenerateManagerSquadRequest(){
 
   maxRequests=Math.min(maxRequests,remainingSlots);
 
+  // Existing open recruitment requests reserve the cost of their preferred
+  // target. The manager cannot keep asking for three starters against the same
+  // £20m as though each request had the whole budget available.
+  let requestBudgetRemaining=managerRecruitmentUncommittedBudget();
+
   for(let requestIndex=0;requestIndex<maxRequests;requestIndex++){
     if(!options.length) break;
 
@@ -896,11 +951,17 @@ function maybeGenerateManagerSquadRequest(){
 
     const pick=options.shift();
     if(pick.type==="sign"){
-      const shortlist=buildManagerShortlist(pick.position,pick.squadRole||"starter");
+      if(requestBudgetRemaining<5_000_000 && !pick.vacancy) continue;
+      const shortlist=buildManagerShortlist(pick.position,pick.squadRole||"starter",{
+        vacancy:Boolean(pick.vacancy),
+        replacementOverall:pick.replacementOverall||0,
+        budgetCap:requestBudgetRemaining
+      });
       if(!shortlist.length) continue;
       pick.playerId=shortlist[0].player.id;
       pick.alternatives=shortlist.slice(1).map(x=>x.player.id);
       pick.shortlist=shortlist.map(x=>({playerId:x.player.id,role:x.role,asking:x.asking,interest:x.interest}));
+      requestBudgetRemaining=Math.max(0,requestBudgetRemaining-(shortlist[0].asking||0));
     }
     const p=DB.players.find(x=>String(x.id)===String(pick.playerId));
     if(!p) continue;
@@ -929,6 +990,9 @@ function maybeGenerateManagerSquadRequest(){
       urgency:pick.urgency||null,
       needType:pick.needType||null,
       reason:pick.reason||null,
+      vacancy:Boolean(pick.vacancy),
+      replacementOverall:pick.replacementOverall||0,
+      replacementName:pick.replacementName||null,
       reminder:Boolean(reminderMemory?.count),
       resolved:false,
       manager:manager.name
@@ -1595,6 +1659,8 @@ function ensureFinancialRegulationState(){
       startingRatio:profile.startingRatio,
       legacyPlayerCosts:{},
       newAcquisitions:{},
+      playerDisposalProfitThisSeason:0,
+      playerDisposalHistory:[],
       availableInvestment:maxInvestment,
       pendingTransferBudget:Math.min(maxInvestment,state.budget??c?.transferBudget??maxInvestment),
       budgetPlanSeason:null,
@@ -1614,6 +1680,8 @@ function ensureFinancialRegulationState(){
   if(fr.startingRatio==null) fr.startingRatio=profile.startingRatio;
   if(!fr.legacyPlayerCosts) fr.legacyPlayerCosts={};
   if(!fr.newAcquisitions) fr.newAcquisitions={};
+  if(fr.playerDisposalProfitThisSeason==null) fr.playerDisposalProfitThisSeason=0;
+  if(!Array.isArray(fr.playerDisposalHistory)) fr.playerDisposalHistory=[];
   if(!Array.isArray(fr.assessmentHistory)) fr.assessmentHistory=[];
   if(fr.consecutiveBreaches==null) fr.consecutiveBreaches=0;
   if(fr.nextInvestmentMultiplier==null) fr.nextInvestmentMultiplier=1;
@@ -1659,8 +1727,9 @@ function userFootballRevenue(){
   }
 
   const competitionRevenue=fr.competitionRevenue||0; // future Europe/cups hook
+  const playerDisposalProfit=fr.playerDisposalProfitThisSeason||0;
   const otherAdjustments=fr.otherRevenueAdjustments||0;
-  return Math.max(20_000_000,Math.round(fr.baseRevenue+sponsorDelta+matchdayDelta+competitionRevenue+otherAdjustments));
+  return Math.max(20_000_000,Math.round(fr.baseRevenue+sponsorDelta+matchdayDelta+competitionRevenue+playerDisposalProfit+otherAdjustments));
 }
 
 function userLegacyRegulatedCost(){
@@ -1737,6 +1806,25 @@ function projectSCRAfterSigning(player,fee,weeklyWage,years=4){
   };
 }
 
+function estimatedRegulatedBookValue(player){
+  const fr=ensureFinancialRegulationState();
+  if(!player||!fr) return 0;
+  const acq=fr.newAcquisitions?.[player.id];
+  if(acq){
+    return Math.max(0,(acq.annualAmortisation||0)*Math.max(0,acq.yearsRemaining??0));
+  }
+  // Starting-save players use the hybrid inherited-cost model, so exact historic
+  // net book values are unavailable. Estimate remaining carrying value from the
+  // inherited annual burden and cap it against the player's starting game value.
+  const legacyAnnual=Math.max(0,fr.legacyPlayerCosts?.[player.id]||0);
+  const valueCap=Math.max(0,(player.value||0)*0.65);
+  return Math.round(Math.min(valueCap,legacyAnnual*2.25)/250000)*250000;
+}
+
+function estimatedPlayerDisposalProfit(player,fee=0){
+  return Math.round((Math.max(0,fee||0)-estimatedRegulatedBookValue(player))/250000)*250000;
+}
+
 function regulatedPlayerAnnualCost(player){
   const fr=ensureFinancialRegulationState();
   if(!player||!fr) return 0;
@@ -1750,17 +1838,25 @@ function regulatedPlayerAnnualCost(player){
 function projectSCRAfterSale(player,fee=0){
   const current=userSCRSnapshot();
   const saving=regulatedPlayerAnnualCost(player);
+  const disposalProfit=estimatedPlayerDisposalProfit(player,fee);
+  const revenue=Math.max(20_000_000,current.revenue+disposalProfit);
   const squadCost=Math.max(0,current.squadCost-saving);
   return {
     ...current,
     currentRatio:current.ratio,
-    ratio:squadCost/current.revenue,
+    revenue,
+    ratio:squadCost/revenue,
     squadCost,
     annualSaving:saving,
-    status:financialRegulationStatus(squadCost/current.revenue,current.limit),
-    headroom:current.revenue*current.limit-squadCost
+    estimatedBookValue:estimatedRegulatedBookValue(player),
+    disposalProfit,
+    status:financialRegulationStatus(squadCost/revenue,current.limit),
+    headroom:revenue*current.limit-squadCost,
+    greenHeadroom:revenue*current.limit-squadCost,
+    compliant:(squadCost/revenue)<=current.limit
   };
 }
+
 
 function registerRegulatedSigning(player,fee,weeklyWage,years=4){
   const fr=ensureFinancialRegulationState();
@@ -1781,9 +1877,18 @@ function registerRegulatedSigning(player,fee,weeklyWage,years=4){
   delete fr.legacyPlayerCosts[player.id];
 }
 
-function registerRegulatedSale(player){
+function registerRegulatedSale(player,fee=0){
   const fr=ensureFinancialRegulationState();
   if(!fr||!player) return;
+  const bookValue=estimatedRegulatedBookValue(player);
+  const disposalProfit=Math.round((Math.max(0,fee||0)-bookValue)/250000)*250000;
+  fr.playerDisposalProfitThisSeason=(fr.playerDisposalProfitThisSeason||0)+disposalProfit;
+  fr.playerDisposalHistory.push({
+    playerId:player.id,playerName:player.name,fee:Math.max(0,fee||0),bookValue,disposalProfit,
+    season:typeof currentSeasonLabel==="function"?currentSeasonLabel():"Season",
+    date:typeof currentGameDateISO==="function"?currentGameDateISO():null
+  });
+  fr.playerDisposalHistory=fr.playerDisposalHistory.slice(-80);
   delete fr.legacyPlayerCosts[player.id];
   delete fr.newAcquisitions[player.id];
 }
@@ -1889,6 +1994,7 @@ function rollFinancialRegulationsSeason(){
   });
 
   fr.competitionRevenue=0;
+  fr.playerDisposalProfitThisSeason=0;
   fr.otherRevenueAdjustments=0;
   fr.baselineMatchdayRevenue=null;
   fr.budgetPlanSeason=null;
@@ -3462,7 +3568,7 @@ function financialRegulationTransferPreviewHTML(player,fee,weeklyWage,years=4,mo
   const delta=(projected.ratio-current.ratio)*100;
   const label=mode==="sell"?"Projected SCR after sale":"Projected SCR after signing";
   const annual=mode==="sell"
-    ? `${money(projected.annualSaving||0)} annual regulated cost removed`
+    ? `${money(projected.annualSaving||0)} annual regulated cost removed${projected.disposalProfit!=null?` • ${money(projected.disposalProfit)} estimated player-sale profit recognised this season`:""}`
     : `${money(projected.annualImpact||0)} annual regulated cost added`;
 
   return `<div class="transfer-box financial-regulation-preview">
@@ -4549,7 +4655,7 @@ function resolveIncomingTransferOffer(id,action,counter=0){
     }
 
     registerManagerSquadVacancy(p,oldClub);
-    if(typeof registerRegulatedSale==="function") registerRegulatedSale(p);
+    if(typeof registerRegulatedSale==="function") registerRegulatedSale(p,offer.fee);
     state.budget+=offer.fee;
     if(state.transferFinance) state.transferFinance.received=(state.transferFinance.received||0)+offer.fee;
     if(state.monthlyFinance) state.monthlyFinance.transferReceived=(state.monthlyFinance.transferReceived||0)+offer.fee;
