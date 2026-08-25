@@ -3488,7 +3488,6 @@ function openTransferPlayerFile(id,context={}){
     return;
   }
   ensureTransferPlayerModal();
-  recalculateAllPlayerMarketValues();
   const d=transferDossier(p);
   const expectedCost=expectedTransferCost(p,state.club);
   const joined=p.joined||"Unknown";
@@ -4816,10 +4815,20 @@ function pursueManagerShortlistTarget(requestId,playerId,role){
   req.selectedRole=role;
   state.managerBacking=clamp((state.managerBacking||70)+(role==="Ideal target"?4:role==="Cheaper alternative"?2:1),0,100);
   addNews(`You selected ${p.name} as the ${role.toLowerCase()} for ${req.manager}'s ${positionLabel(req.position)} request.`);
-  q("managerShortlistModal").classList.add("hide");
+
+  // Refresh the underlying dashboard FIRST. In the previous order the transfer
+  // file could be opened and then immediately overwritten by the full-inbox /
+  // dashboard redraw on some Safari/PWA paths.
+  q("managerShortlistModal")?.classList.add("hide");
   saveGame(false);
-  openTransferPlayerFile(p.id,{managerRequestId:req.id});
   renderInbox();
   renderDashboard();
+
+  // Give Safari one paint frame after closing the shortlist, then make the
+  // transfer file the final UI action. This also works when launched from the
+  // expanded/full inbox view.
+  const openTarget=()=>openTransferPlayerFile(p.id,{managerRequestId:req.id});
+  if(typeof requestAnimationFrame==="function") requestAnimationFrame(openTarget);
+  else setTimeout(openTarget,0);
 }
 
