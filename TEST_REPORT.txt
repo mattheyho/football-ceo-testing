@@ -1,55 +1,52 @@
-Football CEO v0.19.1 — Test Report
-Date: 25 Aug 2026
-Environment: headless Chromium, local in-memory harness. Physical iPhone/MacBook testing NOT performed by ChatGPT.
+Football CEO v0.19.2 — Tweaks Test Report
 
-PASS — expanded data registry
-- DB.players: 3,614
-- embedded WORLD_PLAYERS: 3,067
-- world clubs: 118
-- Championship 24; La Liga 20; Bundesliga 18; Serie A 20; Ligue 1 18; Saudi 18
+Basis: exact repo snapshot supplied 25 Aug 2026. Automated Chromium/headless tests only; no physical MacBook/iPhone test.
 
-PASS — repeated Continue performance, full 3,614-player runtime
-Sample from new Aston Villa career after sponsor setup:
-- 2 Aug: 604.6 ms
-- 3 Aug: 82.0 ms
-- 4 Aug (Monday manager + staggered AI work): 975.9 ms
-- 5 Aug: 75.7 ms
-- 6 Aug: 74.5 ms
-- 7 Aug: 80.3 ms
-- 8 Aug: 62.9 ms
-No browser error observed in this run.
+PASS — June season boundary
+- PL final fixture no longer ends the global season.
+- Calendar continued through 31 May.
+- Season Review activated on 1 June.
+- Background leagues complete at review:
+  Championship 46/46 rounds (552 matches)
+  La Liga 38/38 (380)
+  Bundesliga 34/34 (306)
+  Serie A 38/38 (380)
+  Ligue 1 34/34 (306)
 
-PASS — background league completion
-- Championship: 46 rounds / 552 matches
-- La Liga: 38 / 380
-- Bundesliga: 34 / 306
-- Serie A: 38 / 380
-- Ligue 1: 34 / 306
-Full background-season batch in test: 7.8 ms after strength caching.
-Saudi competition object: false (expected).
+PASS — Villa recruitment strategy
+- Kyle Walker was not Aston Villa's ideal starter-RB target.
+- Test ideal: L. Geertruida, age 24, OVR 78.
+- Prime/upside age bands now score more highly for top-six/European-chasing clubs.
 
-PASS — player development report
-Forced checkpoint test produced a Development Review, linked manager inbox item and player change rows.
+PASS — Manager request lifecycle
+- Rejected sign request returned as a reminder with refreshed shortlist.
+- Close until next window suppressed the current request.
+- Material squad change cleared suppression and reopened the need.
 
-PASS — Saudi premium feature
-Forced offer created from a Saudi club for an eligible age-28-35 user player.
-Observed premium in test: 21.2%, within required +12% to +28% range.
-Saudi remains excluded from standard background league simulation.
+PASS — Development rebalance
+- B. Burrowes, age 17, zero minutes: projected seasonal change 0.
+- M. Rogers with strong minutes/performance: strong positive projection.
+- Full-season smoke: Burrowes remained 65 OVR with zero minutes.
+- Three Villa development reviews still fired.
 
-PASS — season preparation / rollover
-2025/26 -> 2026/27 completed successfully.
-Progress reached 100%, overlay closed, season entered preseason.
-Test rollover runtime: ~1.27 s headless.
+PASS — Decline rebalance
+- Veteran decline pressure reduced.
+- Goalkeepers age later.
+- Strong minutes/performance protect against decline.
 
-STATIC CHECKS
-- game.js syntax: pass
-- transfers.js syntax: pass
-- championship-simulation.js syntax: pass
-- world-leagues.js syntax: pass
-- world-players.js syntax: pass
+FULL-SEASON SMOKE — PASS
+- 304 days: 1 Aug 2025 to 1 Jun 2026.
+- PL completed 38 rounds.
+- All background leagues completed.
+- 11 AI transfers in this run.
+- 3 development reviews.
+- No JS/page errors.
+- 20.93s headless wall time with render/save UI stubbed.
 
-LIMITATIONS / NEXT TESTS
-- Real Safari/iOS/MacBook performance must still be physically verified by the user.
-- Promotion/relegation not yet activated.
-- Background leagues are not playable yet.
-- European/domestic cup competitions are not implemented in this version.
+SYNTAX PASS
+game.js
+transfers.js
+championship-simulation.js
+world-leagues.js
+world-players.js
+sw.js

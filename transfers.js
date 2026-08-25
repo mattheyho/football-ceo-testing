@@ -497,6 +497,43 @@ function managerPositionStandard(position){
   };
 }
 
+function clubRecruitmentStrategyFit(player,club=state.club){
+  const c=byClub(club)||{};
+  const target=c.target||10;
+  const rep=c.reputation||70;
+  const age=player.age||25;
+  const potential=player.potential||player.overall||0;
+  const overall=player.overall||0;
+
+  // Clubs chasing Europe/top six generally favour prime/upside players who can
+  // retain value. Relegation-level clubs are more willing to take older,
+  // short-term solutions; elite clubs can tolerate proven veterans slightly more.
+  let score=0;
+  if(target<=8){
+    if(age<=21) score+=8;
+    else if(age<=24) score+=11;
+    else if(age<=27) score+=9;
+    else if(age<=29) score+=3;
+    else if(age===30) score-=2;
+    else if(age===31) score-=7;
+    else if(age===32) score-=11;
+    else if(age===33) score-=16;
+    else if(age===34) score-=22;
+    else score-=30;
+    if(age<=24&&potential>=overall+3) score+=6;
+  }else if(target<=14){
+    if(age<=27) score+=6;
+    else if(age<=30) score+=2;
+    else if(age>=34) score-=10;
+  }else{
+    if(age>=30&&age<=33) score+=2; // experience can be valuable in a survival fight
+    if(age>=35) score-=8;
+  }
+
+  if(rep>=90&&overall>=84&&age<=32) score+=4;
+  return score;
+}
+
 function realisticManagerTargetPool(position,limit=30){
   const club=state.club;
   const userRep=byClub(club)?.reputation||70;
@@ -522,15 +559,16 @@ function realisticManagerTargetPool(position,limit=30){
       // the club's current standard.
       const qualityBlock=overall<standard.expectedStarter-5 && potential<standard.expectedStarter+1;
 
+      const strategyFit=clubRecruitmentStrategyFit(p,club);
       return {
-        player:p,asking,interest,overall,potential,sellingRep,
+        player:p,asking,interest,overall,potential,sellingRep,strategyFit,
         attainable:!eliteBlock&&!prestigeBlock&&!interestBlock&&!budgetBlock&&!qualityBlock
       };
     })
     .filter(x=>x.attainable)
     .sort((a,b)=>{
-      const sa=(a.overall*2.2)+(a.interest*.22)+(a.potential*.30)-(a.asking/1_000_000*.10);
-      const sb=(b.overall*2.2)+(b.interest*.22)+(b.potential*.30)-(b.asking/1_000_000*.10);
+      const sa=(a.overall*2.2)+(a.interest*.22)+(a.potential*.30)-(a.asking/1_000_000*.10)+(a.strategyFit||0);
+      const sb=(b.overall*2.2)+(b.interest*.22)+(b.potential*.30)-(b.asking/1_000_000*.10)+(b.strategyFit||0);
       return sb-sa;
     })
     .slice(0,limit);
@@ -640,8 +678,8 @@ function buildManagerShortlist(position,role="starter"){
   // Option 1: ideal for the REQUESTED ROLE, not simply best player available.
   const ideal=[...usable].sort((a,b)=>{
     const oa=a.player.overall||0, ob=b.player.overall||0;
-    let scoreA=(oa*2.5)+(a.interest*.18)+(a.player.potential||oa)*.18-(a.asking/1e6*.08)+recruitmentFinancialFit(a,position);
-    let scoreB=(ob*2.5)+(b.interest*.18)+(b.player.potential||ob)*.18-(b.asking/1e6*.08)+recruitmentFinancialFit(b,position);
+    let scoreA=(oa*2.5)+(a.interest*.18)+(a.player.potential||oa)*.18-(a.asking/1e6*.08)+recruitmentFinancialFit(a,position)+(a.strategyFit||0);
+    let scoreB=(ob*2.5)+(b.interest*.18)+(b.player.potential||ob)*.18-(b.asking/1e6*.08)+recruitmentFinancialFit(b,position)+(b.strategyFit||0);
 
     // Backups should not be overqualified; prospects are scored primarily on upside.
     if(role==="backup"){
@@ -661,7 +699,7 @@ function buildManagerShortlist(position,role="starter"){
     .filter(x=>x.asking<=ideal.asking*.78)
     .sort((a,b)=>{
       const oa=a.player.overall||0, ob=b.player.overall||0;
-      return ((ob*2)-(b.asking/1e6*.28)+recruitmentFinancialFit(b,position))-((oa*2)-(a.asking/1e6*.28)+recruitmentFinancialFit(a,position));
+      return ((ob*2)-(b.asking/1e6*.28)+recruitmentFinancialFit(b,position)+(b.strategyFit||0))-((oa*2)-(a.asking/1e6*.28)+recruitmentFinancialFit(a,position)+(a.strategyFit||0));
     })[0]
     || usable.find(x=>x.player.id!==ideal?.player.id);
 
@@ -674,7 +712,7 @@ function buildManagerShortlist(position,role="starter"){
     .sort((a,b)=>{
       const pa=a.player.potential||a.player.overall;
       const pb=b.player.potential||b.player.overall;
-      return ((pb*2.5)+(b.interest*.15)-(b.asking/1e6*.08)+recruitmentFinancialFit(b,position))-((pa*2.5)+(a.interest*.15)-(a.asking/1e6*.08)+recruitmentFinancialFit(a,position));
+      return ((pb*2.5)+(b.interest*.15)-(b.asking/1e6*.08)+recruitmentFinancialFit(b,position)+(b.strategyFit||0))-((pa*2.5)+(a.interest*.15)-(a.asking/1e6*.08)+recruitmentFinancialFit(a,position)+(a.strategyFit||0));
     })[0]
     || pool.find(x=>!used.has(x.player.id) && x.player.age<=23);
 
@@ -858,6 +896,9 @@ function maybeGenerateManagerSquadRequest(){
     state.managerRequestCooldowns[cooldownKey]=currentCareerDay();
 
     const id="mr"+Date.now()+Math.floor(Math.random()*1000)+requestIndex;
+    const reminderMemory=pick.type==="sign"
+      ? state.managerRecruitmentRejectionMemory?.[managerRecruitmentRoleKey(pick.position,pick.squadRole||"starter")]
+      : null;
     const req={
       id,
       type:pick.type,
@@ -869,6 +910,7 @@ function maybeGenerateManagerSquadRequest(){
       urgency:pick.urgency||null,
       needType:pick.needType||null,
       reason:pick.reason||null,
+      reminder:Boolean(reminderMemory?.count),
       resolved:false,
       manager:manager.name
     };
@@ -885,7 +927,9 @@ function maybeGenerateManagerSquadRequest(){
         prospect:"young prospect"
       }[pick.squadRole] || "new";
 
-      wording=`${manager.name} wants a ${roleLabel} ${positionLabel(pick.position)} for the ${managerFormationForClub(state.club)}. A three-player shortlist is ready for review.${pick.reason?` ${pick.reason}`:""}`;
+      wording=req.reminder
+        ? `Reminder — ${manager.name} still believes the squad needs a ${roleLabel} ${positionLabel(pick.position)}. His shortlist has been refreshed and is ready for review.`
+        : `${manager.name} wants a ${roleLabel} ${positionLabel(pick.position)} for the ${managerFormationForClub(state.club)}. A three-player shortlist is ready for review.${pick.reason?` ${pick.reason}`:""}`;
     }else if(pick.type==="renew"){
       wording=`${manager.name} wants the club to open contract talks with ${p.name}.`;
     }else if(pick.type==="transfer"){
@@ -904,6 +948,32 @@ function maybeGenerateManagerSquadRequest(){
     ));
   }
 }
+function closeManagerRecruitmentRequestUntilNextWindow(id){
+  ensureManagerRecruitmentMemory();
+  const req=state.managerRequests.find(r=>r.id===id);
+  if(!req || req.resolved || req.type!=="sign") return;
+  req.resolved=true;
+  const role=req.squadRole||"starter";
+  const key=managerRecruitmentRoleKey(req.position,role);
+  const snap=managerRecruitmentNeedSnapshot(req.position);
+  const prior=state.managerRecruitmentRejectionMemory[key]||{count:0};
+  state.managerRecruitmentRejectionMemory[key]={
+    ...prior,
+    count:Math.max(1,prior.count||0),
+    lastRejectedDay:currentCareerDay(),
+    lastNeedRole:snap.role,
+    lastNeedScore:snap.score,
+    lastNeedDepth:snap.depth,
+    nextEligibleDay:null,
+    suppressedWindowKey:currentTransferWindowKey(),
+    closedUntilNextWindow:true
+  };
+  addNews(`You told ${req.manager} to close the ${positionLabel(req.position)} recruitment request until the next transfer window. A sale, significant injury or other material squad change can reopen it earlier.`);
+  saveGame(false);
+  renderInbox();
+  renderDashboard();
+}
+
 function resolveManagerRequest(id,accepted){
   ensureContractState();
   const req=state.managerRequests.find(r=>r.id===id);
@@ -3240,7 +3310,7 @@ function findTransferTargets(club,position,limit=6){
       const abilityFit=(player.overall-currentStrength)*8;
       const upside=Math.max(0,(player.potential||player.overall)-player.overall)*2;
       const affordability=asking<=budget*1.15?12:asking<=budget*1.6?0:-18;
-      const score=50+abilityFit+upside+interest*0.18+affordability-(player.age>=31?10:0);
+      const score=50+abilityFit+upside+interest*0.18+affordability+clubRecruitmentStrategyFit(player,club)-(player.age>=34?4:0);
       return {player,score,asking,interest};
     })
     .filter(x=>x.player.overall>=Math.max(68,currentStrength-5))

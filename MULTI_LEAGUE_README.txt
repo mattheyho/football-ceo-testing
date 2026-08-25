@@ -1,49 +1,40 @@
-Football CEO v0.19.1 — Expanded World Architecture
+Football CEO v0.19.2 — Expanded World Tweaks
 
-SIMULATION LEVELS
-Premier League: full / playable.
-Championship: standard background simulation.
-La Liga: standard background simulation.
-Bundesliga: standard background simulation.
-Serie A: standard background simulation.
-Ligue 1: standard background simulation.
-Saudi Pro League: market-feature only.
+Season flow
+- PL can finish before the rest of Europe.
+- Continue remains available until 1 June.
+- Season Review appears on 1 June after background leagues complete.
+- Off-season begins after the review.
 
-BACKGROUND COMPETITIONS
-Championship: 24 clubs, 46 rounds, 552 matches.
-La Liga: 20 clubs, 38 rounds, 380 matches.
-Bundesliga: 18 clubs, 34 rounds, 306 matches.
-Serie A: 20 clubs, 38 rounds, 380 matches.
-Ligue 1: 18 clubs, 34 rounds, 306 matches.
-Saudi Arabia deliberately has no worldCompetition entry.
+Manager recruitment
+- Rejected positional requests return as reminders.
+- Reminder shortlists refresh.
+- Actions: Review suggestions / Decline for now (or Decline again) / Close until next window.
+- Material squad changes such as a sale or meaningful injury override suppression.
 
-PERFORMANCE MODEL
-Normal Continue days only do daily work: calendar, relevant PL fitness/injuries, transfer events and any scheduled fixtures.
-AI PL recruitment reviews are staggered across seven daily cohorts rather than all 19 clubs on one Monday.
-Background market-value/availability maintenance is staggered across days 1-7 of each calendar month.
-Foreign club squad strengths are cached and invalidated only when their squad changes.
+Recruitment strategy
+- Target scoring now includes club strategy, age profile and value retention.
+- Top-six/European-chasing clubs favour prime/upside players.
+- Older short-term targets are downgraded unless club context supports them.
 
-DEVELOPMENT WINDOWS
-1 Oct / 1 Jan / 1 Apr: user club processed immediately.
-2-7 Oct / Jan / Apr: rest of football world divided into deterministic club cohorts.
-A manager inbox Development Review is created only when at least one user player changes OVR.
+Development
+- Potential sets the ceiling.
+- Competitive minutes are the main practical growth lever.
+- Performance materially affects growth.
+- Training/manager environment remains a modifier.
+- Zero/low-minute youngsters no longer gain automatically at each checkpoint.
+- This creates the foundation for loans to matter later.
 
-SEASON PREPARATION
-The June rollover is intentionally a visible staged operation. The UI displays real completed-stage percentages and status text including:
-5% closing previous season
-18-40% player updates by cohort
-45% player market values
-52% contracts/infrastructure
-60% rebuilding club squads
-70% background squad strengths
-80% league competitions
-86% season records
-90% transfer market
-96% budgets/expectations
-100% new season ready
+Decline
+- Slower and less deterministic.
+- Strong minutes/performance can protect players.
+- Goalkeepers decline later.
+- Serious injuries can still accelerate decline.
 
-DATA
-world-players.js is embedded locally from the supplied ea_fc26_players.csv dataset.
-Source-backed fields include identity, team, league, nationality, age/birth information, positions, OVR, preferred foot, weak foot, skill moves and height.
-Football CEO derives gameplay-only potential, market value, wage and contract estimates.
-No runtime network data fetch is used.
+Performance architecture retained
+- Staggered AI reviews and development.
+- Scheduled world market updates.
+- Cached squad strength.
+- Paginated player database.
+- Continue spinner.
+- New-season preparation progress UI.

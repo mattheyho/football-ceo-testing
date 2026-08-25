@@ -2304,10 +2304,22 @@ async function advanceDay(){
     todaysMatchReport=simulateFixtureRound(round);
 
     if(round.week>=38){
-      state.seasonComplete=true;
-      state.season.phase="complete";
-      archiveCurrentSeason();
+      // The Premier League can finish before other domestic leagues.
+      // Record that our league is done, but keep the calendar running until
+      // 1 June so every background league can complete naturally.
+      state.leagueSeasonFinished=true;
+      state.season.phase="postseason";
     }
+  }
+
+  // 1 June is the hard football-season boundary. By this point the configured
+  // background leagues have finished, so the CEO receives one consolidated
+  // season review rather than ending the world on the PL's final matchday.
+  const seasonReviewDate=`${currentSeasonStartYear()+1}-06-01`;
+  if(state.leagueSeasonFinished && nextDate>=seasonReviewDate && !state.seasonComplete){
+    state.seasonComplete=true;
+    state.season.phase="complete";
+    archiveCurrentSeason();
   }
 
   saveGame(false);
@@ -2585,10 +2597,16 @@ function renderInbox(){
     if(n.requestId){
       const req=state.managerRequests?.find(r=>r.id===n.requestId);
       if(req && !req.resolved){
-        actions=`<div class="inbox-action">
-          <button class="btn primary manager-request-btn" data-request-id="${req.id}" data-accept="1">Approve</button>
-          <button class="btn secondary manager-request-btn" data-request-id="${req.id}" data-accept="0">Reject</button>
-        </div>`;
+        actions=req.type==="sign"
+          ? `<div class="inbox-action">
+              <button class="btn primary manager-request-btn" data-request-id="${req.id}" data-accept="1">Review suggestions</button>
+              <button class="btn secondary manager-request-btn" data-request-id="${req.id}" data-accept="0">${req.reminder?"Decline again":"Decline for now"}</button>
+              <button class="btn secondary manager-close-window-btn" data-request-id="${req.id}">Close until next window</button>
+            </div>`
+          : `<div class="inbox-action">
+              <button class="btn primary manager-request-btn" data-request-id="${req.id}" data-accept="1">Approve</button>
+              <button class="btn secondary manager-request-btn" data-request-id="${req.id}" data-accept="0">Reject</button>
+            </div>`;
       }
     }
     if(n.incomingOfferId){
@@ -2616,6 +2634,9 @@ function renderInbox(){
 
   document.querySelectorAll(".manager-request-btn").forEach(btn=>{
     btn.addEventListener("click",()=>resolveManagerRequest(btn.dataset.requestId,btn.dataset.accept==="1"));
+  });
+  document.querySelectorAll(".manager-close-window-btn").forEach(btn=>{
+    btn.addEventListener("click",()=>closeManagerRecruitmentRequestUntilNextWindow(btn.dataset.requestId));
   });
   document.querySelectorAll(".development-review-btn").forEach(btn=>btn.addEventListener("click",()=>openDevelopmentReview(btn.dataset.reviewId)));
   document.querySelectorAll(".manager-complaint-btn").forEach(btn=>{
@@ -3707,16 +3728,20 @@ function developmentAgeOpportunity(age){
   return 0;
 }
 
-function developmentDeclinePressure(age){
-  if(age<=27) return 0;
-  if(age===28) return 0.04;
-  if(age===29) return 0.08;
-  if(age===30) return 0.16;
-  if(age===31) return 0.28;
-  if(age===32) return 0.42;
-  if(age===33) return 0.57;
-  if(age===34) return 0.68;
-  return Math.min(0.92,0.74+(age-35)*0.045);
+function developmentDeclinePressure(age,p=null){
+  // v0.19.2: ageing creates risk, not an automatic three-checkpoint conveyor belt.
+  // Goalkeepers age later than outfield players.
+  const goalkeeper=Boolean(p && String(p.positions||"").toUpperCase().split(/[^A-Z]+/).includes("GK"));
+  const effectiveAge=goalkeeper?age-2:age;
+  if(effectiveAge<=29) return 0;
+  if(effectiveAge===30) return 0.025;
+  if(effectiveAge===31) return 0.055;
+  if(effectiveAge===32) return 0.10;
+  if(effectiveAge===33) return 0.18;
+  if(effectiveAge===34) return 0.28;
+  if(effectiveAge===35) return 0.40;
+  if(effectiveAge===36) return 0.54;
+  return Math.min(0.78,0.62+(effectiveAge-37)*0.04);
 }
 
 function playerSeasonMinutes(p){
@@ -3754,21 +3779,38 @@ function developmentEnvironmentFactor(p){
   return f;
 }
 
-function developmentPlayingTimeFactor(p){
+function projectedSeasonMinutes(p){
   const mins=playerSeasonMinutes(p);
-  const age=p.age||25;
-  const target=age<=21?1500:age<=24?1900:age<=27?2200:1800;
-  const progress=clamp((state.week||0)/38,0.18,1);
-  const projectedMinutes=progress<1?mins/progress:mins;
-  return clamp(0.42+(projectedMinutes/target)*0.58,0.42,1.14);
+  const progress=clamp((state.week||0)/38,0.10,1);
+  return progress<1?mins/progress:mins;
+}
+
+function developmentPlayingTimeFactor(p){
+  // Minutes are now the main practical development lever. Zero/very-low
+  // involvement should not deliver the same growth as 30 first-team starts.
+  const projected=projectedSeasonMinutes(p);
+  if(projected<=0) return (p.age||25)<=19?0.08:0;
+  if(projected<300) return 0.12;
+  if(projected<700) return 0.28;
+  if(projected<1200) return 0.50;
+  if(projected<1800) return 0.72;
+  if(projected<2400) return 0.92;
+  if(projected<3000) return 1.05;
+  return 1.14;
 }
 
 function developmentPerformanceFactor(p){
   if(p.club!==state.club) return 1;
   const apps=state.playerStats?.[p.id]?.appearances||0;
   const avg=typeof playerAverageRating==="function"?playerAverageRating(p.id):null;
-  if(avg==null || apps<5) return 1;
-  return clamp(1+(avg-6.55)*0.14,0.88,1.16);
+  if(avg==null || apps<5) return 0.88;
+  if(avg<6.20) return 0.62;
+  if(avg<6.40) return 0.78;
+  if(avg<6.60) return 0.92;
+  if(avg<6.80) return 1.03;
+  if(avg<7.00) return 1.12;
+  if(avg<7.20) return 1.22;
+  return 1.32;
 }
 
 function longInjuryDevelopmentPenalty(p){
@@ -3782,46 +3824,50 @@ function calculatePlayerYearEndChange(p){
   const potential=Math.max(p.overall||0,p.potential??p.overall??0);
   const gap=Math.max(0,potential-(p.overall||0));
   const opportunity=developmentAgeOpportunity(age);
-  const decline=developmentDeclinePressure(age);
   const env=developmentEnvironmentFactor(p);
   const minutes=developmentPlayingTimeFactor(p);
   const perf=developmentPerformanceFactor(p);
   const injuryPenalty=longInjuryDevelopmentPenalty(p);
   const trait=0.82+(typeof stablePlayerTrait==="function"?stablePlayerTrait(p,`development-${currentSeasonStartYear()}`):Math.random())*0.38;
 
+  // Potential defines the ceiling; minutes are the main route to reaching it;
+  // performance determines whether those minutes are genuinely productive.
   let growthScore=opportunity*env*minutes*perf*trait*(1-injuryPenalty);
-  growthScore*=Math.min(1,gap/3);
+  growthScore*=Math.min(1,gap/4);
 
   let delta=0;
-  if(gap>0 && growthScore>=0.95) delta=3;
-  else if(gap>0 && growthScore>=0.70) delta=2;
-  else if(gap>0 && growthScore>=0.38) delta=1;
+  if(gap>0 && growthScore>=0.90) delta=3;
+  else if(gap>0 && growthScore>=0.58) delta=2;
+  else if(gap>0 && growthScore>=0.30) delta=1;
 
-  // 26/27-year-olds can still make substantial late jumps when circumstances are exceptional.
-  if((age===26||age===27) && gap>=4 && playerSeasonMinutes(p)>=2300 && perf>=1.08 && env>=1.02 && trait>=1.05){
-    delta=Math.max(delta,2);
-  }
+  // Reserve-only youngsters can occasionally improve through elite training,
+  // but no longer gain a guaranteed checkpoint rating every few months.
+  if(playerSeasonMinutes(p)<200 && delta>0) delta=Math.min(delta,1);
 
+  const decline=developmentDeclinePressure(age,p);
   if(decline>0){
-    const injuryBoost=1+injuryPenalty*1.4;
-    const lowMinutes=playerSeasonMinutes(p)<700?0.10:0;
+    const projected=projectedSeasonMinutes(p);
+    const avg=p.club===state.club && typeof playerAverageRating==="function"?playerAverageRating(p.id):null;
+    const playingProtection=projected>=2400?0.45:projected>=1600?0.68:projected>=800?0.88:1.08;
+    const performanceProtection=avg!=null&&avg>=7.0?0.65:avg!=null&&avg>=6.7?0.82:avg!=null&&avg<6.3?1.18:1;
+    const injuryBoost=1+injuryPenalty*1.15;
+    const chance=clamp(decline*playingProtection*performanceProtection*injuryBoost,0,0.86);
     const declineRoll=typeof stablePlayerTrait==="function"?stablePlayerTrait(p,`decline-${currentSeasonStartYear()}`):Math.random();
-    const chance=clamp(decline*injuryBoost+lowMinutes,0,0.96);
     if(declineRoll<chance){
       let drop=1;
-      if(age>=33 && declineRoll<chance*0.28) drop=2;
-      if(age>=35 && declineRoll<chance*0.12) drop=3;
+      if(age>=35 && declineRoll<chance*0.18) drop=2;
+      if(age>=37 && declineRoll<chance*0.07) drop=3;
       delta-=drop;
     }
   }
 
-  // Very long injuries can directly reduce ability, including before traditional decline age.
+  // Serious long-term injuries remain capable of reducing ability separately.
   const market=state.playerMarket?.[String(p.id)]||{};
   const severeInjuries=(market.severeInjuriesThisSeason||0);
   if(severeInjuries>0){
-    const risk=clamp(0.18+severeInjuries*0.14+(age>=30?0.16:0),0.18,0.62);
+    const risk=clamp(0.14+severeInjuries*0.11+(age>=32?0.10:0),0.14,0.50);
     const injuryRoll=typeof stablePlayerTrait==="function"?stablePlayerTrait(p,`injury-ability-${currentSeasonStartYear()}`):Math.random();
-    if(injuryRoll<risk) delta-=injuryRoll<risk*0.22?2:1;
+    if(injuryRoll<risk) delta-=injuryRoll<risk*0.16?2:1;
   }
 
   return clamp(delta,-3,4);
@@ -3846,9 +3892,17 @@ function developmentWorldBucketForPlayer(p){
 function lightweightBackgroundDevelopmentStep(p){
   const d=state.playerDevelopment[String(p.id)],before=p.overall||0,gap=Math.max(0,(p.potential??before)-before),age=p.age||25;
   const trait=typeof stablePlayerTrait==='function'?stablePlayerTrait(p,`checkpoint-${developmentCheckpointKey()}`):Math.random();
+  const minutes=developmentPlayingTimeFactor(p);
   let step=0;
-  if(age<=24&&gap>0){const chance=age<=20?.52:age<=22?.40:.25;if(trait<chance)step=1;}
-  else if(age>=31){const chance=Math.min(.55,.08+(age-30)*.075);if(trait<chance)step=-1;}
+  if(age<=25&&gap>0){
+    const base=age<=20?.38:age<=22?.30:age<=24?.20:.12;
+    const chance=base*Math.min(1,gap/4)*minutes;
+    if(trait<chance)step=1;
+  }else{
+    const decline=developmentDeclinePressure(age,p);
+    const protection=projectedSeasonMinutes(p)>=2200?.55:projectedSeasonMinutes(p)>=1200?.80:1.05;
+    if(decline>0&&trait<decline*protection*.34)step=-1;
+  }
   const seasonChange=before-(d?.seasonStartOverall??before);
   if(step>0&&seasonChange>=3)step=0;if(step<0&&seasonChange<=-2)step=0;
   return step;
@@ -3860,7 +3914,19 @@ function applyDevelopmentCheckpointToPlayers(players,{userReport=false}={}){
     let step=0;
     if(p.club===state.club){
       const projected=calculatePlayerYearEndChange(p);
-      if(projected>0&&seasonChange<3&&before<(p.potential??before))step=1;else if(projected<0&&seasonChange>-2)step=-1;
+      const checkpointTrait=typeof stablePlayerTrait==="function"?stablePlayerTrait(p,`user-checkpoint-${developmentCheckpointKey()}`):Math.random();
+      const minutesFactor=developmentPlayingTimeFactor(p);
+      const perfFactor=developmentPerformanceFactor(p);
+      if(projected>0&&seasonChange<3&&before<(p.potential??before)){
+        // A season-level positive projection is not an automatic +1 at every
+        // checkpoint. Playing time + performance determine whether this window
+        // actually converts into a rating gain.
+        const chance=clamp(0.18+minutesFactor*.34+Math.max(0,perfFactor-.85)*.45,0.08,0.82);
+        if(checkpointTrait<chance) step=1;
+      }else if(projected<0&&seasonChange>-2){
+        const declineChance=clamp(0.18+developmentDeclinePressure(p.age||25,p)*.45,0.08,0.46);
+        if(checkpointTrait<declineChance) step=-1;
+      }
     }else step=lightweightBackgroundDevelopmentStep(p);
     if(step){const ceiling=Math.max(before,p.potential??before);p.overall=clamp(before+step,55,ceiling);const actual=p.overall-before;if(actual){d.status=developmentLabelFromChange(actual,p.age||25);state.playerWorldOverrides=state.playerWorldOverrides||{};state.playerWorldOverrides[p.id]={...(state.playerWorldOverrides[p.id]||{}),overall:p.overall};if(typeof updatePlayerStoredMarketValue==='function')updatePlayerStoredMarketValue(p);changes.push({playerId:p.id,name:p.name,age:p.age,before,after:p.overall,change:actual,potential:p.potential??p.overall});}}
     else d.status=seasonChange>0?'Progressing':seasonChange<0?'Declining':((p.age||25)<=25?'Stagnating':'Stable');
@@ -3968,7 +4034,7 @@ async function performSeasonRollover(){
   await seasonPrepStage(52,'Processing contracts and club infrastructure',()=>{if(typeof processFacilityYearEnd==='function')processFacilityYearEnd();expireContractsAndHandleFreeAgents();updateReputationFromSeason(archive.leagueFinish);});
   await seasonPrepStage(60,'Rebuilding club squads',()=>{if(typeof invalidateClubSquadCache==='function')invalidateClubSquadCache();if(typeof invalidateWorldStrengthCache==='function')invalidateWorldStrengthCache();});
   await seasonPrepStage(70,'Calculating background squad strengths',()=>{if(typeof worldMatchStrength==='function')(DB.worldClubs||[]).filter(c=>c.leagueId!=='saudi-pro-league').forEach(c=>worldMatchStrength(c.name));});
-  state.season.year+=1;state.season.number+=1;state.season.label=`${state.season.year}/${String((state.season.year+1)%100).padStart(2,'0')}`;state.season.phase='preseason';state.week=0;state.seasonComplete=false;state.seasonSummaryViewed=false;
+  state.season.year+=1;state.season.number+=1;state.season.label=`${state.season.year}/${String((state.season.year+1)%100).padStart(2,'0')}`;state.season.phase='preseason';state.week=0;state.seasonComplete=false;state.leagueSeasonFinished=false;state.seasonSummaryViewed=false;
   await seasonPrepStage(80,'Preparing league competitions',()=>{state.fixtures=generateFixtures(DB.clubs.map(x=>x.name),state.season.year);state.table=blankTable();if(typeof resetChampionshipCompetitionForSeason==='function')resetChampionshipCompetitionForSeason();state.results={};state.form=[];state.matchdayStats={revenue:0,attendance:0,homeGames:0};});
   await seasonPrepStage(86,'Resetting season records',()=>{state.seasonPL=offSeasonCarryPL;state.transferFinance={spent:0,received:0};state.managerChangesThisSeason=0;state.managerPressureNotified=false;state.managerRequests=[];state.managerRequestCooldowns={};state.managerRequestsByWeek={};state.managerRoleFulfilledUntil={};state.managerSquadVacancies=[];state.transferReviewsRun={};state.incomingTransferOffers=[];state.transferNegotiations={};state.aiTransferPlans={};state.developmentWindows={};state.saudiPremiumWindows={};resetSeasonPlayerStats();resetMonthlyTracker();state.calendar.monthlyMonthKey=currentGameDateISO().slice(0,7);Object.keys(state.happiness).forEach(k=>state.happiness[k]=stakeholderSummerReset(state.happiness[k]));});
   await seasonPrepStage(90,'Updating the transfer market',()=>{resetAIClubFinancesForNewSeason();if(typeof reviewAIClubs==='function')reviewAIClubs(DB.clubs.filter(c=>c.name!==state.club));});

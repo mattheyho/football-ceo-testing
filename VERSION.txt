@@ -1,29 +1,12 @@
-Football CEO v0.19.1
-Expanded Football World + Scalability Update
+Football CEO v0.19.2 — Tweaks
 
-Baseline: v0.18.1 stable Premier League build.
-
-Major changes:
-- 3,614-player runtime: 547 existing PL players + 3,067 embedded world players.
-- Background leagues: Championship, La Liga, Bundesliga, Serie A, Ligue 1.
-- Saudi Pro League registered as a transfer-market feature only; no Saudi table/fixtures.
-- Staggered AI recruitment reviews across the week.
-- Staggered background player market updates across days 1-7 of each month.
-- Staggered player development windows across 1-7 Oct, Jan and Apr.
-- User club development always runs on day 1 and creates a manager Development Review inbox report when ratings change.
-- Development Review modal shows previous OVR, new OVR, potential and rating change.
-- Continue button retains Processing spinner / double-click protection.
-- New season uses a real staged progress overlay, including player updates, market values, squad cache rebuilds, background strengths, competitions and transfer-market preparation.
-- Club squad / world-strength caches are invalidated only for affected clubs after transfers.
-- Background players do not receive unnecessary daily PL-style fitness simulation.
-- Player database pagination/performance fixes retained.
-- World player data is embedded locally; no runtime fetch.
-
-Saudi premium approaches:
-- targets user-club players aged 28-35, OVR 72+
-- strongest weighting around ages 31-32
-- bid = expected transfer cost +12% to +28%
-- major expected wage increase
-- capped to an occasional special approach rather than ordinary Saudi buyer behaviour
-
-This build does NOT yet make the background leagues playable and does NOT yet activate promotion/relegation between the Premier League and Championship.
+Changes from v0.19.1:
+- Premier League final match no longer ends the global football season. Calendar continues to 1 June; Season Review opens on 1 June after background leagues have completed.
+- Manager recruitment requests now become reminder messages after rejection, with refreshed shortlists.
+- Recruitment requests can be closed until the next transfer window; a material squad change (sale, meaningful injury/depth crisis) overrides the suppression.
+- Recruitment target scoring now includes club strategic fit. Top-six/European-chasing clubs favour prime/upside players and heavily downgrade ageing short-term targets.
+- Player development is more dependent on competitive minutes and performance.
+- Low/no-minute youngsters no longer receive near-automatic +1 gains at every development checkpoint.
+- Veteran decline is substantially softer, performance/minutes can protect against decline, and goalkeepers receive a later ageing curve.
+- Background development also uses estimated playing-time role.
+- PWA cache bumped to v0.19.2.
