@@ -3503,7 +3503,6 @@ function openTransferPlayerFile(id,context={}){
   const externalOwned=isExternalTransferClub(p.club) && !clubHasRecruitableSquad(p.club);
 
   q("transferFileBody").innerHTML=`
-    ${offer.saudiPremium?`<div class="notice saudi-premium-notice"><b>Saudi premium approach</b><br><span class="muted small">This bid is ${Math.round((offer.premiumRate||0)*100)}% above the club's expected transfer cost and includes a major salary increase for the player.</span></div>`:""}
     <div class="transfer-grid">
       <div class="transfer-metric"><span>Joined current club</span><b>${joined}</b></div>
       <div class="transfer-metric"><span>Transfer market value</span><b>${money(dynamicPlayerMarketValue(p))}</b></div>
