@@ -68,3 +68,13 @@ Recruitment investment planning
 - Normal upgrade: ideal target should materially improve the current starter where the market/budget allows it.
 - Club reputation, player interest, availability, transfer cost and SCR still constrain every plan. A large budget does not make elite unavailable players realistically signable.
 - Manager shortlist requests remain open through negotiations; backing out or failing to agree terms returns to the shortlist.
+
+
+v0.20 UI Foundation
+- Portrait Home now prioritises today's CEO information instead of a large navigation grid.
+- Primary mobile navigation: Home / Squad / Transfers / Inbox / More.
+- Continue Day remains persistently available above the mobile navigation.
+- Inbox is now a standalone screen.
+- Stakeholder cards on Home are clickable and expose the existing drivers/history system in a dedicated relationship panel.
+- The stakeholder detail structure is ready for later CEO interaction options without adding new stakeholder actions in v0.20.
+- Desktop keeps the existing tab navigation for compatibility; a dedicated FM-style wide layout can be layered on later.

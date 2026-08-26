@@ -2215,6 +2215,10 @@ function showTab(id){
   document.querySelectorAll(".tab").forEach(x=>x.classList.add("hide"));
   const el=q(id); if(el) el.classList.remove("hide");
   document.querySelectorAll("#tabs button").forEach(x=>x.classList.toggle("active",x.dataset.tab===id));
+
+  const navKey=id==="dashboard"?"home":id==="squad"?"squad":id==="database"?"transfers":id==="inboxTab"?"inbox":"more";
+  document.querySelectorAll(".mobile-nav-btn").forEach(x=>x.classList.toggle("active",x.dataset.navKey===navKey));
+
   if(id==="squad") renderSquad();
   if(id==="database") renderDatabase();
   if(id==="fixtures") renderFixtures();
@@ -2222,6 +2226,11 @@ function showTab(id){
   if(id==="finances") renderFinances();
   if(id==="matchday") renderMatchday();
   if(id==="staff") renderStaff();
+  if(id==="inboxTab") renderInbox();
+
+  if(typeof window!=="undefined" && !document.documentElement.classList.contains("modal-open")){
+    window.scrollTo({top:0,left:0,behavior:"auto"});
+  }
 }
 
 
@@ -2354,6 +2363,74 @@ function renderAll(){
   renderStaff();
 }
 
+function footballClubInitials(name){
+  const ignore=new Set(["FC","AFC","UNITED","CITY","TOWN","CLUB"]);
+  const words=String(name||"FC").replace(/[^A-Za-z0-9 ]/g," ").split(/\s+/).filter(Boolean);
+  const meaningful=words.filter(w=>!ignore.has(w.toUpperCase()));
+  const use=meaningful.length?meaningful:words;
+  if(use.length===1) return use[0].slice(0,2).toUpperCase();
+  return use.slice(0,2).map(w=>w[0]).join("").toUpperCase();
+}
+
+function stakeholderStatusNotes(key){
+  ensureStakeholderState();
+  updateStakeholderMeta();
+  const v=stakeholderValue(key);
+  const notes=[];
+  if(key==="fans"){
+    if(v<10) notes.push("Supporter crisis: severe attendance and reputation consequences are possible.");
+    else if(v<25) notes.push("Supporter unrest: matchday protests are possible.");
+    else if(v<40) notes.push("Fan dissatisfaction is reducing expected attendance.");
+    else notes.push("No active supporter-risk threshold.");
+  }
+  if(key==="owners") notes.push(`CEO status: ${state.stakeholderMeta.ceoJobStatus}.`);
+  if(key==="players" && state.stakeholderMeta.playerUnrestRisk) notes.push("Dressing-room unrest risk is active.");
+  if(key==="manager" && state.stakeholderMeta.managerResignationRisk) notes.push("Manager resignation risk is active.");
+  if(key==="sponsors" && state.stakeholderMeta.sponsorTerminationRisk) notes.push("Early sponsorship termination risk is active.");
+  return notes;
+}
+
+function renderStakeholderDetail(key){
+  if(!STAKEHOLDER_GROUPS.includes(key)) return;
+  updateStakeholderDrivers();
+  ensureStakeholderState();
+  updateStakeholderMeta();
+  const value=stakeholderValue(key);
+  const band=stakeholderBand(value);
+  const drivers=state.happinessDrivers?.[key]||[];
+  const history=state.stakeholderHistory?.[key]||[];
+  const notes=stakeholderStatusNotes(key);
+
+  q("stakeholderDetailTitle").textContent=STAKEHOLDER_LABELS[key]||key;
+  q("stakeholderDetailMood").textContent=band.label;
+  q("stakeholderDetailScore").textContent=`${Math.round(value)}%`;
+  q("stakeholderDetailBar").style.width=`${value}%`;
+  q("stakeholderDetailExplanation").textContent=stakeholderMoodExplanation(key,value);
+  q("stakeholderDetailDrivers").innerHTML=drivers.length
+    ?drivers.map(d=>`<div class="stakeholder-detail-row"><span>${d.label}</span><b class="delta ${d.value>0?"pos":d.value<0?"neg":"neu"}">${d.value>0?"+":""}${d.value}</b></div>`).join("")
+    :`<div class="muted small">No major current pressure.</div>`;
+  q("stakeholderDetailHistory").innerHTML=history.length
+    ?history.slice(0,10).map(h=>`<div class="stakeholder-detail-row"><span><b>${h.date?shortGameDate(h.date):`MW ${h.week||0}`}</b><small>${h.reason}</small></span><b class="delta ${h.delta>0?"pos":"neg"}">${h.delta>0?"+":""}${h.delta}</b></div>`).join("")
+    :`<div class="muted small">No relationship changes recorded yet.</div>`;
+
+  const status=q("stakeholderDetailStatus");
+  if(notes.length){
+    status.classList.remove("hide");
+    status.innerHTML=notes.map(x=>`<div>${x}</div>`).join("");
+  }else status.classList.add("hide");
+}
+
+function openStakeholderDetail(key){
+  renderStakeholderDetail(key);
+  q("stakeholderDetailModal")?.classList.remove("hide");
+  setModalScrollLock(true);
+}
+
+function closeStakeholderDetail(){
+  q("stakeholderDetailModal")?.classList.add("hide");
+  setModalScrollLock(false);
+}
+
 function renderDashboard(){
   updateStakeholderDrivers();
 
@@ -2369,21 +2446,20 @@ function renderDashboard(){
   q("happinessCards").innerHTML=people.map(([label,key])=>{
     const v=stakeholderValue(key);
     const band=stakeholderBand(v);
-    const drivers=(state.happinessDrivers[key]||[]).slice(0,4);
-    const recent=(state.stakeholderHistory[key]||[]).slice(0,3);
-    return `<div class="happy-card stakeholder-card">
-      <div class="happy-top"><span>${label}</span><span class="happy-value">${Math.round(v)}%</span></div>
-      <div class="stakeholder-mood">${band.label}</div>
-      <div class="happy-bar"><span style="width:${v}%"></span></div>
-      <div class="happiness-explainer">${stakeholderMoodExplanation(key,v)}</div>
-      <div class="driver-list">
-        ${drivers.length?drivers.map(d=>`<div class="driver"><span>${d.label}</span><span class="delta ${d.value>0?"pos":d.value<0?"neg":"neu"}">${d.value>0?"+":""}${d.value}</span></div>`).join(""):`<div class="happiness-explainer">No major current pressure.</div>`}
-      </div>
-      ${recent.length?`<div class="stakeholder-history"><div class="stakeholder-history-title">Recent changes</div>${recent.map(h=>`<div class="driver"><span>${h.reason}</span><span class="delta ${h.delta>0?"pos":"neg"}">${h.delta>0?"+":""}${h.delta}</span></div>`).join("")}</div>`:""}
-      ${key==="owners"?`<div class="stakeholder-status-line">CEO status: <b>${state.stakeholderMeta.ceoJobStatus}</b></div>`:""}
-      ${key==="sponsors"&&state.stakeholderMeta.sponsorTerminationRisk?`<div class="stakeholder-status-line bad"><b>Early termination risk active</b></div>`:""}
-    </div>`;
+    return `<button class="happy-card stakeholder-summary-card" data-stakeholder-key="${key}" type="button">
+      <span class="stakeholder-summary-label">${label}</span>
+      <strong class="happy-value">${Math.round(v)}%</strong>
+      <span class="stakeholder-mood">${band.label}</span>
+      <span class="happy-bar"><span style="width:${v}%"></span></span>
+    </button>`;
   }).join("");
+  q("happinessCards")?.querySelectorAll("[data-stakeholder-key]").forEach(btn=>{
+    btn.addEventListener("click",()=>openStakeholderDetail(btn.dataset.stakeholderKey));
+  });
+
+  if(q("homeClubName")) q("homeClubName").textContent=state.club;
+  if(q("homeClubMark")) q("homeClubMark").textContent=footballClubInitials(state.club);
+  if(q("dashboardBudgetMetric")) q("dashboardBudgetMetric").textContent=money(state.budget||0);
 
   if(q("leaguePositionMetric")){
     const pos=clubLeaguePosition(state.club);
@@ -2424,9 +2500,15 @@ function renderDashboard(){
       }else{
         const {round:r,game:g}=next;
         const days=Math.max(0,dateDiffDays(currentGameDateISO(),r.date));
-        q("dashboardNextFixture").innerHTML=`<div class="fixture">
-          <div class="muted small">${shortGameDate(r.date).toUpperCase()} • MW ${r.week} • ${g.home===state.club?"HOME":"AWAY"}${days?` • ${days} DAY${days===1?"":"S"}`:" • TODAY"}</div>
-          <div class="teams">${g.home} <span class="muted">vs</span> ${g.away}</div>
+        const opponent=g.home===state.club?g.away:g.home;
+        const venue=g.home===state.club?"Home":"Away";
+        q("dashboardNextFixture").innerHTML=`<div class="fixture home-fixture">
+          <div class="home-fixture-meta">${shortGameDate(r.date).toUpperCase()} • MW ${r.week} • ${venue.toUpperCase()}${days?` • ${days} DAY${days===1?"":"S"}`:" • TODAY"}</div>
+          <div class="home-fixture-matchup">
+            <div class="home-fixture-team"><span class="home-fixture-mark">${footballClubInitials(state.club)}</span><b>${state.club}</b></div>
+            <div class="home-fixture-vs"><strong>${venue==="Home"?"VS":"AT"}</strong><span>${venue}</span></div>
+            <div class="home-fixture-team"><span class="home-fixture-mark opponent">${footballClubInitials(opponent)}</span><b>${opponent}</b></div>
+          </div>
         </div>`;
       }
     }
@@ -2454,10 +2536,17 @@ function renderDashboardInboxPreview(){
 
   const display=(actionable.length?actionable:state.news||[]).slice(0,3);
   count.textContent=String(actionable.length);
+  if(q("inboxPageCount")) q("inboxPageCount").textContent=String(actionable.length);
+  const mobileBadge=q("mobileInboxBadge");
+  if(mobileBadge){
+    mobileBadge.textContent=String(actionable.length);
+    mobileBadge.classList.toggle("hide",actionable.length===0);
+  }
 
   preview.innerHTML=display.length
-    ? display.map(n=>`<div class="inbox-preview-item"><span class="pill">${n.date?shortGameDate(n.date):`MW ${n.week}`}</span>${n.text}</div>`).join("")
+    ? display.map(n=>`<button class="inbox-preview-item inbox-preview-open" type="button"><span class="pill">${n.date?shortGameDate(n.date):`MW ${n.week}`}</span><span>${n.text}</span><strong>›</strong></button>`).join("")
     : `<div class="muted small">No messages requiring your attention.</div>`;
+  preview.querySelectorAll(".inbox-preview-open").forEach(btn=>btn.addEventListener("click",()=>showTab("inboxTab")));
 }
 
 
@@ -2592,7 +2681,9 @@ function resolveManagerDepthComplaint(id,response){
 }
 
 function renderInbox(){
-  q("inbox").innerHTML=state.news.map(n=>{
+  const inboxEl=q("inbox");
+  if(!inboxEl) return;
+  inboxEl.innerHTML=state.news.map(n=>{
     let actions="";
     if(n.requestId){
       const req=state.managerRequests?.find(r=>r.id===n.requestId);
@@ -4974,6 +5065,12 @@ function init(){
     btn.addEventListener("click",()=>showTab("dashboard"));
   });
   q("helpBtn")?.addEventListener("click",()=>openTutorial(false));
+  q("mobileHelpBtn")?.addEventListener("click",()=>openTutorial(false));
+  q("mobileSaveBtn")?.addEventListener("click",()=>saveGame(true));
+  q("mobileSaveManagerBtn")?.addEventListener("click",openSaveManager);
+  q("mobileCareerBtn")?.addEventListener("click",newCareer);
+  q("closeStakeholderDetailBtn")?.addEventListener("click",closeStakeholderDetail);
+  q("stakeholderDetailModal")?.addEventListener("click",e=>{if(e.target===q("stakeholderDetailModal")) closeStakeholderDetail();});
   q("tutorialNextBtn")?.addEventListener("click",tutorialNext);
   q("tutorialBackBtn")?.addEventListener("click",tutorialBack);
   q("tutorialSkipBtn")?.addEventListener("click",skipTutorial);
@@ -4981,13 +5078,7 @@ function init(){
     if(tutorialIsFirstRun) skipTutorial();
     else closeTutorial();
   });
-  q("toggleInboxBtn")?.addEventListener("click",()=>{
-    const inbox=q("inbox");
-    if(!inbox) return;
-    const opening=inbox.classList.contains("hide");
-    inbox.classList.toggle("hide");
-    q("toggleInboxBtn").textContent=opening?"Close full inbox":"Open full inbox";
-  });
+
   document.querySelectorAll(".squad-view-btn").forEach(btn=>{
     btn.addEventListener("click",()=>{
       squadView=btn.dataset.squadView||"stats";

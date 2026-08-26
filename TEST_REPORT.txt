@@ -178,3 +178,57 @@ STABILITY — PASS
 - Full 304-day Wolves season completed to 1 June with no JavaScript/page errors in automated headless testing.
 - Corrected imported ages remained intact (Yamal 18; Kane 32).
 - Existing v0.19.3 recruitment/SCR/database/signing-flow systems retained.
+
+
+============================================================
+Football CEO v0.20.0 — Mobile UI Foundation regression
+============================================================
+
+UI SHELL — PASS
+- Portrait Home rebuilt around the daily CEO loop.
+- 390x844 test: Home, fixed Continue and bottom navigation all visible.
+- Home renders 5 compact stakeholder buttons.
+- Tapping stakeholder opens relationship detail with score, mood, explanation, current factors, history and risk/threshold status.
+- Bottom navigation passed: Home / Squad / Transfers / Inbox / More.
+- Secondary More destinations passed, including Finance.
+- CEO Inbox preview opens the dedicated Inbox screen.
+- Persistent Continue advanced 1 Aug -> 2 Aug through the actual button flow and correctly restored its enabled state.
+
+LAYOUT MATRIX — PASS
+No document-level horizontal overflow or JavaScript errors at:
+- 375x812 portrait
+- 390x844 portrait
+- 430x932 portrait
+- 844x390 landscape
+- 1280x800 desktop
+Stakeholder detail remained within the viewport at all tested sizes.
+Mobile bottom nav is used through 760px; existing desktop tabs remain available above 760px.
+
+GAMEPLAY REGRESSION — PASS
+- External/world player transfer file still opens.
+- Player Database name click still opens transfer file.
+- Manager shortlist still opens.
+- Pursuing a manager target opens the transfer flow.
+- Closing the target without completing a deal returns to the same live manager shortlist; request remains unresolved.
+- Save Manager opens from the new More menu.
+- Post-match formation still rendered 11 player OVR labels.
+- Corrected world ages retained: Yamal 18, Kane 32, only 242 imported world players genuinely age 25.
+
+40-DAY UI SMOKE — PASS
+- 40 days with real UI rendering: 1 Aug -> 10 Sep 2025.
+- Average headless day ~177ms.
+- Slowest sampled day ~940ms.
+- Bottom navigation and all five stakeholder cards remained intact.
+- 0 page/JavaScript errors.
+
+FULL-SEASON LOGIC SMOKE — PASS
+- 304 days: 1 Aug 2025 -> 1 Jun 2026.
+- Season completed correctly.
+- 11 AI transfers in sampled random run.
+- 4 manager requests in sampled random run.
+- 3,067 imported world players retained.
+- 0 page/JavaScript errors.
+- ~17.17s headless wall time with heavy render/save/report UI stubbed for season-scale logic testing.
+
+PHYSICAL DEVICE NOTE
+- Automated Chromium/headless testing only. The assistant has not physically tested this build on the user's iPhone or MacBook.

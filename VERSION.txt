@@ -1,68 +1,24 @@
-Football CEO v0.19.3 — Recruitment & SCR Tweaks + Database Fix (cache-corrected)
+Football CEO v0.20.0 — Mobile UI Foundation
 
-RECRUITMENT
-- Explicit replacement requests remember the quality of the player sold.
-- Manager recruitment requests reserve the expected cost of their preferred target against available transfer budget.
-- Explicit sale vacancies remain high priority and benefit from new transfer income.
+UI FOUNDATION
+- Portrait-first Home screen rebuilt around the daily CEO loop.
+- Home now prioritises club/date, league position, transfer budget, SCR, next fixture, form, stakeholders and urgent inbox.
+- Old mobile dashboard menu grid removed.
+- Persistent bottom navigation: Home / Squad / Transfers / Inbox / More.
+- Continue Day is now persistent above the mobile navigation and remains available across management screens.
+- Continue/nav controls automatically hide while a modal is open.
+- Dedicated Inbox screen replaces the expanding dashboard inbox.
+- More menu contains fixtures, table, finances, staff, facilities, matchday/pricing and career controls.
+- Existing desktop tab navigation remains available above 760px as a compatibility layout.
 
-SCR / PLAYER SALES
-- SCR recognises estimated net profit/loss on player disposals in current-season football revenue.
-- Sales also remove annual wage/amortisation cost.
-- Transfer-sale previews show estimated disposal profit and annual regulated-cost savings.
-- Disposal profit resets at the new-season boundary.
+STAKEHOLDERS
+- Home stakeholder cards are compact and clickable.
+- Tapping Fans, Owners, Players, Manager or Sponsors opens a detailed relationship panel.
+- Detail panel shows current score/mood, explanation, all current drivers, up to 10 recent relationship changes and active threshold/risk information.
+- The detail panel contains an internal foundation for future CEO interaction options without adding unfinished gameplay actions yet.
 
-EXPANDED-WORLD DATABASE
-- Corrected the age=25 importer fallback for all 3,067 imported Championship/European/Saudi players.
-- Age is calculated from the FC26 source birthdate at 1 August 2025.
-- Birthdate is retained in imported player records.
-- Football CEO potential and initial market value are regenerated/rebalanced using corrected age.
-- Imported ages persist through season rollover/save overrides.
-
-CACHE / DEPLOYMENT CORRECTION
-- Root cause of the live 'everyone is still 25' report was stale PWA runtime data: world-players.js kept the same URL, allowing the previous service worker to serve the old age-25 file.
-- Runtime JS URLs are now build-versioned with ?v=0193-dbfix3.
-- Service worker registration is versioned and cache bumped to football-ceo-v0.19.3-pwa-3.
-- Runtime JS/CSS/JSON is network-first online with offline cache fallback.
-- This means database updates cannot silently boot against an older cached world-players.js.
-
-POST-MATCH LINEUP OVR
-- Starting XI formation cards now show each player's OVR alongside the existing match rating/events.
-- Bench rows now always show OVR; substitutes who played also retain their match rating.
-- Stored reports fall back to the current player OVR if an older report does not contain an embedded OVR.
-- PWA cache: football-ceo-v0.19.3-pwa-3.
-
-SQUAD PLANNING / OUTGOINGS
-- Manager improvement requests now consider excess positional depth as an IN + OUT plan.
-- Healthy senior depth is approximately two credible first-team options per formation slot; genuine high-upside U23 development players can sit outside that senior quota.
-- If an incoming signing would leave a position overstocked, the request includes a recommended outgoing player.
-- Outgoing selection considers manager XI status, wages/SCR saving, age, ability, potential, usage, contract and versatility.
-- The CEO remains in control: the manager recommends transfer-listing; it is not automatic.
-- Inbox and shortlist screens include a "List recommended outgoing" / "Transfer list" action.
-- Existing explicit replacement vacancies do not generate an unnecessary outgoing recommendation.
-
-SCR VISIBILITY
-- Finance screen now shows the projected annual sanction if the season ended at the current SCR.
-- Displayed SCR status is aligned with the actual annual-assessment thresholds:
-  Healthy <=60%
-  Tight >60% to regulatory limit (currently 70%)
-  Warning >70% to 75%
-  Breach >75% to 85%
-  Severe >85%
-- Projected fine, next-season investment reduction, repeat-breach number and transfer-registration ban risk are shown.
-- At exactly 85%, a first breach is projected as BREACH, not Severe.
-- PWA cache: football-ceo-v0.19.3-pwa-4.
-
-RECRUITMENT BALANCE / SHORTLIST RETURN
-- Manager recruitment now distinguishes direct replacement, best-attainable replacement, succession, normal upgrade and marquee/transformational plans.
-- Large usable budgets can create one marquee first-XI request rather than being automatically split across several marginal upgrades.
-- Marquee plans require an attainable player who materially raises the current starter level and who fits budget/SCR/reputation constraints.
-- Once a marquee request is made, the same manager review does not immediately add another optional marginal signing request; genuine replacement vacancies can still be raised.
-- Starter-upgrade ideal targets now aim for a meaningful improvement rather than allowing a worse player to be labelled the ideal upgrade.
-- Ageing/succession requests prioritise younger first-team-standard successors, preventing an ageing goalkeeper from being replaced by another older/lower-level option simply because they are cheap.
-- Sale vacancies first test whether the quality lost can realistically be replaced directly. If not, the manager explicitly switches to a best-attainable plan and preserves more of the budget for other positions.
-- Shortlist labels now reflect the plan: e.g. Marquee target, Direct replacement, Best attainable replacement, Succession target, Lower-cost replacement/upgrade, Long-term replacement.
-- Choosing a manager target no longer resolves the manager request. A request stays live until a player is actually signed, declined, or closed until the next window.
-- If club/wage talks fail or the CEO closes the target file, the game returns to the same manager shortlist and the inbox recommendation remains actionable.
-- Successfully signing a shortlisted player resolves the request and prevents the shortlist from reopening.
-- Mobile manager-shortlist layout is top-anchored and viewport-scrollable so long shortlists/outgoing plans cannot hide the heading above the visible area.
-- PWA cache: football-ceo-v0.19.3-pwa-5.
+COMPATIBILITY
+- Simulation systems, transfers, development, SCR, saves and league logic are unchanged from the cumulative v0.19.3 gameplay build.
+- Existing DOM IDs used by gameplay systems are preserved wherever required.
+- Existing save format unchanged.
+- PWA cache: football-ceo-v0.20.0-pwa-1.

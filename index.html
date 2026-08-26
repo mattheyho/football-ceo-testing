@@ -11,11 +11,11 @@
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="apple-touch-icon" sizes="180x180" href="icon-180.png">
 <link rel="icon" type="image/png" sizes="192x192" href="icon-192.png">
-<link rel="stylesheet" href="styles.css?v=0193-recruit6">
+<link rel="stylesheet" href="styles.css?v=020-ui1">
 </head>
 <body>
 <div class="shell">
-<div class="topbar"><div class="logo">FOOTBALL <span>CEO</span> 25/26</div><div class="tag">CONTRACT TUNING v0.13</div></div>
+<div class="topbar"><div class="logo">FOOTBALL <span>CEO</span> 25/26</div><div class="tag">MOBILE UI v0.20</div></div>
 
 <section id="startScreen" class="start panel pad">
 <h1>Take control of a Premier League club.</h1>
@@ -400,102 +400,105 @@
 </div>
 
 <div id="dashboard" class="tab">
-  <div class="dashboard-shell">
+  <div class="dashboard-shell v020-home">
 
-    <div class="dashboard-status-grid">
-      <button class="dash-stat-card nav-card" data-go-tab="table" type="button">
-        <span class="dash-stat-label">League</span>
-        <strong id="leaguePositionMetric">—</strong>
-        <small id="dashboardWeek">Pre-season</small>
-      </button>
-      <button class="dash-stat-card nav-card" data-go-tab="finances" type="button">
-        <span class="dash-stat-label">Season P/L</span>
-        <strong id="seasonPL">£0</strong>
-        <small>Club finances</small>
-      </button>
-      <button class="dash-stat-card nav-card" data-go-tab="finances" type="button">
-        <span class="dash-stat-label">Squad Cost Ratio</span>
-        <strong id="dashboardSCRMetric">—</strong>
-        <small id="dashboardSCRStatus">Financial regulations</small>
-      </button>
+    <div class="home-mobile-head">
+      <div class="home-club-identity">
+        <div class="home-club-mark" id="homeClubMark">FC</div>
+        <div class="home-club-copy">
+          <div class="home-club-name" id="homeClubName">Football Club</div>
+          <div class="home-date" id="dashboardWeek">Pre-season</div>
+        </div>
+      </div>
+
+      <div class="home-head-metrics" aria-label="Club status">
+        <button class="home-head-metric" data-go-tab="table" type="button">
+          <span>Position</span>
+          <strong id="leaguePositionMetric">—</strong>
+        </button>
+        <button class="home-head-metric" data-go-tab="finances" type="button">
+          <span>Budget</span>
+          <strong id="dashboardBudgetMetric">—</strong>
+        </button>
+        <button class="home-head-metric" data-go-tab="finances" type="button">
+          <span>SCR</span>
+          <strong id="dashboardSCRMetric">—</strong>
+          <small id="dashboardSCRStatus">Regulations</small>
+        </button>
+      </div>
     </div>
 
-    <div class="dashboard-nav-grid" aria-label="Club management">
-      <button class="dashboard-tile" data-go-tab="squad" type="button">
-        <span class="tile-icon">♟</span>
-        <span class="tile-label">Squad</span>
-        <span class="tile-note">Players & contracts</span>
-      </button>
-      <button class="dashboard-tile" data-go-tab="database" type="button">
-        <span class="tile-icon">⌕</span>
-        <span class="tile-label">Player Database</span>
-        <span class="tile-note">Recruitment market</span>
-      </button>
-      <button class="dashboard-tile" data-go-tab="staff" type="button">
-        <span class="tile-icon">♜</span>
-        <span class="tile-label">Staff</span>
-        <span class="tile-note">Manager & executives</span>
-      </button>
-      <button class="dashboard-tile" data-go-tab="finances" type="button">
-        <span class="tile-icon">£</span>
-        <span class="tile-label">Finances</span>
-        <span class="tile-note">Budgets & wages</span>
-      </button>
-      <button class="dashboard-tile" data-go-tab="matchday" type="button">
-        <span class="tile-icon">⌂</span>
-        <span class="tile-label">Matchday</span>
-        <span class="tile-note">Pricing & commercial</span>
-      </button>
-      <button class="dashboard-tile" data-go-tab="table" type="button">
-        <span class="tile-icon">≡</span>
-        <span class="tile-label">League</span>
-        <span class="tile-note">Premier League table</span>
-      </button>
-      <button class="dashboard-tile dashboard-tile-wide" data-go-tab="fixtures" type="button">
-        <span class="tile-icon">▦</span>
-        <span class="tile-label">Fixtures</span>
-        <span class="tile-note">Results & schedule</span>
-      </button>
+    <div class="dashboard-card home-fixture-card">
+      <div class="dashboard-card-title">
+        <span>Next fixture</span>
+        <button class="text-link" data-go-tab="fixtures" type="button">View all</button>
+      </div>
+      <div id="dashboardNextFixture"></div>
     </div>
 
-    <div class="stakeholder-strip">
+    <div class="dashboard-card home-form-card">
+      <div class="dashboard-card-title"><span>Form</span><small>Last five</small></div>
+      <div id="formStrip" class="dashboard-form-strip"></div>
+    </div>
+
+    <div class="stakeholder-strip home-stakeholders">
       <div class="dashboard-section-heading">
-        <span>Boardroom temperature</span>
-        <small>Stakeholder happiness</small>
+        <span>Stakeholders</span>
+        <small>Tap for relationship detail</small>
       </div>
       <div id="happinessCards" class="dashboard-happiness-grid"></div>
     </div>
 
-    <div class="dashboard-two-col">
-      <div class="dashboard-card">
-        <div class="dashboard-card-title">
-          <span>Next fixture</span>
-          <button class="text-link" data-go-tab="fixtures" type="button">View all</button>
-        </div>
-        <div id="dashboardNextFixture"></div>
-      </div>
-
-      <div class="dashboard-card">
-        <div class="dashboard-card-title"><span>Form</span><small>Last five</small></div>
-        <div id="formStrip" class="dashboard-form-strip"></div>
-      </div>
-    </div>
-
-    <div class="dashboard-card inbox-card">
+    <div class="dashboard-card inbox-card home-inbox-card">
       <div class="dashboard-card-title">
-        <span>CEO Inbox</span>
+        <span>CEO inbox</span>
         <span class="inbox-count" id="dashboardInboxCount">0</span>
       </div>
       <div id="dashboardInboxPreview"></div>
-      <button class="btn secondary inbox-expand-btn" id="toggleInboxBtn" type="button">Open full inbox</button>
-      <div id="inbox" class="dashboard-full-inbox hide"></div>
+      <button class="btn secondary inbox-expand-btn" data-go-tab="inboxTab" type="button">View all inbox</button>
     </div>
 
-    <button class="advance-week-btn" id="advanceBtn" type="button">
-      <span>Continue</span>
-      <strong>→</strong>
-    </button>
+  </div>
+</div>
 
+<div id="inboxTab" class="tab hide">
+  <div class="panel pad v020-page-panel inbox-page-panel">
+    <div class="sectiontitle v020-page-heading">
+      <div>
+        <div class="eyebrow">CEO OFFICE</div>
+        <h2>Inbox</h2>
+        <div class="muted small">Manager requests, transfer offers, stakeholder updates and club reports.</div>
+      </div>
+      <span class="inbox-count" id="inboxPageCount">0</span>
+    </div>
+    <div id="inbox" class="v020-full-inbox"></div>
+  </div>
+</div>
+
+<div id="more" class="tab hide">
+  <div class="panel pad v020-page-panel more-page-panel">
+    <div class="sectiontitle v020-page-heading">
+      <div>
+        <div class="eyebrow">CLUB MANAGEMENT</div>
+        <h2>More</h2>
+        <div class="muted small">Club operations, reports and career controls.</div>
+      </div>
+    </div>
+    <div class="more-menu-grid">
+      <button class="more-menu-item" data-go-tab="fixtures" type="button"><span class="more-menu-icon">▦</span><span><b>Fixtures</b><small>Schedule & results</small></span><strong>›</strong></button>
+      <button class="more-menu-item" data-go-tab="table" type="button"><span class="more-menu-icon">≡</span><span><b>League Table</b><small>Premier League standings</small></span><strong>›</strong></button>
+      <button class="more-menu-item" data-go-tab="finances" type="button"><span class="more-menu-icon">£</span><span><b>Finances</b><small>SCR, budgets & wage structure</small></span><strong>›</strong></button>
+      <button class="more-menu-item" data-go-tab="staff" type="button"><span class="more-menu-icon">♜</span><span><b>Staff</b><small>Manager, DoF & medical</small></span><strong>›</strong></button>
+      <button class="more-menu-item" data-go-tab="facilities" type="button"><span class="more-menu-icon">⌂</span><span><b>Facilities</b><small>Training, medical & recruitment</small></span><strong>›</strong></button>
+      <button class="more-menu-item" data-go-tab="matchday" type="button"><span class="more-menu-icon">£</span><span><b>Matchday & Pricing</b><small>Tickets, hospitality & attendance</small></span><strong>›</strong></button>
+    </div>
+    <div class="more-menu-section-title">Career</div>
+    <div class="more-menu-grid">
+      <button class="more-menu-item" id="mobileSaveBtn" type="button"><span class="more-menu-icon">✓</span><span><b>Save career</b><small>Save this career now</small></span><strong>›</strong></button>
+      <button class="more-menu-item" id="mobileSaveManagerBtn" type="button"><span class="more-menu-icon">▣</span><span><b>Save management</b><small>Export, import & manage slots</small></span><strong>›</strong></button>
+      <button class="more-menu-item" id="mobileHelpBtn" type="button"><span class="more-menu-icon">?</span><span><b>How to play</b><small>CEO briefing & mechanics</small></span><strong>›</strong></button>
+      <button class="more-menu-item more-menu-danger" id="mobileCareerBtn" type="button"><span class="more-menu-icon">↺</span><span><b>Return to careers</b><small>Leave the current career</small></span><strong>›</strong></button>
+    </div>
   </div>
 </div>
 
@@ -724,6 +727,21 @@
   </div>
 </div>
 
+<div class="mobile-continue-dock" id="continueDock">
+  <button class="advance-week-btn" id="advanceBtn" type="button">
+    <span>Continue day</span>
+    <strong>→</strong>
+  </button>
+</div>
+
+<nav class="mobile-bottom-nav" id="mobileBottomNav" aria-label="Primary navigation">
+  <button class="mobile-nav-btn active" data-go-tab="dashboard" data-nav-key="home" type="button"><span class="mobile-nav-icon">⌂</span><span>Home</span></button>
+  <button class="mobile-nav-btn" data-go-tab="squad" data-nav-key="squad" type="button"><span class="mobile-nav-icon">♟</span><span>Squad</span></button>
+  <button class="mobile-nav-btn" data-go-tab="database" data-nav-key="transfers" type="button"><span class="mobile-nav-icon">⇄</span><span>Transfers</span></button>
+  <button class="mobile-nav-btn mobile-nav-inbox" data-go-tab="inboxTab" data-nav-key="inbox" type="button"><span class="mobile-nav-icon">✉</span><span>Inbox</span><span class="mobile-inbox-badge hide" id="mobileInboxBadge">0</span></button>
+  <button class="mobile-nav-btn" data-go-tab="more" data-nav-key="more" type="button"><span class="mobile-nav-icon">•••</span><span>More</span></button>
+</nav>
+
 </section>
 </div>
 <script src="database.js?v=0193-dbfix3"></script>
@@ -737,7 +755,7 @@
 <script src="transfers.js?v=0193-recruit6"></script>
 <script src="simulation.js?v=0193-dbfix3"></script>
 <script src="ui.js?v=0193-dbfix3"></script>
-<script src="game.js?v=0193-recruit6"></script>
+<script src="game.js?v=020-ui1"></script>
 
 
 <div id="tutorialModal" class="tutorial-overlay hide">
@@ -962,6 +980,42 @@
 </div>
 
 
+
+<div id="stakeholderDetailModal" class="stakeholder-detail-overlay hide">
+  <div class="stakeholder-detail-card">
+    <div class="sectiontitle stakeholder-detail-header">
+      <div>
+        <div class="eyebrow">STAKEHOLDER RELATIONSHIP</div>
+        <h2 id="stakeholderDetailTitle" style="margin:4px 0 0">Stakeholder</h2>
+        <div class="muted" id="stakeholderDetailMood">Relationship detail</div>
+      </div>
+      <button id="closeStakeholderDetailBtn" class="close-x" type="button">×</button>
+    </div>
+
+    <div class="stakeholder-detail-score-row">
+      <div class="stakeholder-detail-score" id="stakeholderDetailScore">70%</div>
+      <div class="stakeholder-detail-score-copy">
+        <div class="happy-bar stakeholder-detail-bar"><span id="stakeholderDetailBar" style="width:70%"></span></div>
+        <div class="muted small" id="stakeholderDetailExplanation"></div>
+      </div>
+    </div>
+
+    <div id="stakeholderDetailStatus" class="stakeholder-detail-status hide"></div>
+
+    <div class="stakeholder-detail-section">
+      <div class="dashboard-card-title"><span>Current factors</span><small>What is shaping this relationship now</small></div>
+      <div id="stakeholderDetailDrivers" class="stakeholder-detail-list"></div>
+    </div>
+
+    <div class="stakeholder-detail-section">
+      <div class="dashboard-card-title"><span>Recent changes</span><small>Latest relationship movements</small></div>
+      <div id="stakeholderDetailHistory" class="stakeholder-detail-list"></div>
+    </div>
+
+    <div id="stakeholderActionFoundation" class="hide"></div>
+  </div>
+</div>
+
 <div id="seasonSummary" class="season-summary-overlay hide">
   <div class="season-summary-card">
     <div class="season-summary-hero">
@@ -1115,7 +1169,7 @@
 <script>
 if ("serviceWorker" in navigator) {
   window.addEventListener("load", () => {
-    navigator.serviceWorker.register("./sw.js?v=0193-dbfix3").catch(err => {
+    navigator.serviceWorker.register("./sw.js?v=020-ui1").catch(err => {
       console.warn("Football CEO service worker registration failed:", err);
     });
   });
