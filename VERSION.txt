@@ -51,3 +51,18 @@ SCR VISIBILITY
 - Projected fine, next-season investment reduction, repeat-breach number and transfer-registration ban risk are shown.
 - At exactly 85%, a first breach is projected as BREACH, not Severe.
 - PWA cache: football-ceo-v0.19.3-pwa-4.
+
+RECRUITMENT BALANCE / SHORTLIST RETURN
+- Manager recruitment now distinguishes direct replacement, best-attainable replacement, succession, normal upgrade and marquee/transformational plans.
+- Large usable budgets can create one marquee first-XI request rather than being automatically split across several marginal upgrades.
+- Marquee plans require an attainable player who materially raises the current starter level and who fits budget/SCR/reputation constraints.
+- Once a marquee request is made, the same manager review does not immediately add another optional marginal signing request; genuine replacement vacancies can still be raised.
+- Starter-upgrade ideal targets now aim for a meaningful improvement rather than allowing a worse player to be labelled the ideal upgrade.
+- Ageing/succession requests prioritise younger first-team-standard successors, preventing an ageing goalkeeper from being replaced by another older/lower-level option simply because they are cheap.
+- Sale vacancies first test whether the quality lost can realistically be replaced directly. If not, the manager explicitly switches to a best-attainable plan and preserves more of the budget for other positions.
+- Shortlist labels now reflect the plan: e.g. Marquee target, Direct replacement, Best attainable replacement, Succession target, Lower-cost replacement/upgrade, Long-term replacement.
+- Choosing a manager target no longer resolves the manager request. A request stays live until a player is actually signed, declined, or closed until the next window.
+- If club/wage talks fail or the CEO closes the target file, the game returns to the same manager shortlist and the inbox recommendation remains actionable.
+- Successfully signing a shortlisted player resolves the request and prevents the shortlist from reopening.
+- Mobile manager-shortlist layout is top-anchored and viewport-scrollable so long shortlists/outgoing plans cannot hide the heading above the visible area.
+- PWA cache: football-ceo-v0.19.3-pwa-5.

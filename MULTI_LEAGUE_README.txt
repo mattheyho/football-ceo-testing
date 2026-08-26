@@ -57,3 +57,14 @@ Squad planning / SCR visibility
 - High-upside young development players are protected from being treated as obvious wage-cut candidates.
 - The CEO decides whether to follow the outgoing recommendation.
 - Finance now displays projected annual SCR sanctions using the same thresholds/formula as the actual season assessment.
+
+
+Recruitment investment planning
+- Manager recruitment now chooses an investment strategy before ranking targets.
+- Direct replacement: used when a recently sold starter can realistically be replaced close to the lost quality.
+- Best attainable replacement: used when the lost quality is not realistically available to the club; the manager fills the role at the strongest attainable level while preserving money for other needs.
+- Marquee/transformational signing: large usable budgets can be concentrated into one meaningful first-XI improvement rather than split across several marginal upgrades.
+- Succession: ageing-player requests prioritise younger comparable replacements.
+- Normal upgrade: ideal target should materially improve the current starter where the market/budget allows it.
+- Club reputation, player interest, availability, transfer cost and SCR still constrain every plan. A large budget does not make elite unavailable players realistically signable.
+- Manager shortlist requests remain open through negotiations; backing out or failing to agree terms returns to the shortlist.

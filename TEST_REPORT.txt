@@ -139,3 +139,42 @@ REGRESSION STABILITY — PASS
 - External-player transfer file still opens.
 - 40-day Palace smoke: ~111ms average headless logic day; ~561ms slowest sampled day; no JS/page errors.
 - Full Palace season: 304 days to 1 June; completed correctly; no JS/page errors; ~18.93s headless wall time with render/save UI stubbed.
+
+
+RECRUITMENT BALANCE REGRESSION — PASS
+Wolves £50m test:
+- Fresh Wolves squad had several possible upgrade areas around 75–77 OVR.
+- Recruitment planner identified genuine marquee opportunities rather than dividing £50m into four equal mini-budgets.
+- Generated manager request: LW marquee plan.
+- Marquee target: J. Grealish, 80 OVR, estimated £25.5m in this test run.
+- Alternatives retained a lower-cost upgrade and high-upside route.
+- No second optional marginal signing request was raised in the same manager review after the marquee plan.
+
+REPLACEMENT STRATEGY — PASS
+- Aston Villa Watkins test: 84 OVR starter lost; remaining starter 79.
+- Planner selected DIRECT REPLACEMENT strategy with target band around 81–84 OVR.
+- Artificial 90 OVR elite-player loss at Crystal Palace: equivalent quality was not realistically attainable.
+- Planner selected BEST ATTAINABLE strategy, identified an attainable ceiling around 84 OVR, and explicitly preserved budget for strengthening elsewhere.
+
+SUCCESSION RECRUITMENT — PASS
+- Ageing starter requests now search for a materially younger successor at comparable first-team level before considering ordinary value options.
+
+NEGOTIATION RETURN FLOW — PASS
+- Manager request remained unresolved after selecting a shortlist target.
+- Transfer/player negotiation opened normally.
+- Deliberately unacceptable wage offer was rejected.
+- Request remained live and recorded the failed target.
+- Closing the player transfer screen returned to the same manager shortlist.
+- Other shortlist options remained available; attempted target displayed a previous-terms-rejected note and could be resumed.
+- Successful signing test resolved/completed the request and did NOT reopen the shortlist.
+
+MOBILE SHORTLIST LAYOUT
+- Mobile CSS changed from bottom-anchored to top-anchored viewport scrolling.
+- Shortlist explicitly resets scroll position to the top whenever opened/reopened.
+- This addresses the real-device issue where the header/top of a long shortlist could sit above the reachable scroll area.
+- Physical iPhone verification remains for user playtesting; automated browser tests used a 390x844 viewport.
+
+STABILITY — PASS
+- Full 304-day Wolves season completed to 1 June with no JavaScript/page errors in automated headless testing.
+- Corrected imported ages remained intact (Yamal 18; Kane 32).
+- Existing v0.19.3 recruitment/SCR/database/signing-flow systems retained.

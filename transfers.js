@@ -640,11 +640,11 @@ function recruitmentBudgetPerNeed(position){
   return Math.min(budget,base*(1.05+aggression*.35));
 }
 
-function recruitmentFinancialFit(option,position){
+function recruitmentFinancialFit(option,position,plan=null){
   const p=option.player;
   const asking=option.asking||0;
   const wage=expectedTransferWage(p,state.club);
-  const perNeed=Math.max(1,recruitmentBudgetPerNeed(position));
+  const perNeed=Math.max(1,Number(plan?.budgetTarget||recruitmentBudgetPerNeed(position)));
   const dofRating=state.staff?.dof?.rating||65;
   const dofWeight=clamp((dofRating-60)/35,0.15,1);
   const current=typeof userSCRSnapshot==="function"?userSCRSnapshot():null;
@@ -679,6 +679,143 @@ function recruitmentFinancialFit(option,position){
 
   if(p.age<=22 && (p.potential||0)>=p.overall+4) score+=2.5*dofWeight;
   return score;
+}
+
+function managerRecruitmentTargetPlan(position,role="starter",context={}){
+  const budgetCap=Math.max(0,Number(context.budgetCap??managerRecruitmentUncommittedBudget()??state.budget??0));
+  const need=context.need||evaluateSquadNeeds(state.club).find(n=>n.position===position)||{};
+  const standards=need.standards||managerPositionStandard(position);
+  const currentStarter=Math.max(0,Number(need.weakestStarter||need.starter||standards.starter||70));
+  const currentStarterAge=Number(need.starterAge||26);
+  const lostOverall=Math.max(0,Number(context.replacementOverall||0));
+  const needType=context.needType||need.needType||"squad";
+  const vacancy=Boolean(context.vacancy&&lostOverall>0);
+  const investment=recruitmentInvestmentContext(state.club);
+  const scr=typeof userSCRSnapshot==="function"?userSCRSnapshot():null;
+  const revenue=investment.revenue||180_000_000;
+  const pool=realisticManagerTargetPool(position,100).filter(x=>(x.asking||0)<=budgetCap);
+  const rankQuality=(a,b)=>{
+    const oa=a.player.overall||0,ob=b.player.overall||0;
+    const pa=a.player.potential||oa,pb=b.player.potential||ob;
+    const sa=oa*3+pa*.25+a.interest*.12+(a.strategyFit||0)-(a.asking/1e6*.035);
+    const sb=ob*3+pb*.25+b.interest*.12+(b.strategyFit||0)-(b.asking/1e6*.035);
+    return sb-sa;
+  };
+  const best=[...pool].sort(rankQuality)[0]||null;
+
+  if(vacancy){
+    const direct=pool
+      .filter(x=>(x.player.overall||0)>=lostOverall-3)
+      .filter(x=>(x.asking||0)<=budgetCap*.90)
+      .sort(rankQuality)[0]||null;
+    if(direct){
+      return {
+        type:"direct-replacement",currentStarter,lostOverall,
+        preferredFloor:Math.max(currentStarter,lostOverall-2),
+        minimumFloor:Math.max(currentStarter,lostOverall-3),
+        budgetTarget:Math.max(1,budgetCap*.88),
+        labels:["Direct replacement","Lower-cost replacement","Long-term replacement"],
+        message:`The manager believes the quality lost can be replaced directly. Recruitment is targeting a ${positionLabel(position)} close to ${lostOverall} OVR without committing the entire budget.`
+      };
+    }
+    if(best){
+      const bestOvr=best.player.overall||0;
+      return {
+        type:"best-attainable",currentStarter,lostOverall,
+        preferredFloor:bestOvr,
+        minimumFloor:Math.max(currentStarter,bestOvr-1),
+        budgetTarget:Math.max(1,Math.min(budgetCap*.68,(best.asking||budgetCap)*1.15)),
+        labels:["Best attainable replacement","Value replacement","Long-term replacement"],
+        message:`A true ${lostOverall} OVR replacement is not realistically attainable in the current market. The manager wants the strongest realistic ${positionLabel(position)} available while preserving funds to strengthen elsewhere.`
+      };
+    }
+  }
+
+  // An ageing/succession request should replace age as well as ability. A 33-year-old
+  // should not be the ideal successor to another ageing first-choice player.
+  if(needType==="strategic" && role==="starter"){
+    const successor=pool
+      .filter(x=>(x.player.overall||0)>=currentStarter-1)
+      .filter(x=>(x.player.age||30)<=Math.max(27,currentStarterAge-3))
+      .sort(rankQuality)[0]||null;
+    if(successor){
+      return {
+        type:"succession",currentStarter,
+        preferredFloor:Math.max(currentStarter-1,successor.player.overall||0),
+        minimumFloor:currentStarter-1,
+        maxIdealAge:Math.max(27,currentStarterAge-3),
+        budgetTarget:Math.max(1,Math.min(budgetCap*.58,(successor.asking||budgetCap)*1.15)),
+        labels:["Succession target","Lower-cost successor","Long-term successor"],
+        message:`This is a succession plan rather than a depth signing: the manager wants a younger ${positionLabel(position)} who can take over without lowering the first-team level.`
+      };
+    }
+  }
+
+  // When the club has unusual spending power and a genuine +3 OVR attainable target,
+  // allow one transformational first-XI request rather than dividing the budget into
+  // several marginal upgrades.
+  const scrAllows=!scr || scr.ratio<=scr.limit || scr.headroom>=revenue*.035;
+  const strongBudget=budgetCap>=Math.max(30_000_000,revenue*.13);
+  if(role==="starter" && (needType==="upgrade"||needType==="opportunity") && strongBudget && scrAllows){
+    const marquee=pool
+      .filter(x=>(x.player.overall||0)>=currentStarter+3)
+      .filter(x=>(x.asking||0)<=budgetCap*.82)
+      .sort(rankQuality)[0]||null;
+    if(marquee){
+      return {
+        type:"marquee",currentStarter,
+        preferredFloor:Math.max(currentStarter+3,(marquee.player.overall||0)-1),
+        minimumFloor:currentStarter+2,
+        budgetTarget:Math.max(1,budgetCap*.80),
+        marqueePlayerId:marquee.player.id,
+        labels:["Marquee target","Lower-cost upgrade","High-upside option"],
+        message:`The available budget creates an opportunity to raise the ceiling of the team. The manager would rather fund one clear first-XI upgrade than spread the money across several marginal improvements.`
+      };
+    }
+  }
+
+  if(role==="starter" && (needType==="upgrade"||needType==="opportunity")){
+    const clearUpgrade=pool.filter(x=>(x.player.overall||0)>=currentStarter+2).sort(rankQuality)[0]||null;
+    if(clearUpgrade){
+      return {
+        type:"upgrade",currentStarter,
+        preferredFloor:currentStarter+2,minimumFloor:currentStarter+1,
+        budgetTarget:Math.max(1,recruitmentBudgetPerNeed(position)),
+        labels:["Ideal target","Value alternative","High-upside option"],
+        message:`The manager is looking for a meaningful first-team improvement, not another player at roughly the same level as the current starter.`
+      };
+    }
+    if(best){
+      return {
+        type:"best-value",currentStarter,
+        preferredFloor:Math.max(currentStarter,best.player.overall||0),
+        minimumFloor:currentStarter,
+        budgetTarget:Math.max(1,Math.min(recruitmentBudgetPerNeed(position),(best.asking||budgetCap)*1.15)),
+        labels:["Best attainable upgrade","Value alternative","High-upside option"],
+        message:`A major upgrade is not realistically available within the current budget, so the manager is prioritising the best attainable value without weakening the position.`
+      };
+    }
+  }
+
+  return {
+    type:"normal",currentStarter,
+    preferredFloor:role==="starter"?Math.max(currentStarter,standards.starter-1):0,
+    minimumFloor:role==="starter"?Math.max(currentStarter-1,standards.starter-2):0,
+    budgetTarget:Math.max(1,recruitmentBudgetPerNeed(position)),
+    labels:["Ideal target","Cheaper alternative","Young prospect"],
+    message:""
+  };
+}
+
+function managerRecruitmentPlanPriorityBonus(plan){
+  return ({"direct-replacement":18,marquee:15,"best-attainable":8,succession:6,upgrade:4,"best-value":2,normal:0})[plan?.type]||0;
+}
+
+function managerShortlistLabelClass(label=""){
+  if(/marquee/i.test(label)) return "marquee";
+  if(/direct replacement|best attainable/i.test(label)) return "replacement";
+  if(/succession/i.test(label)) return "succession";
+  return "normal";
 }
 
 function managerHealthyDepthForPosition(position,club=state.club){
@@ -802,100 +939,103 @@ function managerRecruitmentUncommittedBudget(){
 }
 
 function buildManagerShortlist(position,role="starter",context={}){
-  const rawPool=realisticManagerTargetPool(position,60);
+  const rawPool=realisticManagerTargetPool(position,100);
   if(!rawPool.length) return [];
   const budgetCap=Math.max(0,Number(context.budgetCap??state.budget??0));
   const affordable=rawPool.filter(x=>(x.asking||0)<=budgetCap);
   if(!affordable.length) return [];
   const pool=affordable;
 
-  const need=evaluateSquadNeeds(state.club).find(n=>n.position===position);
-  const standards=need?.standards || managerPositionStandard(position);
-  const currentStarter=need?.starter||standards.starter||70;
+  const need=context.need||evaluateSquadNeeds(state.club).find(n=>n.position===position)||{};
+  const standards=need.standards || managerPositionStandard(position);
+  const currentStarter=need.weakestStarter||need.starter||standards.starter||70;
   const replacementTarget=Math.max(0,Number(context.replacementOverall||0));
   const explicitStarterReplacement=Boolean(context.vacancy&&role==="starter"&&replacementTarget>0);
+  const plan=context.plan||managerRecruitmentTargetPlan(position,role,{...context,need});
 
-  const roleFloor =
+  const baseFloor =
     role==="starter" ? Math.max(currentStarter-1,standards.starter-2,explicitStarterReplacement?replacementTarget-3:0) :
     role==="competition" ? Math.max(standards.competition-3,currentStarter-5) :
     role==="prospect" ? 58 :
     Math.max(standards.backup-4,64);
+  const minimumFloor=Math.max(baseFloor,Number(plan?.minimumFloor||0));
+  const preferredFloor=Math.max(minimumFloor,Number(plan?.preferredFloor||minimumFloor));
 
   const roleCeiling =
     role==="prospect" ? Math.max(72,currentStarter-5) :
-    role==="backup" ? Math.max(roleFloor+8,currentStarter-2) :
-    role==="competition" ? Math.max(roleFloor+6,currentStarter+1) :
+    role==="backup" ? Math.max(minimumFloor+8,currentStarter-2) :
+    role==="competition" ? Math.max(minimumFloor+6,currentStarter+1) :
     99;
 
-  const rolePool=pool.filter(x=>{
+  let usable=pool.filter(x=>{
     const o=x.player.overall||0;
-    if(role==="starter") return o>=roleFloor;
-    if(role==="competition") return o>=roleFloor && o<=roleCeiling;
+    if(role==="starter") return o>=minimumFloor;
+    if(role==="competition") return o>=minimumFloor && o<=roleCeiling;
     if(role==="prospect"){
       const potential=x.player.potential||o;
-      return x.player.age<=22 && o>=roleFloor && o<=roleCeiling && potential>=Math.max(standards.competition,currentStarter-2);
+      return x.player.age<=22 && o>=minimumFloor && o<=roleCeiling && potential>=Math.max(standards.competition,currentStarter-2);
     }
-    return o>=roleFloor && o<=roleCeiling;
+    return o>=minimumFloor && o<=roleCeiling;
   });
 
-  // A genuine first-choice replacement must not silently collapse into a
-  // depth search just because the remaining squad is weaker. If the exact
-  // quality band is unavailable, relax by only two additional OVR points.
-  let usable=rolePool.length?rolePool:pool;
-  if(explicitStarterReplacement && !rolePool.length){
-    const relaxedFloor=Math.max(currentStarter, replacementTarget-5);
-    const relaxed=pool.filter(x=>(x.player.overall||0)>=relaxedFloor);
-    usable=relaxed.length?relaxed:[];
+  if(explicitStarterReplacement && !usable.length){
+    const relaxedFloor=Math.max(currentStarter,replacementTarget-5);
+    usable=pool.filter(x=>(x.player.overall||0)>=relaxedFloor);
   }
   if(!usable.length) return [];
 
-  // Option 1: ideal for the REQUESTED ROLE, not simply best player available.
-  const ideal=[...usable].sort((a,b)=>{
-    const oa=a.player.overall||0, ob=b.player.overall||0;
-    let scoreA=(oa*2.5)+(a.interest*.18)+(a.player.potential||oa)*.18-(a.asking/1e6*.08)+recruitmentFinancialFit(a,position)+(a.strategyFit||0);
-    let scoreB=(ob*2.5)+(b.interest*.18)+(b.player.potential||ob)*.18-(b.asking/1e6*.08)+recruitmentFinancialFit(b,position)+(b.strategyFit||0);
+  let idealPool=usable.filter(x=>(x.player.overall||0)>=preferredFloor);
+  if(plan?.maxIdealAge!=null){
+    const younger=idealPool.filter(x=>(x.player.age||99)<=plan.maxIdealAge);
+    if(younger.length) idealPool=younger;
+  }
+  if(!idealPool.length) idealPool=usable;
 
-    // Backups should not be overqualified; prospects are scored primarily on upside.
-    if(role==="backup"){
-      scoreA-=Math.max(0,oa-currentStarter+1)*1.4;
-      scoreB-=Math.max(0,ob-currentStarter+1)*1.4;
-    }
-    if(role==="prospect"){
-      scoreA+=(a.player.potential||oa)*1.5-a.player.age*1.2;
-      scoreB+=(b.player.potential||ob)*1.5-b.player.age*1.2;
-    }
-    return scoreB-scoreA;
-  })[0];
+  const scoreOption=x=>{
+    const o=x.player.overall||0,pot=x.player.potential||o;
+    let score=(o*2.75)+(x.interest*.17)+(pot*.18)-(x.asking/1e6*.055)+recruitmentFinancialFit(x,position,plan)+(x.strategyFit||0);
+    if(plan?.type==="marquee") score+=(o-currentStarter)*5.5;
+    if(plan?.type==="succession") score+=Math.max(0,30-(x.player.age||30))*1.4;
+    if(plan?.marqueePlayerId && String(x.player.id)===String(plan.marqueePlayerId)) score+=5;
+    if(role==="backup") score-=Math.max(0,o-currentStarter+1)*1.4;
+    if(role==="prospect") score+=pot*1.5-x.player.age*1.2;
+    return score;
+  };
 
-  // Option 2: cheaper alternative, still role-appropriate.
+  const ideal=[...idealPool].sort((a,b)=>scoreOption(b)-scoreOption(a))[0];
+  if(!ideal) return [];
+
+  // Alternative must genuinely save meaningful money and must not undermine the
+  // purpose of an upgrade/replacement request.
+  const alternativeFloor = plan?.type==="marquee" ? currentStarter+1 :
+    plan?.type==="direct-replacement" ? Math.max(currentStarter,replacementTarget-5) :
+    plan?.type==="best-attainable" ? Math.max(currentStarter,(plan.preferredFloor||currentStarter)-2) :
+    role==="starter" ? Math.max(currentStarter,minimumFloor) : minimumFloor;
   const cheaper=usable
-    .filter(x=>x.player.id!==ideal?.player.id)
-    // A cheaper alternative must actually be materially cheaper. If no credible
-    // option exists, omit this card rather than applying a misleading label.
-    .filter(x=>x.asking<=ideal.asking*.80)
+    .filter(x=>x.player.id!==ideal.player.id)
+    .filter(x=>x.asking<=ideal.asking*.82)
+    .filter(x=>(x.player.overall||0)>=alternativeFloor)
     .sort((a,b)=>{
-      const oa=a.player.overall||0, ob=b.player.overall||0;
-      return ((ob*2)-(b.asking/1e6*.28)+recruitmentFinancialFit(b,position)+(b.strategyFit||0))-((oa*2)-(a.asking/1e6*.28)+recruitmentFinancialFit(a,position)+(a.strategyFit||0));
+      const oa=a.player.overall||0,ob=b.player.overall||0;
+      return ((ob*2.1)-(b.asking/1e6*.25)+recruitmentFinancialFit(b,position,plan)+(b.strategyFit||0))-((oa*2.1)-(a.asking/1e6*.25)+recruitmentFinancialFit(a,position,plan)+(a.strategyFit||0));
     })[0];
 
-  // Option 3: prospect. This can sit below immediate role standard if upside is strong.
   const used=new Set([ideal?.player.id,cheaper?.player.id].filter(Boolean));
-  const prospect=pool
+  let prospect=pool
     .filter(x=>!used.has(x.player.id))
     .filter(x=>x.player.age<=22)
     .filter(x=>!explicitStarterReplacement || (x.player.overall||0)>=Math.max(currentStarter-1,replacementTarget-8))
     .filter(x=>(x.player.potential||x.player.overall)>=Math.max(standards.competition,currentStarter,explicitStarterReplacement?replacementTarget-1:0))
     .sort((a,b)=>{
-      const pa=a.player.potential||a.player.overall;
-      const pb=b.player.potential||b.player.overall;
-      return ((pb*2.5)+(b.interest*.15)-(b.asking/1e6*.08)+recruitmentFinancialFit(b,position)+(b.strategyFit||0))-((pa*2.5)+(a.interest*.15)-(a.asking/1e6*.08)+recruitmentFinancialFit(a,position)+(a.strategyFit||0));
-    })[0]
-    || pool.find(x=>!used.has(x.player.id) && x.player.age<=23);
+      const pa=a.player.potential||a.player.overall,pb=b.player.potential||b.player.overall;
+      return ((pb*2.6)+(b.interest*.14)-(b.asking/1e6*.06)+recruitmentFinancialFit(b,position,plan)+(b.strategyFit||0))-((pa*2.6)+(a.interest*.14)-(a.asking/1e6*.06)+recruitmentFinancialFit(a,position,plan)+(a.strategyFit||0));
+    })[0] || pool.find(x=>!used.has(x.player.id)&&x.player.age<=23);
 
+  const labels=plan?.labels||["Ideal target","Cheaper alternative","Young prospect"];
   const out=[];
-  if(ideal) out.push({...ideal,role:role==="prospect"?"Best prospect":"Ideal target"});
-  if(cheaper&&!out.some(x=>x.player.id===cheaper.player.id)) out.push({...cheaper,role:role==="prospect"?"Value prospect":"Cheaper alternative"});
-  if(prospect&&!out.some(x=>x.player.id===prospect.player.id)) out.push({...prospect,role:"Young prospect"});
+  if(ideal) out.push({...ideal,role:role==="prospect"?"Best prospect":labels[0],planType:plan?.type||"normal"});
+  if(cheaper&&!out.some(x=>x.player.id===cheaper.player.id)) out.push({...cheaper,role:role==="prospect"?"Value prospect":labels[1],planType:plan?.type||"normal"});
+  if(prospect&&!out.some(x=>x.player.id===prospect.player.id)) out.push({...prospect,role:labels[2],planType:plan?.type||"normal"});
   return out.slice(0,3);
 }
 
@@ -950,7 +1090,7 @@ function maybeGenerateManagerSquadRequest(){
   // Explicit vacancies from sales.
   if(transferWindowOpen){
     (state.managerSquadVacancies||[]).filter(v=>!v.filled).forEach(v=>{
-      options.push({type:"sign",position:v.position,squadRole:v.role||"starter",priority:14,urgency:"critical",vacancy:true,replacementOverall:v.replacementTargetOverall||v.soldOverall||0,replacementName:v.soldPlayerName,reason:`A ${v.role||"starter"} replacement is needed after ${v.soldPlayerName}'s departure.`});
+      options.push({type:"sign",position:v.position,squadRole:v.role||"starter",priority:14,urgency:"critical",vacancy:true,replacementOverall:v.replacementTargetOverall||v.soldOverall||0,replacementName:v.soldPlayerName,needSnapshot:needs.find(n=>n.position===v.position)||null,reason:`A ${v.role||"starter"} replacement is needed after ${v.soldPlayerName}'s departure.`});
     });
   }
 
@@ -973,6 +1113,7 @@ function maybeGenerateManagerSquadRequest(){
         priority,
         urgency:need.score>=72?"critical":need.score>=50?"important":"normal",
         needType:need.needType||"squad",
+        needSnapshot:need,
         reason:need.reason
       });
     });
@@ -1048,30 +1189,52 @@ function maybeGenerateManagerSquadRequest(){
   for(let requestIndex=0;requestIndex<maxRequests;requestIndex++){
     if(!options.length) break;
 
-    // Prioritise starter > competition > backup when scores are comparable.
+    // Re-evaluate investment plans against the genuinely uncommitted budget.
+    // Direct replacements and a genuine marquee opportunity outrank several
+    // marginal starter upgrades when the money supports that choice.
+    options.forEach(o=>{
+      if(o.type!=="sign") return;
+      o.recruitmentPlan=managerRecruitmentTargetPlan(o.position,o.squadRole||"starter",{
+        vacancy:Boolean(o.vacancy),replacementOverall:o.replacementOverall||0,
+        budgetCap:requestBudgetRemaining,needType:o.needType,need:o.needSnapshot||null
+      });
+    });
     options.sort((a,b)=>{
       const roleWeight=r=>r==="starter"?12:r==="competition"?7:r==="backup"?3:0;
-      const scoreA=(a.priority||0)+roleWeight(a.squadRole);
-      const scoreB=(b.priority||0)+roleWeight(b.squadRole);
+      const scoreA=(a.priority||0)+roleWeight(a.squadRole)+managerRecruitmentPlanPriorityBonus(a.recruitmentPlan);
+      const scoreB=(b.priority||0)+roleWeight(b.squadRole)+managerRecruitmentPlanPriorityBonus(b.recruitmentPlan);
       return scoreB-scoreA;
     });
 
     const pick=options.shift();
     if(pick.type==="sign"){
       if(requestBudgetRemaining<5_000_000 && !pick.vacancy) continue;
+      const plan=pick.recruitmentPlan||managerRecruitmentTargetPlan(pick.position,pick.squadRole||"starter",{
+        vacancy:Boolean(pick.vacancy),replacementOverall:pick.replacementOverall||0,
+        budgetCap:requestBudgetRemaining,needType:pick.needType,need:pick.needSnapshot||null
+      });
       const shortlist=buildManagerShortlist(pick.position,pick.squadRole||"starter",{
         vacancy:Boolean(pick.vacancy),
         replacementOverall:pick.replacementOverall||0,
-        budgetCap:requestBudgetRemaining
+        budgetCap:requestBudgetRemaining,
+        needType:pick.needType,
+        need:pick.needSnapshot||null,
+        plan
       });
       if(!shortlist.length) continue;
       pick.playerId=shortlist[0].player.id;
       pick.alternatives=shortlist.slice(1).map(x=>x.player.id);
-      pick.shortlist=shortlist.map(x=>({playerId:x.player.id,role:x.role,asking:x.asking,interest:x.interest}));
+      pick.shortlist=shortlist.map(x=>({playerId:x.player.id,role:x.role,asking:x.asking,interest:x.interest,planType:x.planType||plan.type}));
+      pick.recruitmentPlan={type:plan.type,message:plan.message,labels:plan.labels,currentStarter:plan.currentStarter,lostOverall:plan.lostOverall||0,preferredFloor:plan.preferredFloor||0};
+      if(plan.message) pick.reason=`${pick.reason||""} ${plan.message}`.trim();
       // Improvement recruitment must also plan the OUT side of the squad.
       // An explicit replacement vacancy does not create an outgoing suggestion.
       pick.outgoingRecommendation=pick.vacancy?null:managerOutgoingRecommendation(pick.position,{incomingRole:pick.squadRole});
       requestBudgetRemaining=Math.max(0,requestBudgetRemaining-(shortlist[0].asking||0));
+      // Once the manager has committed to a transformational signing, do not
+      // immediately dilute that plan with another optional marginal upgrade in
+      // the same review. Genuine replacement vacancies may still be raised.
+      if(plan.type==="marquee") options=options.filter(o=>o.type!=="sign"||o.vacancy);
     }
     const p=DB.players.find(x=>String(x.id)===String(pick.playerId));
     if(!p) continue;
@@ -1104,6 +1267,7 @@ function maybeGenerateManagerSquadRequest(){
       replacementOverall:pick.replacementOverall||0,
       replacementName:pick.replacementName||null,
       outgoingRecommendation:pick.outgoingRecommendation||null,
+      recruitmentPlan:pick.recruitmentPlan||null,
       reminder:Boolean(reminderMemory?.count),
       resolved:false,
       manager:manager.name
@@ -1126,7 +1290,7 @@ function maybeGenerateManagerSquadRequest(){
         : "";
       wording=req.reminder
         ? `Reminder — ${manager.name} still believes the squad needs a ${roleLabel} ${positionLabel(pick.position)}. His shortlist has been refreshed and is ready for review.${outgoingText}`
-        : `${manager.name} wants a ${roleLabel} ${positionLabel(pick.position)} for the ${managerFormationForClub(state.club)}. A three-player shortlist is ready for review.${pick.reason?` ${pick.reason}`:""}${outgoingText}`;
+        : `${manager.name} wants a ${roleLabel} ${positionLabel(pick.position)} for the ${managerFormationForClub(state.club)}. A shortlist is ready for review.${pick.reason?` ${pick.reason}`:""}${outgoingText}`;
     }else if(pick.type==="renew"){
       wording=`${manager.name} wants the club to open contract talks with ${p.name}.`;
     }else if(pick.type==="transfer"){
@@ -3060,6 +3224,8 @@ function managerSquadNeedsFromFormation(club){
       needType,
       formation:depth.formation,
       starter:starters[0]?.overall||0,
+      weakestStarter:weakestStarter||starters[0]?.overall||0,
+      starterAge:starters[starters.length-1]?.age||starters[0]?.age||26,
       second:bestBackup,
       depth:starters.length+backups.length,
       standards:{starter:starterStandard,competition:competitionStandard,backup:backupStandard},
@@ -3635,26 +3801,14 @@ function managerRecruitmentInterestView(player,context={},activeNegotiation=null
   if(!selectedMatches && !shortlistEntry) return null;
 
   const role=selectedMatches ? req.selectedRole : shortlistEntry?.role;
-  if(role==="Ideal target"){
-    return {
-      label:"Ideal target — manager requested signing",
-      score:100,
-      role
-    };
+  if(/Ideal target|Marquee target|Direct replacement|Best attainable replacement|Succession target|Best attainable upgrade/i.test(role||"")){
+    return {label:`${role} — manager requested signing`,score:100,role};
   }
-  if(role==="Cheaper alternative"){
-    return {
-      label:"Interested — manager-approved alternative",
-      score:85,
-      role
-    };
+  if(/alternative|Lower-cost|Value replacement|Value prospect/i.test(role||"")){
+    return {label:"Interested — manager-approved alternative",score:85,role};
   }
-  if(role==="Young prospect"){
-    return {
-      label:"Interested — manager-approved prospect",
-      score:78,
-      role
-    };
+  if(/prospect|High-upside|Long-term/i.test(role||"")){
+    return {label:"Interested — manager-approved prospect",score:78,role};
   }
 
   return {
@@ -3672,6 +3826,9 @@ function transferDossier(p){
   const wage=expectedTransferWage(p,state.club);
   return {interest,manager,dof,asking,wage};
 }
+
+let ACTIVE_TRANSFER_PLAYER_ID=null;
+let ACTIVE_TRANSFER_CONTEXT={};
 
 function ensureTransferPlayerModal(){
   if(document.getElementById("transferPlayerModal")) return;
@@ -3742,6 +3899,8 @@ function openTransferPlayerFile(id,context={}){
     openPlayerProfile(p.id);
     return;
   }
+  ACTIVE_TRANSFER_PLAYER_ID=p.id;
+  ACTIVE_TRANSFER_CONTEXT={...(context||{})};
   ensureTransferPlayerModal();
   const d=transferDossier(p);
   const expectedCost=expectedTransferCost(p,state.club);
@@ -3785,8 +3944,25 @@ function openTransferPlayerFile(id,context={}){
   if(active) renderTransferNegotiation(p.id);
 }
 
-function closeTransferPlayerFile(){
+function closeTransferPlayerFile(options={}){
+  const playerId=ACTIVE_TRANSFER_PLAYER_ID;
+  const context=ACTIVE_TRANSFER_CONTEXT||{};
+  const negotiation=playerId!=null?state.transferNegotiations?.[playerId]:null;
+  const requestId=context.managerRequestId||negotiation?.managerRequestId||null;
+
   q("transferPlayerModal")?.classList.add("hide");
+  ACTIVE_TRANSFER_PLAYER_ID=null;
+  ACTIVE_TRANSFER_CONTEXT={};
+
+  if(options.returnToManagerShortlist===false || !requestId) return;
+  const req=state.managerRequests?.find(r=>String(r.id)===String(requestId));
+  if(!req || req.resolved || req.type!=="sign") return;
+
+  // Closing an unsuccessful/unfinished target takes the CEO back to the same
+  // live shortlist. The inbox request also remains available if they close that.
+  const reopen=()=>openManagerShortlist(req.id);
+  if(typeof requestAnimationFrame==="function") requestAnimationFrame(reopen);
+  else setTimeout(reopen,0);
 }
 
 
@@ -3873,8 +4049,9 @@ function renderTransferNegotiation(id){
   if(n.status==="withdrawn"){
     area.innerHTML=`<div class="transfer-box"><b>Approach withdrawn.</b><br><span class="muted small">${n.message||"You ended the transfer talks."}</span><div style="margin-top:10px"><button class="btn secondary" id="restartTransferApproach">Start new approach</button></div></div>`;
     q("restartTransferApproach")?.addEventListener("click",()=>{
+      const managerRequestId=n.managerRequestId||null;
       delete state.transferNegotiations[p.id];
-      beginTransferApproach(p.id);
+      beginTransferApproach(p.id,{managerRequestId});
     });
     return;
   }
@@ -4087,6 +4264,12 @@ function submitNewSigningTerms(id){
   if(!decision.accepted){
     n.status="clubAccepted";
     n.contractDemand=decision.demand;
+    const managerReq=n.managerRequestId?state.managerRequests?.find(r=>r.id===n.managerRequestId):null;
+    if(managerReq){
+      managerReq.failedTargetIds=Array.from(new Set([...(managerReq.failedTargetIds||[]),p.id]));
+      managerReq.lastFailedReason="Contract terms rejected";
+      managerReq.resolved=false;
+    }
     addNews(`${p.name}'s representatives rejected ${state.club}'s contract offer.`);
     const area=q("transferNegotiationArea");
     if(area){
@@ -4116,6 +4299,12 @@ function submitNewSigningTerms(id){
   // stop the manager immediately asking for the same thing again.
   const req=n.managerRequestId ? state.managerRequests?.find(r=>r.id===n.managerRequestId) : null;
   if(req?.type==="sign"){
+    req.resolved=true;
+    req.completed=true;
+    req.selectedPlayerId=p.id;
+    req.completedPlayerId=p.id;
+    req.completedDay=currentCareerDay();
+    state.managerBacking=clamp((state.managerBacking||70)+managerBackingForShortlistLabel(req.selectedRole||""),0,100);
     const signedGroup=primaryRecruitmentGroup(p);
 
     (state.managerSquadVacancies||[])
@@ -4148,7 +4337,7 @@ function submitNewSigningTerms(id){
   state.transferSentiment.owners.push({label:`Transfer spending on ${p.name}`,value:n.agreedFee>(p.value||0)*1.25?-3:1});
   addNews(`${state.club} have signed ${p.name} from ${oldClub} for ${money(n.agreedFee)}. ${p.name} has agreed a ${years}-year contract worth ${money(wage)}/week.`);
   saveGame(false);
-  closeTransferPlayerFile();
+  closeTransferPlayerFile({returnToManagerShortlist:false});
   renderAll();
 }
 
@@ -5040,7 +5229,7 @@ function openManagerShortlist(requestId){
     backup:"backup"
   }[req.squadRole] || "";
   q("managerShortlistTitle").textContent=`New ${roleLabel} ${positionLabel(req.position)} shortlist`;
-  q("managerShortlistIntro").textContent=`${req.manager} has presented three realistic approaches for this ${roleLabel||"squad"} role.${req.reason?` ${req.reason}`:""}`;
+  q("managerShortlistIntro").textContent=`${req.manager} has presented realistic approaches for this ${roleLabel||"squad"} role.${req.reason?` ${req.reason}`:""}`;
   const outgoing=req.outgoingRecommendation;
   const outgoingPlayer=outgoing?DB.players.find(p=>String(p.id)===String(outgoing.playerId)):null;
   const outgoingPlan=outgoing&&outgoingPlayer?`
@@ -5059,7 +5248,7 @@ function openManagerShortlist(requestId){
     </div>`:"";
   q("managerShortlistOptions").innerHTML=outgoingPlan+shortlist.map((x,i)=>{
     const p=x.player, tag=x.role||["Ideal target","Cheaper alternative","Young prospect"][i];
-    return `<div class="manager-shortlist-option">
+    return `<div class="manager-shortlist-option ${managerShortlistLabelClass(tag)}">
       <div class="manager-shortlist-top">
         <div><span class="shortlist-role">${tag}</span><h3>${p.name}</h3><div class="muted small">${p.club} • ${p.age} yrs • ${p.positions}</div></div>
         <div class="rating">${p.overall}</div>
@@ -5069,37 +5258,47 @@ function openManagerShortlist(requestId){
         <div><span>Est. price</span><b>${money(x.asking||estimatedAskingPrice(p,state.club))}</b></div>
         <div><span>Interest</span><b>${Math.round(x.interest??playerInterestScore(p,state.club))}%</b></div>
       </div>
-      <button class="btn ${i===0?"primary":"secondary"} pursue-shortlist-btn" data-request-id="${req.id}" data-player-id="${p.id}" data-role="${tag}">Pursue ${tag.toLowerCase()}</button>
+      ${req.failedTargetIds?.some(id=>String(id)===String(p.id))?`<div class="manager-target-note">Previous contract offer rejected — you can resume talks or choose another option.</div>`:""}
+      <button class="btn ${i===0?"primary":"secondary"} pursue-shortlist-btn" data-request-id="${req.id}" data-player-id="${p.id}" data-role="${tag}">${req.failedTargetIds?.some(id=>String(id)===String(p.id))?"Resume talks":"Pursue "+tag.toLowerCase()}</button>
     </div>`;
   }).join("");
 
   document.querySelectorAll(".pursue-shortlist-btn").forEach(btn=>btn.addEventListener("click",()=>pursueManagerShortlistTarget(btn.dataset.requestId,btn.dataset.playerId,btn.dataset.role)));
   document.querySelectorAll(".manager-list-outgoing-btn").forEach(btn=>btn.addEventListener("click",()=>approveManagerOutgoingRecommendation(btn.dataset.requestId)));
-  q("managerShortlistModal").classList.remove("hide");
+  const modal=q("managerShortlistModal");
+  modal.classList.remove("hide");
+  modal.scrollTop=0;
+  const card=modal.querySelector(".manager-shortlist-card");
+  if(card) card.scrollTop=0;
+}
+
+function managerBackingForShortlistLabel(role=""){
+  if(/Marquee target|Direct replacement|Ideal target|Best attainable replacement|Succession target/i.test(role)) return 4;
+  if(/alternative|Lower-cost|Value/i.test(role)) return 2;
+  return 1;
 }
 
 function pursueManagerShortlistTarget(requestId,playerId,role){
   const req=state.managerRequests?.find(r=>r.id===requestId);
   const p=DB.players.find(x=>String(x.id)===String(playerId));
   if(!req||!p) return;
-  req.resolved=true;
+
+  // Choosing a player is NOT resolving the manager request. The request remains
+  // live until a signing is completed, explicitly declined, or closed for the
+  // window. This lets the CEO return to the other shortlist options if club/wage
+  // negotiations fail.
   req.selectedPlayerId=p.id;
   req.selectedRole=role;
-  state.managerBacking=clamp((state.managerBacking||70)+(role==="Ideal target"?4:role==="Cheaper alternative"?2:1),0,100);
-  addNews(`You selected ${p.name} as the ${role.toLowerCase()} for ${req.manager}'s ${positionLabel(req.position)} request.`);
+  req.lastApproachedPlayerId=p.id;
+  req.lastApproachDay=currentCareerDay();
+  addNews(`You chose to approach ${p.name} as the ${role.toLowerCase()} for ${req.manager}'s ${positionLabel(req.position)} request.`);
 
-  // Refresh the underlying dashboard FIRST. In the previous order the transfer
-  // file could be opened and then immediately overwritten by the full-inbox /
-  // dashboard redraw on some Safari/PWA paths.
   q("managerShortlistModal")?.classList.add("hide");
   saveGame(false);
   renderInbox();
   renderDashboard();
 
-  // Give Safari one paint frame after closing the shortlist, then make the
-  // transfer file the final UI action. This also works when launched from the
-  // expanded/full inbox view.
-  const openTarget=()=>openTransferPlayerFile(p.id,{managerRequestId:req.id});
+  const openTarget=()=>openTransferPlayerFile(p.id,{managerRequestId:req.id,returnToManagerShortlist:true});
   if(typeof requestAnimationFrame==="function") requestAnimationFrame(openTarget);
   else setTimeout(openTarget,0);
 }

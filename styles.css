@@ -640,7 +640,7 @@ nav button.active{background:#351426;color:var(--villa-sky);border-color:#75405b
 .shortlist-metrics>div{border:1px solid var(--line);border-radius:9px;padding:8px}
 .shortlist-metrics span{display:block;color:var(--muted);font-size:8px;text-transform:uppercase}
 .shortlist-metrics b{display:block;margin-top:2px;font-size:12px}
-@media(max-width:480px){.manager-shortlist-overlay{padding:0;align-items:flex-end}.manager-shortlist-card{min-height:100dvh;border-radius:0;padding:14px 10px calc(18px + env(safe-area-inset-bottom))}}
+@media(max-width:480px){.manager-shortlist-overlay{padding:0;align-items:flex-start;justify-content:flex-start;display:block;height:100dvh;max-height:100dvh;overflow-y:auto;-webkit-overflow-scrolling:touch}.manager-shortlist-card{width:100%;min-height:100dvh;border-radius:0;padding:calc(14px + env(safe-area-inset-top)) 10px calc(18px + env(safe-area-inset-bottom));overflow:visible}}
 
 .offer-season-stats{margin:10px 0;padding:10px;border:1px solid var(--line);border-radius:10px}
 @media(max-width:480px){
@@ -1315,3 +1315,9 @@ html.modal-open,body.modal-open{overflow:hidden!important;height:100%!important}
   .manager-squad-plan-row{align-items:flex-start;flex-direction:column}
   .manager-squad-plan-row .btn{width:100%}
 }
+
+/* v0.19.3 recruitment balance / negotiation-return tweak */
+.manager-shortlist-option.marquee{border-color:rgba(255,217,121,.45)}
+.manager-shortlist-option.replacement{border-color:rgba(145,205,238,.42)}
+.manager-shortlist-option.succession{border-color:rgba(139,230,177,.38)}
+.manager-target-note{margin:8px 0 2px;font-size:9px;line-height:1.35;color:var(--muted)}
