@@ -1293,3 +1293,25 @@ html.modal-open,body.modal-open{overflow:hidden!important;height:100%!important}
 .season-prep-progress span{display:block;height:100%;width:0;border-radius:999px;background:currentColor;transition:width .18s ease;}
 .season-prep-status{min-height:24px;font-weight:650;}
 .saudi-premium-notice{margin-bottom:12px;}
+
+
+/* v0.19.3 squad-planning + SCR projection */
+.manager-squad-plan{
+  border:1px solid rgba(145,205,238,.32);border-radius:14px;padding:12px;margin:10px 0 14px;
+  background:rgba(16,40,62,.42)
+}
+.manager-squad-plan-row{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-top:5px}
+.manager-squad-plan-row>div{min-width:0}
+.manager-squad-plan-row .btn{flex:none;width:auto}
+.scr-projected-sanction{
+  margin-top:10px;padding:10px 12px;border-radius:10px;border:1px solid rgba(255,217,121,.38);
+  background:rgba(255,217,121,.06);font-size:10px;line-height:1.45
+}
+.scr-projected-sanction.breach,.scr-projected-sanction.severe{
+  border-color:rgba(255,157,157,.48);background:rgba(255,157,157,.07)
+}
+.scr-card.scr-warning{border-color:rgba(255,217,121,.5)}
+@media(max-width:520px){
+  .manager-squad-plan-row{align-items:flex-start;flex-direction:column}
+  .manager-squad-plan-row .btn{width:100%}
+}

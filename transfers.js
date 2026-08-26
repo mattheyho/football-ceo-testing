@@ -681,6 +681,113 @@ function recruitmentFinancialFit(option,position){
   return score;
 }
 
+function managerHealthyDepthForPosition(position,club=state.club){
+  // Two credible first-team options per formation slot is a healthy senior
+  // squad shape. High-upside U21 prospects can sit outside that senior quota.
+  const required=managerRequiredStartingSlots(position,club);
+  return Math.max(2,required*2);
+}
+
+function managerOutgoingRecommendation(position,context={}){
+  ensureContractState();
+  const club=context.club||state.club;
+  if(club!==state.club) return null;
+
+  const required=managerRequiredStartingSlots(position,club);
+  const healthyDepth=managerHealthyDepthForPosition(position,club);
+  const standard=managerPositionStandard(position);
+  const all=clubSquadPlayers(club)
+    .filter(p=>playsPositionGroup(p,position))
+    .filter(p=>state.playerListStatus?.[p.id]!=="Transfer");
+
+  // Protect genuine high-upside youngsters from being counted as costly senior
+  // congestion. They can coexist with the normal two-per-slot first-team plan.
+  const senior=all.filter(p=>{
+    const age=p.age||25,ovr=p.overall||0,pot=p.potential||ovr;
+    // Protect genuine development assets up to age 23 from being treated as
+    // disposable senior congestion simply because the first team is crowded.
+    const developmentAsset=age<=23 && pot>=Math.max(standard.expectedDepth||72,ovr+3);
+    return !developmentAsset;
+  });
+
+  // If an incoming player would take the senior pool above healthy depth, the
+  // manager should pair the recruitment request with an outgoing recommendation.
+  if(senior.length+1<=healthyDepth) return null;
+
+  const selection=typeof managerSelectXI==="function"?managerSelectXI(club):null;
+  const starterIds=new Set((selection?.xi||[]).filter(x=>x.playerId).map(x=>String(x.playerId)));
+  const week=Math.max(1,state.week||1);
+
+  const candidates=senior
+    .filter(p=>!starterIds.has(String(p.id)))
+    .filter(p=>!playerRecentlyTransferred(p,180))
+    .map(p=>{
+      const wage=state.playerContracts?.[p.id]?.wage??p.wage??0;
+      const stats=state.playerStats?.[p.id]||{};
+      const apps=stats.appearances||0;
+      const starts=stats.starts||0;
+      const appearanceRate=apps/week;
+      const contract=state.playerContracts?.[p.id];
+      const yearsLeft=Math.max(0,(contract?.endYear??p.contract??currentContractSeasonEndYear())-currentSeasonStartYear());
+      const ovr=p.overall||0;
+      const pot=p.potential||ovr;
+      const versatility=playerPositionTokens(p).length;
+
+      // Higher score = more logical player to move on:
+      // fringe status + high wage + age + low upside + low usage.
+      let score=0;
+      score+=(standard.expectedStarter-ovr)*1.25;
+      score+=Math.min(22,wage/6500);
+      score+=Math.max(0,(p.age||25)-27)*2.0;
+      score+=Math.max(0,3-(pot-ovr))*1.3;
+      score+=appearanceRate<0.25?7:appearanceRate<0.50?3:0;
+      score+=starts===0&&state.week>=4?3:0;
+      score+=yearsLeft<=1?3:0;
+      score-=Math.max(0,versatility-2)*1.2;
+      if(typeof isClubStarPlayer==="function"&&isClubStarPlayer(p,club)) score-=14;
+
+      return {p,wage,score,apps,starts,yearsLeft};
+    })
+    .sort((a,b)=>b.score-a.score);
+
+  if(!candidates.length) return null;
+  const x=candidates[0];
+  const value=typeof dynamicPlayerMarketValue==="function"?dynamicPlayerMarketValue(x.p):(x.p.value||0);
+  return {
+    playerId:x.p.id,
+    playerName:x.p.name,
+    overall:x.p.overall||0,
+    age:x.p.age||0,
+    weeklyWage:x.wage,
+    annualWageSaving:x.wage*52,
+    estimatedValue:value,
+    position,
+    healthyDepth,
+    currentSeniorDepth:senior.length,
+    reason:`The squad already has ${senior.length} senior ${positionLabel(position)} options for ${required} starting slot${required===1?"":"s"}. If another player arrives, the manager recommends moving one fringe option on to protect minutes, wages and SCR.`
+  };
+}
+
+function approveManagerOutgoingRecommendation(requestId){
+  ensureContractState();
+  const req=state.managerRequests?.find(r=>String(r.id)===String(requestId));
+  const rec=req?.outgoingRecommendation;
+  if(!req||!rec) return;
+  const p=DB.players.find(x=>String(x.id)===String(rec.playerId));
+  if(!p||p.club!==state.club) return;
+
+  if(state.playerListStatus?.[p.id]!=="Transfer"){
+    setPlayerListStatus(p.id,"Transfer","Manager");
+    state.managerBacking=clamp((state.managerBacking||70)+1,0,100);
+  }
+  rec.approved=true;
+  rec.approvedDay=currentCareerDay();
+  saveGame(false);
+  renderInbox();
+  renderDashboard();
+  if(!q("managerShortlistModal")?.classList.contains("hide")) openManagerShortlist(req.id);
+}
+
 function managerOpenRecruitmentCommitment(){
   return (state.managerRequests||[])
     .filter(r=>!r.resolved&&r.type==="sign")
@@ -961,6 +1068,9 @@ function maybeGenerateManagerSquadRequest(){
       pick.playerId=shortlist[0].player.id;
       pick.alternatives=shortlist.slice(1).map(x=>x.player.id);
       pick.shortlist=shortlist.map(x=>({playerId:x.player.id,role:x.role,asking:x.asking,interest:x.interest}));
+      // Improvement recruitment must also plan the OUT side of the squad.
+      // An explicit replacement vacancy does not create an outgoing suggestion.
+      pick.outgoingRecommendation=pick.vacancy?null:managerOutgoingRecommendation(pick.position,{incomingRole:pick.squadRole});
       requestBudgetRemaining=Math.max(0,requestBudgetRemaining-(shortlist[0].asking||0));
     }
     const p=DB.players.find(x=>String(x.id)===String(pick.playerId));
@@ -993,6 +1103,7 @@ function maybeGenerateManagerSquadRequest(){
       vacancy:Boolean(pick.vacancy),
       replacementOverall:pick.replacementOverall||0,
       replacementName:pick.replacementName||null,
+      outgoingRecommendation:pick.outgoingRecommendation||null,
       reminder:Boolean(reminderMemory?.count),
       resolved:false,
       manager:manager.name
@@ -1010,9 +1121,12 @@ function maybeGenerateManagerSquadRequest(){
         prospect:"young prospect"
       }[pick.squadRole] || "new";
 
+      const outgoingText=req.outgoingRecommendation
+        ? ` Squad plan: if the club recruits here, ${manager.name} recommends making ${req.outgoingRecommendation.playerName} available for transfer to reduce excess depth and save ${money(req.outgoingRecommendation.annualWageSaving)}/year in wages.`
+        : "";
       wording=req.reminder
-        ? `Reminder — ${manager.name} still believes the squad needs a ${roleLabel} ${positionLabel(pick.position)}. His shortlist has been refreshed and is ready for review.`
-        : `${manager.name} wants a ${roleLabel} ${positionLabel(pick.position)} for the ${managerFormationForClub(state.club)}. A three-player shortlist is ready for review.${pick.reason?` ${pick.reason}`:""}`;
+        ? `Reminder — ${manager.name} still believes the squad needs a ${roleLabel} ${positionLabel(pick.position)}. His shortlist has been refreshed and is ready for review.${outgoingText}`
+        : `${manager.name} wants a ${roleLabel} ${positionLabel(pick.position)} for the ${managerFormationForClub(state.club)}. A three-player shortlist is ready for review.${pick.reason?` ${pick.reason}`:""}${outgoingText}`;
     }else if(pick.type==="renew"){
       wording=`${manager.name} wants the club to open contract talks with ${p.name}.`;
     }else if(pick.type==="transfer"){
@@ -1756,8 +1870,43 @@ function userProjectedSquadCost(){
 function financialRegulationStatus(ratio,limit=financialRegulationLimitForDivision(ensureFinancialRegulationState()?.division)){
   if(ratio<=0.60) return "Healthy";
   if(ratio<=limit) return "Tight";
-  if(ratio<=0.80) return "Breach";
+  if(ratio<=0.75) return "Warning";
+  if(ratio<=0.85) return "Breach";
   return "Severe";
+}
+
+function projectedFinancialRegulationAssessment(snapshot=userSCRSnapshot()){
+  const fr=ensureFinancialRegulationState();
+  const result={
+    ratio:snapshot.ratio,
+    limit:snapshot.limit,
+    status:snapshot.ratio<=snapshot.limit?"Compliant":financialRegulationStatus(snapshot.ratio,snapshot.limit),
+    repeat:snapshot.ratio>snapshot.limit?(fr.consecutiveBreaches||0)+1:0,
+    fine:0,
+    investmentMultiplier:1,
+    transferBan:false
+  };
+  if(snapshot.ratio<=snapshot.limit) return result;
+
+  const repeat=result.repeat;
+  const revenue=snapshot.revenue;
+  if(snapshot.ratio<=0.75){
+    result.status="Warning";
+    result.fine=repeat>1?revenue*(0.004*repeat):0;
+    result.investmentMultiplier=repeat>1?0.90:1;
+  }else if(snapshot.ratio<=0.85){
+    result.status="Breach";
+    result.fine=revenue*(0.012+Math.max(0,repeat-1)*0.006);
+    result.investmentMultiplier=repeat>=2?0.72:0.85;
+    if(repeat>=3) result.transferBan=true;
+  }else{
+    result.status="Severe";
+    result.fine=revenue*(0.025+Math.max(0,repeat-1)*0.010);
+    result.investmentMultiplier=repeat>=2?0.55:0.68;
+    if(repeat>=2 || snapshot.ratio>0.90) result.transferBan=true;
+  }
+  result.fine=Math.round(result.fine/250000)*250000;
+  return result;
 }
 
 function userSCRSnapshot(){
@@ -4892,7 +5041,23 @@ function openManagerShortlist(requestId){
   }[req.squadRole] || "";
   q("managerShortlistTitle").textContent=`New ${roleLabel} ${positionLabel(req.position)} shortlist`;
   q("managerShortlistIntro").textContent=`${req.manager} has presented three realistic approaches for this ${roleLabel||"squad"} role.${req.reason?` ${req.reason}`:""}`;
-  q("managerShortlistOptions").innerHTML=shortlist.map((x,i)=>{
+  const outgoing=req.outgoingRecommendation;
+  const outgoingPlayer=outgoing?DB.players.find(p=>String(p.id)===String(outgoing.playerId)):null;
+  const outgoingPlan=outgoing&&outgoingPlayer?`
+    <div class="manager-squad-plan">
+      <div class="shortlist-role">SQUAD PLAN — OUTGOING</div>
+      <div class="manager-squad-plan-row">
+        <div>
+          <b>${outgoingPlayer.name}</b> • ${outgoingPlayer.overall} OVR • ${money(outgoing.weeklyWage)}/wk
+          <div class="muted small">${outgoing.reason}</div>
+          <div class="muted small">Estimated value ${money(outgoing.estimatedValue)} • wage saving ${money(outgoing.annualWageSaving)}/year</div>
+        </div>
+        <button class="btn secondary manager-list-outgoing-btn" data-request-id="${req.id}" type="button" ${state.playerListStatus?.[outgoingPlayer.id]==="Transfer"?"disabled":""}>
+          ${state.playerListStatus?.[outgoingPlayer.id]==="Transfer"?"Transfer listed":"Transfer list"}
+        </button>
+      </div>
+    </div>`:"";
+  q("managerShortlistOptions").innerHTML=outgoingPlan+shortlist.map((x,i)=>{
     const p=x.player, tag=x.role||["Ideal target","Cheaper alternative","Young prospect"][i];
     return `<div class="manager-shortlist-option">
       <div class="manager-shortlist-top">
@@ -4909,6 +5074,7 @@ function openManagerShortlist(requestId){
   }).join("");
 
   document.querySelectorAll(".pursue-shortlist-btn").forEach(btn=>btn.addEventListener("click",()=>pursueManagerShortlistTarget(btn.dataset.requestId,btn.dataset.playerId,btn.dataset.role)));
+  document.querySelectorAll(".manager-list-outgoing-btn").forEach(btn=>btn.addEventListener("click",()=>approveManagerOutgoingRecommendation(btn.dataset.requestId)));
   q("managerShortlistModal").classList.remove("hide");
 }
 

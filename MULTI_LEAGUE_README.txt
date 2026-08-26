@@ -49,3 +49,11 @@ v0.19.3 database correction
 - Initial values are Football CEO estimates adjusted for the corrected age/potential.
 - Wages remain Football CEO estimates.
 - Player ageing is now saved into world overrides at season rollover.
+
+
+Squad planning / SCR visibility
+- Recruitment improvement requests can now be paired with an outgoing recommendation when the position is already overstocked.
+- The manager considers the existing formation requirement, credible senior depth, player wages, likely usage, age, potential, contract and versatility.
+- High-upside young development players are protected from being treated as obvious wage-cut candidates.
+- The CEO decides whether to follow the outgoing recommendation.
+- Finance now displays projected annual SCR sanctions using the same thresholds/formula as the actual season assessment.

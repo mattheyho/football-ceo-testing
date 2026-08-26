@@ -109,3 +109,33 @@ POST-MATCH LINEUP OVR — PASS
 - Example rendered bench row: M. Cash (25') / OVR 79 / 6.6 match rating.
 - Mobile-width headless check: 390x844.
 - No JavaScript/page errors.
+
+
+PALACE SQUAD-PLANNING REGRESSION — PASS
+- Crystal Palace formation: 3-4-2-1.
+- Current CM-capable pool identified correctly.
+- Six senior CM options were identified for two starting CM slots after high-upside development players were protected from the senior congestion count.
+- A further CM signing therefore generated an OUT recommendation.
+- Sample fresh-save recommendation: J. Lerma, 77 OVR, £71k/week.
+- Estimated annual wage saving: £3.692m.
+- "List recommended outgoing" action successfully placed the recommended player on the transfer list without resolving/cancelling the incoming recruitment request.
+- The exact recommended outgoing can change with XI selection, transfers, player usage, wages and squad development.
+
+SCR PROJECTION REGRESSION — PASS
+- At exactly 85.0% SCR, first annual breach projection:
+  Status: BREACH
+  Projected fine: £2.5m in the tested Palace revenue state
+  Next-season available investment reduction: 15%
+  Transfer ban: no
+- At 86.0%, first annual breach projection:
+  Status: SEVERE
+  Projected fine: £5.0m in the tested Palace revenue state
+  Next-season available investment reduction: 32%
+- Finance screen rendered the projected sanction and repeat-breach count.
+- Projection formula matched the live annual-assessment formula.
+
+REGRESSION STABILITY — PASS
+- Corrected imported ages retained: 3,067 imported players; Yamal 18; Kane 32; only 242 genuinely age 25.
+- External-player transfer file still opens.
+- 40-day Palace smoke: ~111ms average headless logic day; ~561ms slowest sampled day; no JS/page errors.
+- Full Palace season: 304 days to 1 June; completed correctly; no JS/page errors; ~18.93s headless wall time with render/save UI stubbed.

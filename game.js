@@ -2600,6 +2600,8 @@ function renderInbox(){
         actions=req.type==="sign"
           ? `<div class="inbox-action">
               <button class="btn primary manager-request-btn" data-request-id="${req.id}" data-accept="1">Review suggestions</button>
+              ${req.outgoingRecommendation&&state.playerListStatus?.[req.outgoingRecommendation.playerId]!=="Transfer"
+                ?`<button class="btn secondary manager-list-outgoing-btn" data-request-id="${req.id}">List recommended outgoing</button>`:""}
               <button class="btn secondary manager-request-btn" data-request-id="${req.id}" data-accept="0">${req.reminder?"Decline again":"Decline for now"}</button>
               <button class="btn secondary manager-close-window-btn" data-request-id="${req.id}">Close until next window</button>
             </div>`
@@ -2637,6 +2639,9 @@ function renderInbox(){
   });
   document.querySelectorAll(".manager-close-window-btn").forEach(btn=>{
     btn.addEventListener("click",()=>closeManagerRecruitmentRequestUntilNextWindow(btn.dataset.requestId));
+  });
+  document.querySelectorAll(".manager-list-outgoing-btn").forEach(btn=>{
+    btn.addEventListener("click",()=>approveManagerOutgoingRecommendation(btn.dataset.requestId));
   });
   document.querySelectorAll(".development-review-btn").forEach(btn=>btn.addEventListener("click",()=>openDevelopmentReview(btn.dataset.reviewId)));
   document.querySelectorAll(".manager-complaint-btn").forEach(btn=>{
@@ -4227,6 +4232,14 @@ function renderFinances(){
   const limitPct=scr.limit*100;
   const progress=Math.min(100,(scr.ratio/0.95)*100);
   const statusClass=scr.status.toLowerCase();
+  const projectedSanction=typeof projectedFinancialRegulationAssessment==="function"
+    ?projectedFinancialRegulationAssessment(scr)
+    :null;
+  const sanctionBits=projectedSanction&&scr.ratio>scr.limit?[
+    projectedSanction.fine?`${money(projectedSanction.fine)} projected fine`:null,
+    projectedSanction.investmentMultiplier<1?`${Math.round((1-projectedSanction.investmentMultiplier)*100)}% reduction to next season's available investment`:null,
+    projectedSanction.transferBan?"next-season transfer registration ban":null
+  ].filter(Boolean):[];
 
   q("financeCards").innerHTML=`
   <div class="scr-card scr-${statusClass}">
@@ -4253,9 +4266,15 @@ function renderFinances(){
     </div>
 
     <div class="muted small scr-rule-note">
-      Healthy ≤60% • Tight 60–${Math.round(limitPct)}% • Breach above ${Math.round(limitPct)}% • Severe above 80%.
+      Healthy ≤60% • Tight 60–${Math.round(limitPct)}% • Warning ${Math.round(limitPct)}–75% • Breach 75–85% • Severe above 85%.
       Annual assessment sanctions escalate for repeat breaches.
     </div>
+    ${projectedSanction&&scr.ratio>scr.limit?`
+      <div class="scr-projected-sanction ${projectedSanction.status.toLowerCase()}">
+        <b>If the season ended today — ${projectedSanction.status.toUpperCase()}</b>
+        <div>${sanctionBits.length?sanctionBits.join(" • "):"Formal warning only — no fine or investment reduction on a first warning."}</div>
+        <div class="muted small">Projected consecutive breach assessment: ${projectedSanction.repeat}. Final sanctions are calculated at the annual assessment.</div>
+      </div>`:""}
     ${financialTransferBanActive()?`<div class="notice bad scr-sanction-note"><b>TRANSFER REGISTRATION BAN ACTIVE</b><br>Permanent incoming transfers cannot be registered this season.</div>`:""}
   </div>
 

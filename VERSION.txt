@@ -30,3 +30,24 @@ POST-MATCH LINEUP OVR
 - Bench rows now always show OVR; substitutes who played also retain their match rating.
 - Stored reports fall back to the current player OVR if an older report does not contain an embedded OVR.
 - PWA cache: football-ceo-v0.19.3-pwa-3.
+
+SQUAD PLANNING / OUTGOINGS
+- Manager improvement requests now consider excess positional depth as an IN + OUT plan.
+- Healthy senior depth is approximately two credible first-team options per formation slot; genuine high-upside U23 development players can sit outside that senior quota.
+- If an incoming signing would leave a position overstocked, the request includes a recommended outgoing player.
+- Outgoing selection considers manager XI status, wages/SCR saving, age, ability, potential, usage, contract and versatility.
+- The CEO remains in control: the manager recommends transfer-listing; it is not automatic.
+- Inbox and shortlist screens include a "List recommended outgoing" / "Transfer list" action.
+- Existing explicit replacement vacancies do not generate an unnecessary outgoing recommendation.
+
+SCR VISIBILITY
+- Finance screen now shows the projected annual sanction if the season ended at the current SCR.
+- Displayed SCR status is aligned with the actual annual-assessment thresholds:
+  Healthy <=60%
+  Tight >60% to regulatory limit (currently 70%)
+  Warning >70% to 75%
+  Breach >75% to 85%
+  Severe >85%
+- Projected fine, next-season investment reduction, repeat-breach number and transfer-registration ban risk are shown.
+- At exactly 85%, a first breach is projected as BREACH, not Severe.
+- PWA cache: football-ceo-v0.19.3-pwa-4.
