@@ -4117,8 +4117,9 @@ function renderFormationPitch(report){
         ${x.playerId?`data-player-id="${x.playerId}"`:"disabled"}>
         <span class="pitch-player-slot">${x.slot||""}</span>
         <span class="pitch-player-name">${x.name}</span>
+        <span class="pitch-player-overall">OVR ${x.overall ?? (x.playerId?DB.players.find(p=>String(p.id)===String(x.playerId))?.overall:"—") ?? "—"}</span>
         <span class="pitch-player-bottom">
-          <b class="pitch-rating ${matchRatingClass(x.rating)}">${x.rating?.toFixed(1)||"—"}</b>
+          <b class="pitch-rating ${matchRatingClass(x.rating)}" title="Match rating">${x.rating?.toFixed(1)||"—"}</b>
           <span class="pitch-events">${events}</span>
         </span>
       </button>`;
@@ -4137,7 +4138,16 @@ function renderMatchReport(report){
   q("matchReportPitch").innerHTML=renderFormationPitch(report);
 
   q("matchReportBench").innerHTML=report.bench?.length
-    ? report.bench.map(p=>`<button class="bench-player player-link" data-player-id="${p.playerId}" type="button"><span>${p.name}${p.minutes?` <span class="muted small">(${p.minutes}')</span>`:""}</span><b>${p.rating!=null?p.rating.toFixed(1):p.overall}</b></button>`).join("")
+    ? report.bench.map(p=>{
+        const overall=p.overall ?? (p.playerId?DB.players.find(x=>String(x.id)===String(p.playerId))?.overall:null);
+        return `<button class="bench-player player-link" data-player-id="${p.playerId}" type="button">
+          <span>${p.name}${p.minutes?` <span class="muted small">(${p.minutes}')</span>`:""}</span>
+          <span class="bench-player-values">
+            <span class="bench-player-overall">OVR ${overall??"—"}</span>
+            ${p.rating!=null?`<b title="Match rating">${p.rating.toFixed(1)}</b>`:""}
+          </span>
+        </button>`;
+      }).join("")
     : `<span class="muted small">No bench stored.</span>`;
 
   const events=report.goalEvents||[];

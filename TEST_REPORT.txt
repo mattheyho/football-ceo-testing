@@ -91,3 +91,21 @@ world-players.js
 championship-simulation.js
 world-leagues.js
 sw.js
+
+LIVE CACHE ROOT-CAUSE FOLLOW-UP — PASS
+- The combined database file itself was rechecked and contains corrected ages/birthdates.
+- Clean runtime boot: imported ages 16–41; only 242 are genuinely age 25.
+- Root cause of the user's live all-age-25 result: old PWA cache could serve the previous world-players.js because its URL was unchanged.
+- index.html now requests world-players.js?v=0193-dbfix3 and all other mutable runtime scripts use the same build token.
+- Old cache-first service workers cannot satisfy the new versioned URL from the stale entry, forcing a network fetch when online.
+- sw.js cache bumped to v0.19.3-pwa-3 and runtime assets now use network-first online / cache fallback offline.
+
+
+POST-MATCH LINEUP OVR — PASS
+- Starting XI formation rendered 11 visible OVR labels.
+- Existing match ratings remain visible separately.
+- Bench rendered OVR for all stored substitutes.
+- Bench players who appeared retained their match rating alongside OVR.
+- Example rendered bench row: M. Cash (25') / OVR 79 / 6.6 match rating.
+- Mobile-width headless check: 390x844.
+- No JavaScript/page errors.

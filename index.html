@@ -11,7 +11,7 @@
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="apple-touch-icon" sizes="180x180" href="icon-180.png">
 <link rel="icon" type="image/png" sizes="192x192" href="icon-192.png">
-<link rel="stylesheet" href="styles.css">
+<link rel="stylesheet" href="styles.css?v=0193-lineup4">
 </head>
 <body>
 <div class="shell">
@@ -726,18 +726,18 @@
 
 </section>
 </div>
-<script src="database.js"></script>
-<script src="world-leagues.js"></script>
-<script src="world-players.js"></script>
-<script src="championship-simulation.js"></script>
-<script src="state.js"></script>
-<script src="stakeholders.js"></script>
-<script src="staff.js"></script>
-<script src="commercial.js"></script>
-<script src="transfers.js"></script>
-<script src="simulation.js"></script>
-<script src="ui.js"></script>
-<script src="game.js"></script>
+<script src="database.js?v=0193-dbfix3"></script>
+<script src="world-leagues.js?v=0193-dbfix3"></script>
+<script src="world-players.js?v=0193-dbfix3"></script>
+<script src="championship-simulation.js?v=0193-dbfix3"></script>
+<script src="state.js?v=0193-dbfix3"></script>
+<script src="stakeholders.js?v=0193-dbfix3"></script>
+<script src="staff.js?v=0193-dbfix3"></script>
+<script src="commercial.js?v=0193-dbfix3"></script>
+<script src="transfers.js?v=0193-dbfix3"></script>
+<script src="simulation.js?v=0193-dbfix3"></script>
+<script src="ui.js?v=0193-dbfix3"></script>
+<script src="game.js?v=0193-lineup4"></script>
 
 
 <div id="tutorialModal" class="tutorial-overlay hide">
@@ -1115,7 +1115,7 @@
 <script>
 if ("serviceWorker" in navigator) {
   window.addEventListener("load", () => {
-    navigator.serviceWorker.register("./sw.js").catch(err => {
+    navigator.serviceWorker.register("./sw.js?v=0193-dbfix3").catch(err => {
       console.warn("Football CEO service worker registration failed:", err);
     });
   });

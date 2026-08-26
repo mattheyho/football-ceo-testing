@@ -1,4 +1,4 @@
-const CACHE_NAME = "football-ceo-v0.19.3-pwa-2";
+const CACHE_NAME = "football-ceo-v0.19.3-pwa-3";
 
 // Everything required to boot the current Football CEO build offline.
 // These paths are relative so they work correctly from the GitHub Pages
@@ -74,11 +74,14 @@ self.addEventListener("fetch", event => {
     return;
   }
 
-  // Static game files are cache-first for fast app-like launches, while an
-  // online copy refreshes the cache for the next launch.
-  event.respondWith(
-    caches.match(request).then(cached => {
-      const network = fetch(request)
+  // Runtime code/data is network-first when online. This prevents a newly
+  // deployed database or game script from booting against an older cached file.
+  // The app-shell cache remains the offline fallback; ignoreSearch lets the
+  // versioned ?v= build URLs fall back to their unversioned cached equivalents.
+  const isRuntimeAsset = /\.(?:js|css|json)$/.test(url.pathname);
+  if (isRuntimeAsset) {
+    event.respondWith(
+      fetch(request)
         .then(response => {
           if (response && response.ok) {
             const copy = response.clone();
@@ -86,9 +89,12 @@ self.addEventListener("fetch", event => {
           }
           return response;
         })
-        .catch(() => cached);
+        .catch(() => caches.match(request).then(hit => hit || caches.match(request,{ignoreSearch:true})))
+    );
+    return;
+  }
 
-      return cached || network;
-    })
+  event.respondWith(
+    caches.match(request).then(cached => cached || fetch(request))
   );
 });
