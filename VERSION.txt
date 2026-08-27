@@ -1,68 +1,33 @@
-Football CEO v0.23.0 — Live CEO Playing Budget Allocation
+Football CEO v0.24.1 — User Academy Intakes
 
-LIVE PLAYING BUDGET CONTROL
-- The CEO can now change the club's playing investment allocation at any point during the season from the Finance screen.
-- The Finance screen shows:
-  • total playing investment allocated
-  • completed incoming-transfer spend already committed
-  • remaining transfer budget available to recruitment
-  • today's sustainable allocation ceiling
-  • club cash and financial-health context
-- The slider controls the TOTAL season playing allocation, while the familiar transfer budget remains the unspent balance.
-- Completed transfer spend is irreversible, so the allocation can never be reduced below money already committed to completed incoming transfers.
-- The allocation can be increased when club resources improve during the season, including after major player sales.
-- Reducing the allocation does not create cash: it releases planned recruitment capacity so existing club cash can instead be retained, used for infrastructure, debt reduction or other club priorities.
+USER-CLUB ACADEMY INTAKE
+- The user-controlled club now receives 2–4 generated academy prospects every summer.
+- Prospects are aged 16–19 and immediately become normal senior-database/squad players.
+- Academy quality influences cohort strength and readiness without guaranteeing elite talent.
+- Most prospects are ordinary/good; very good players are uncommon and 88+ potential prospects remain rare.
+- User academy graduates receive cheap youth contracts and can be developed, sold or allowed to leave like any other player.
+- Each intake is persistent in the save and rehydrates correctly after reload.
+- Summer Inbox notification lists each new prospect with age, position, OVR and potential.
 
-PLAYER SALES & CEO CONTROL
-- Player-sale proceeds no longer automatically increase the transfer budget.
-- Upfront sale proceeds enter club cash immediately.
-- Deferred sale proceeds remain transfer receivables and enter cash when instalments fall due.
-- The CEO decides how much, if any, of improved club resources should be reallocated to incoming transfers.
-- Example: selling a player for £120m can strengthen club cash while the transfer budget remains unchanged, allowing the CEO to prioritise a stadium project instead of automatically reinvesting the sale.
+GENERATED NAMES
+- Generated prospects use nationality-specific first-name and surname pools.
+- User-club intakes are primarily drawn from the club's home nationality, with international academy recruits mixed in.
+- Active-database duplicate names are avoided; long careers fall back to believable double surnames when necessary.
 
-MID-SEASON MANAGER REACTION
-- Meaningful playing-budget changes (roughly £10m+ and/or 15%+ of the current allocation) create a manager response.
-- Significant increases improve manager sentiment and generate an Inbox update.
-- Significant reductions can disappoint the manager, although reductions made during genuine financial pressure are treated more sympathetically.
-- Small routine adjustments do not spam stakeholder reactions.
+BALANCE
+- Intake size is 2–4 players, lightly influenced by Academy rating.
+- Academy rating shifts potential probabilities rather than determining fixed outcomes, so weaker academies can still very occasionally produce a top prospect.
+- Existing passive youth development remains active: 16–20-year-olds with potential headroom can still gain around +1 without first-team minutes, while match time drives larger gains.
 
-OWNER FUNDING SAFEGUARD
-- Owner football equity remains an available resource where appropriate, but the season's owner-funding allowance can no longer be repeatedly triggered by moving the slider up and down.
-- Owner football funding used during the season is tracked separately and capped against the available seasonal owner contribution.
-- Financial-distress restrictions introduced in v0.22 still apply.
-
-TRANSFER TERMS / CLUB FINANCE
-- v0.22 negotiated payment terms remain unchanged:
-  • 25%, 50%, 75% or 100% upfront
-  • 1–3 annual instalments
-  • future transfer payables and receivables
-  • cash timing affects AI valuation
-  • acquisition/agent costs
-- Purchase headline fees still consume the playing allocation when a transfer completes.
-- Only the upfront fee + acquisition costs leave club cash immediately; future instalments remain future commitments.
-
-PREMIER LEAGUE / SCR
-- The unified v0.22 finance model remains in place.
-- Premier League completion revenue continues to reconcile through the Inbox settlement.
-- European competition revenue remains dormant/hidden until European competitions exist in-game.
-- Premier League SCR remains modelled at 85%.
-
-SAVE COMPATIBILITY
-- v0.22 saves that do not contain the new playingBudget state are migrated automatically.
-- The current total allocation is reconstructed from completed transfer spend + remaining transfer budget.
-- Existing transfer instalments, club cash, debt, stadium projects and season-ticket state remain compatible.
+PWA / COMPATIBILITY
+- Compatible with v0.24 saves; no destructive save migration is required.
+- Service-worker cache advanced to football-ceo-v0.24.1-pwa-1.
 
 TESTING
-- Targeted live-budget regression: PASS.
-- Actual incoming-sale path: sale cash increased while transfer budget and total playing allocation stayed unchanged — PASS.
-- Explicit post-sale reallocation: PASS.
-- Allocation reduction leaves club cash unchanged — PASS.
-- Completed-transfer spend floor — PASS.
-- Owner football-funding seasonal cap — PASS.
-- v0.22 playing-budget migration — PASS.
-- 390px Finance screen including the new slider: no horizontal overflow — PASS.
-- Existing v0.22 negotiated transfer payment-term matrix: PASS.
-- Existing buy/sell mobile and save persistence regression: PASS.
-- Three-season Aston Villa integration soak with real calendar, repeated sales, explicit reallocations, purchases and season rollovers: PASS, 0 runtime errors.
-
-See FINANCE_TESTING.txt and TEST_REPORT.txt for test routes and results.
+- User intake creation (2–4), squad visibility, age/OVR/potential/wage bounds: PASS.
+- User intake uniqueness and save/reload persistence: PASS.
+- Low-academy vs elite-academy distribution sanity: PASS.
+- Actual season-rollover Inbox intake notification: PASS.
+- Existing negotiated transfer terms regression: PASS.
+- Existing live playing-budget regression: PASS.
+- Existing 390px mobile finance/transfer/save regression: PASS.
