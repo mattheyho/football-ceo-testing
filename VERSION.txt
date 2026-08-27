@@ -1,24 +1,68 @@
-Football CEO v0.20.0 — Mobile UI Foundation
+Football CEO v0.23.0 — Live CEO Playing Budget Allocation
 
-UI FOUNDATION
-- Portrait-first Home screen rebuilt around the daily CEO loop.
-- Home now prioritises club/date, league position, transfer budget, SCR, next fixture, form, stakeholders and urgent inbox.
-- Old mobile dashboard menu grid removed.
-- Persistent bottom navigation: Home / Squad / Transfers / Inbox / More.
-- Continue Day is now persistent above the mobile navigation and remains available across management screens.
-- Continue/nav controls automatically hide while a modal is open.
-- Dedicated Inbox screen replaces the expanding dashboard inbox.
-- More menu contains fixtures, table, finances, staff, facilities, matchday/pricing and career controls.
-- Existing desktop tab navigation remains available above 760px as a compatibility layout.
+LIVE PLAYING BUDGET CONTROL
+- The CEO can now change the club's playing investment allocation at any point during the season from the Finance screen.
+- The Finance screen shows:
+  • total playing investment allocated
+  • completed incoming-transfer spend already committed
+  • remaining transfer budget available to recruitment
+  • today's sustainable allocation ceiling
+  • club cash and financial-health context
+- The slider controls the TOTAL season playing allocation, while the familiar transfer budget remains the unspent balance.
+- Completed transfer spend is irreversible, so the allocation can never be reduced below money already committed to completed incoming transfers.
+- The allocation can be increased when club resources improve during the season, including after major player sales.
+- Reducing the allocation does not create cash: it releases planned recruitment capacity so existing club cash can instead be retained, used for infrastructure, debt reduction or other club priorities.
 
-STAKEHOLDERS
-- Home stakeholder cards are compact and clickable.
-- Tapping Fans, Owners, Players, Manager or Sponsors opens a detailed relationship panel.
-- Detail panel shows current score/mood, explanation, all current drivers, up to 10 recent relationship changes and active threshold/risk information.
-- The detail panel contains an internal foundation for future CEO interaction options without adding unfinished gameplay actions yet.
+PLAYER SALES & CEO CONTROL
+- Player-sale proceeds no longer automatically increase the transfer budget.
+- Upfront sale proceeds enter club cash immediately.
+- Deferred sale proceeds remain transfer receivables and enter cash when instalments fall due.
+- The CEO decides how much, if any, of improved club resources should be reallocated to incoming transfers.
+- Example: selling a player for £120m can strengthen club cash while the transfer budget remains unchanged, allowing the CEO to prioritise a stadium project instead of automatically reinvesting the sale.
 
-COMPATIBILITY
-- Simulation systems, transfers, development, SCR, saves and league logic are unchanged from the cumulative v0.19.3 gameplay build.
-- Existing DOM IDs used by gameplay systems are preserved wherever required.
-- Existing save format unchanged.
-- PWA cache: football-ceo-v0.20.0-pwa-1.
+MID-SEASON MANAGER REACTION
+- Meaningful playing-budget changes (roughly £10m+ and/or 15%+ of the current allocation) create a manager response.
+- Significant increases improve manager sentiment and generate an Inbox update.
+- Significant reductions can disappoint the manager, although reductions made during genuine financial pressure are treated more sympathetically.
+- Small routine adjustments do not spam stakeholder reactions.
+
+OWNER FUNDING SAFEGUARD
+- Owner football equity remains an available resource where appropriate, but the season's owner-funding allowance can no longer be repeatedly triggered by moving the slider up and down.
+- Owner football funding used during the season is tracked separately and capped against the available seasonal owner contribution.
+- Financial-distress restrictions introduced in v0.22 still apply.
+
+TRANSFER TERMS / CLUB FINANCE
+- v0.22 negotiated payment terms remain unchanged:
+  • 25%, 50%, 75% or 100% upfront
+  • 1–3 annual instalments
+  • future transfer payables and receivables
+  • cash timing affects AI valuation
+  • acquisition/agent costs
+- Purchase headline fees still consume the playing allocation when a transfer completes.
+- Only the upfront fee + acquisition costs leave club cash immediately; future instalments remain future commitments.
+
+PREMIER LEAGUE / SCR
+- The unified v0.22 finance model remains in place.
+- Premier League completion revenue continues to reconcile through the Inbox settlement.
+- European competition revenue remains dormant/hidden until European competitions exist in-game.
+- Premier League SCR remains modelled at 85%.
+
+SAVE COMPATIBILITY
+- v0.22 saves that do not contain the new playingBudget state are migrated automatically.
+- The current total allocation is reconstructed from completed transfer spend + remaining transfer budget.
+- Existing transfer instalments, club cash, debt, stadium projects and season-ticket state remain compatible.
+
+TESTING
+- Targeted live-budget regression: PASS.
+- Actual incoming-sale path: sale cash increased while transfer budget and total playing allocation stayed unchanged — PASS.
+- Explicit post-sale reallocation: PASS.
+- Allocation reduction leaves club cash unchanged — PASS.
+- Completed-transfer spend floor — PASS.
+- Owner football-funding seasonal cap — PASS.
+- v0.22 playing-budget migration — PASS.
+- 390px Finance screen including the new slider: no horizontal overflow — PASS.
+- Existing v0.22 negotiated transfer payment-term matrix: PASS.
+- Existing buy/sell mobile and save persistence regression: PASS.
+- Three-season Aston Villa integration soak with real calendar, repeated sales, explicit reallocations, purchases and season rollovers: PASS, 0 runtime errors.
+
+See FINANCE_TESTING.txt and TEST_REPORT.txt for test routes and results.

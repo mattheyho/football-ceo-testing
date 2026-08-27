@@ -15,7 +15,7 @@
 </head>
 <body>
 <div class="shell">
-<div class="topbar"><div class="logo">FOOTBALL <span>CEO</span> 25/26</div><div class="tag">MOBILE UI v0.20</div></div>
+<div class="topbar"><div class="logo">FOOTBALL <span>CEO</span> 25/26</div><div class="tag">MOBILE UI v0.23</div></div>
 
 <section id="startScreen" class="start panel pad">
 <h1>Take control of a Premier League club.</h1>
@@ -394,7 +394,7 @@
   <button data-tab="database">Player Database</button>
   <button data-tab="fixtures">Fixtures</button>
   <button data-tab="table">League Table</button>
-  <button data-tab="facilities">Facilities</button><button data-tab="finances">Finances</button>
+  <button data-tab="facilities">Facilities</button><button data-tab="stadium">Stadium</button><button data-tab="finances">Finances</button>
   <button data-tab="matchday">Matchday & Pricing</button>
   <button data-tab="staff">Staff</button>
 </div>
@@ -490,6 +490,7 @@
       <button class="more-menu-item" data-go-tab="finances" type="button"><span class="more-menu-icon">£</span><span><b>Finances</b><small>SCR, budgets & wage structure</small></span><strong>›</strong></button>
       <button class="more-menu-item" data-go-tab="staff" type="button"><span class="more-menu-icon">♜</span><span><b>Staff</b><small>Manager, DoF & medical</small></span><strong>›</strong></button>
       <button class="more-menu-item" data-go-tab="facilities" type="button"><span class="more-menu-icon">⌂</span><span><b>Facilities</b><small>Training, medical & recruitment</small></span><strong>›</strong></button>
+      <button class="more-menu-item" data-go-tab="stadium" type="button"><span class="more-menu-icon">◫</span><span><b>Stadium Development</b><small>Season tickets, demand & capital projects</small></span><strong>›</strong></button>
       <button class="more-menu-item" data-go-tab="matchday" type="button"><span class="more-menu-icon">£</span><span><b>Matchday & Pricing</b><small>Tickets, hospitality & attendance</small></span><strong>›</strong></button>
     </div>
     <div class="more-menu-section-title">Career</div>
@@ -571,6 +572,8 @@
     <div id="facilitiesGrid" class="facilities-grid"></div>
   </div>
 </div>
+
+<div id="stadium" class="tab hide"><div id="stadiumContent"></div></div>
 
 <div id="finances" class="tab hide"><div class="grid2"><div class="panel pad"><h2 style="font-size:17px">Club finances</h2><div id="financeCards"></div></div><div class="panel pad"><h2 style="font-size:17px">Wage structure</h2><div id="wageList"></div></div></div></div>
 
@@ -668,6 +671,11 @@
           <div class="metric"><div class="k">Avg attendance</div><div class="v" id="averageAttendance"></div></div>
           <div class="metric"><div class="k">Avg occupancy</div><div class="v" id="averageOccupancy"></div></div>
         </div>
+        <div class="grid3" style="margin-top:10px">
+          <div class="metric"><div class="k">Season tickets</div><div class="v" id="seasonTicketsSold">—</div></div>
+          <div class="metric"><div class="k">ST waiting list</div><div class="v" id="seasonTicketWaitingList">—</div></div>
+          <div class="metric"><div class="k">Supporter demand</div><div class="v" id="supporterDemandMetric">—</div></div>
+        </div>
       </div>
     </div>
   </div>
@@ -748,14 +756,16 @@
 <script src="world-leagues.js?v=0193-dbfix3"></script>
 <script src="world-players.js?v=0193-dbfix3"></script>
 <script src="championship-simulation.js?v=0193-dbfix3"></script>
-<script src="state.js?v=0193-dbfix3"></script>
+<script src="state.js?v=023-budget1"></script>
+<script src="finance.js?v=023-budget1"></script>
+<script src="stadiums.js?v=023-budget1"></script>
 <script src="stakeholders.js?v=0193-dbfix3"></script>
 <script src="staff.js?v=0193-dbfix3"></script>
-<script src="commercial.js?v=0193-dbfix3"></script>
-<script src="transfers.js?v=0193-recruit6"></script>
+<script src="commercial.js?v=023-budget1"></script>
+<script src="transfers.js?v=023-budget1"></script>
 <script src="simulation.js?v=0193-dbfix3"></script>
-<script src="ui.js?v=0193-dbfix3"></script>
-<script src="game.js?v=020-ui1"></script>
+<script src="ui.js?v=023-budget1"></script>
+<script src="game.js?v=023-budget1"></script>
 
 
 <div id="tutorialModal" class="tutorial-overlay hide">
@@ -863,6 +873,11 @@
           </div>
         </div>
         <div class="muted tiny setup-demand-note" id="setupDemandNote">Typical home-match projection based on current prices, supporter happiness and club demand.</div>
+        <div class="setup-demand-preview season-ticket-preview" style="margin-top:10px">
+          <div class="metric"><div class="k">Projected ST sales</div><div class="v" id="setupSTSales">—</div></div>
+          <div class="metric"><div class="k">Projected waiting list</div><div class="v" id="setupSTWaiting">—</div></div>
+          <div class="metric"><div class="k">Projected ST cash</div><div class="v" id="setupSTRevenue">—</div></div>
+        </div>
       </div>
 
       <div class="panel pad">
@@ -1169,7 +1184,7 @@
 <script>
 if ("serviceWorker" in navigator) {
   window.addEventListener("load", () => {
-    navigator.serviceWorker.register("./sw.js?v=020-ui1").catch(err => {
+    navigator.serviceWorker.register("./sw.js?v=023-budget1").catch(err => {
       console.warn("Football CEO service worker registration failed:", err);
     });
   });
