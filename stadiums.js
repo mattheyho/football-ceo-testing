@@ -280,7 +280,7 @@
     p.status='completed';p.completed=currentGameDateISO();p.construction.progress=1;
     s.events.push({season:state.season.label,date:currentGameDateISO(),type:option.type==='new'?'new_stadium':'expansion',label:option.type==='new'?`${s.name} opened`:`${oldName} expanded`,fromCapacity:oldCapacity,toCapacity:s.capacity});
     if(s.fanSentiment&&option.type==='new') s.fanSentiment.value=Math.min(-1,s.fanSentiment.value+2);
-    if(typeof stakeholderChange==='function') stakeholderChange('fans',option.type==='new'?2:4,option.type==='new'?'New stadium opened':'Stadium expansion completed',{notify:true});
+    if(typeof stakeholderChange==='function') stakeholderChange('fans',option.type==='new'?2:3,option.type==='new'?'New stadium opened':'Stadium expansion completed',{notify:true});
     if(typeof addNews==='function') addNews(`${option.type==='new'?s.name:'The stadium redevelopment'} has opened with a capacity of ${s.capacity.toLocaleString('en-GB')}. Additional season tickets will be released during the next pre-season sales cycle.`);
     return true;
   };

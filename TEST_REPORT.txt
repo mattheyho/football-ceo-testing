@@ -1,234 +1,48 @@
-Football CEO v0.19.3 — Recruitment & SCR Tweaks + Database Fix
-Automated regression report
+Football CEO v0.24.3 — Test Report
+==================================
 
-TEST BASIS
-- Exact repository snapshot supplied by the user.
-- v0.19.2 tweaks + external recruitment/signing-flow fixes.
-- v0.19.3 recruitment/SCR changes.
-- Database rebuilt from the existing /mnt/data/ea_fc26_players.csv source already used by the project.
-- Automated Chromium/headless testing only. No physical iPhone/MacBook test performed by ChatGPT.
+Build focus
+-----------
+Recruitment Intelligence, XI Selection & CEO Recruitment Briefs
 
-DATABASE FIX — PASS
-- Imported world players: 3,067
-- Total runtime players with existing PL database: 3,614
-- Imported clubs: 118
-- Imported league counts:
-  Championship 650
-  La Liga 500
-  Bundesliga 515
-  Serie A 531
-  Ligue 1 457
-  Saudi Pro League 414
-- Source birthdate coverage: 3,067 / 3,067
-- Imported age range at 1 Aug 2025: 16–41
-- Genuine age-25 players: 242
-- Unique imported IDs: PASS
-- Potential >= OVR and <=94: PASS
+Automated / headless regression checks
+--------------------------------------
+PASS — JavaScript syntax validation across all runtime JS files.
+PASS — Whole-XI selection: Manchester City after Haaland departure selects Marmoush at ST rather than Kovačić.
+PASS — Whole-XI selection across all 20 Premier League clubs: 11 unique starters, no null slots, minimum positional suitability >= 78.
+PASS — Aston Villa / Bizot sale: competition-GK vacancy recognised; three options returned; all <= £10m; younger options >= 74 OVR or senior option >= 78 OVR.
+PASS — Manchester City / Haaland sale: three striker routes returned; elite lifecycle filter avoids ageing stop-gaps and non-primary strikers in the shortlist.
+PASS — Bournemouth / Christie sale: no replacement vacancy created because Cook + Adams + Scott provide sufficient internal cover.
+PASS — Aston Villa / Watkins sale with £60m budget: three credible striker routes returned and Watkins is excluded from his own replacement shortlist.
+PASS — CEO feedback / Aim higher: revised shortlist raises the average immediate quality where the market permits; if the ceiling is reached the manager can retain the strongest credible route.
+PASS — CEO feedback / Spend less: revised shortlist lowers average transfer cost without collapsing the search to reserve-level players.
+PASS — CEO feedback / Different options: manager returns at least one different target while preserving the same investment brief.
+PASS — Repeated recruitment regression: 8 consecutive runs passed all core assertions, including Haaland age/primary-position guards.
 
-Sample corrected records:
-- Lamine Yamal: age 18, OVR 89, Football CEO POT 94
-- Jude Bellingham: age 22, OVR 90, Football CEO POT 94
-- Kylian Mbappe: age 26, OVR 91, Football CEO POT 92
-- Harry Kane: age 32, OVR 89, Football CEO POT 89
-- De Gea: age 34, OVR 85, Football CEO POT 85
-- Manuel Neuer: age 39, OVR 84, Football CEO POT 84
+Representative outputs from final regression run
+-------------------------------------------------
+Aston Villa — Bizot sold (~£5m), £60m club transfer budget:
+  1. Michael Cooper — 25 — 76 OVR — £9.5m — Best Fit
+  2. Viktor Johansson — 26 — 74 OVR — £6.25m — Value
+  3. Milan Borjan — 37 — 78 OVR — £8.0m — Experienced
 
-AGE PERSISTENCE — PASS
-- Imported player age increments at year end.
-- Incremented age is written to state.playerWorldOverrides.
-- Test: Lamine Yamal 18 -> 19; saved override age = 19.
+Manchester City — Haaland sold (~£150m), £120m available budget:
+  1. Lautaro Martínez — 27 — 88 OVR — £113.5m — Best Fit
+  2. Moise Kean — 25 — 83 OVR — £56.25m — Value
+  3. Hugo Ekitiké — 23 — 83 OVR / 88 POT — £116.5m — Youth
 
-REPLACEMENT RECRUITMENT — PASS
-Martinez £74m sale test:
-- Lost player: 85 OVR first-choice GK.
-- Vacancy retained as starter replacement with replacementOverall=85.
-- Corrected-age shortlist:
-  Mile Svilar 82 — Ideal target — ~£52.25m
-  Ivan Provedel 82 — Cheaper alternative — ~£38.0m
-  Bart Verbruggen 78 — Young prospect — ~£41.25m
-- Signing a credible first-choice replacement closes the explicit vacancy.
+Aston Villa — Watkins sold, £60m available budget:
+  Initial shortlist:
+    1. Mateo Retegui — 83 OVR — £50m — Best Fit
+    2. Tolu Arokodare — 79 OVR — £43m — Value
+    3. Thierno Barry — 77 OVR / 85 POT — £36.25m — Youth
 
-MANAGER BUDGET DISCIPLINE — PASS
-- Villa transfer budget forced to £20m.
-- Four August manager-review dates processed.
-- Only one unresolved starter request remained:
-  RB starter, preferred expected cost ~£17.25m.
-- Other starter requests did not incorrectly assume access to the same £20m.
+  After "Aim higher / spend more":
+    - quality of the three-player shortlist increases overall; where no better first-choice player is affordable, the manager keeps the strongest credible first choice and upgrades alternatives.
 
-SCR PLAYER-SALE IMPACT — PASS
-Martinez £74m regression:
-- Before: 81.3% SCR
-- Estimated book value: £14.5m
-- Estimated disposal profit: £59.5m
-- Annual regulated-cost saving: ~£11.88m
-- After: 65.5% SCR
-- Disposal profit recognised in current-season revenue and resets at new season.
+  After "Spend less":
+    - target spend falls materially while retaining credible first-team options and a lower-cost youth route.
 
-SIGNING FLOW — PASS
-- Foreign database player direct file opens and Authorise approach is enabled.
-- Player Database name click opens transfer file.
-- Manager shortlist Pursue target opens transfer file.
-- No page/JavaScript errors.
-
-40-DAY CAREER SMOKE — PASS
-- Average headless logic day: ~147ms
-- Slowest sampled day: ~766ms
-- 7 AI transfers in sampled run
-- No page errors
-
-FULL-SEASON SMOKE — PASS
-- 304 days: 1 Aug 2025 -> 1 Jun 2026
-- Global season completed correctly on 1 June
-- 8 AI transfers in sampled random run
-- 5 manager requests in sampled random run
-- No JavaScript/page errors
-- ~16.73s headless wall time with rendering/save UI stubbed
-
-SYNTAX — PASS
-game.js
-transfers.js
-world-players.js
-championship-simulation.js
-world-leagues.js
-sw.js
-
-LIVE CACHE ROOT-CAUSE FOLLOW-UP — PASS
-- The combined database file itself was rechecked and contains corrected ages/birthdates.
-- Clean runtime boot: imported ages 16–41; only 242 are genuinely age 25.
-- Root cause of the user's live all-age-25 result: old PWA cache could serve the previous world-players.js because its URL was unchanged.
-- index.html now requests world-players.js?v=0193-dbfix3 and all other mutable runtime scripts use the same build token.
-- Old cache-first service workers cannot satisfy the new versioned URL from the stale entry, forcing a network fetch when online.
-- sw.js cache bumped to v0.19.3-pwa-3 and runtime assets now use network-first online / cache fallback offline.
-
-
-POST-MATCH LINEUP OVR — PASS
-- Starting XI formation rendered 11 visible OVR labels.
-- Existing match ratings remain visible separately.
-- Bench rendered OVR for all stored substitutes.
-- Bench players who appeared retained their match rating alongside OVR.
-- Example rendered bench row: M. Cash (25') / OVR 79 / 6.6 match rating.
-- Mobile-width headless check: 390x844.
-- No JavaScript/page errors.
-
-
-PALACE SQUAD-PLANNING REGRESSION — PASS
-- Crystal Palace formation: 3-4-2-1.
-- Current CM-capable pool identified correctly.
-- Six senior CM options were identified for two starting CM slots after high-upside development players were protected from the senior congestion count.
-- A further CM signing therefore generated an OUT recommendation.
-- Sample fresh-save recommendation: J. Lerma, 77 OVR, £71k/week.
-- Estimated annual wage saving: £3.692m.
-- "List recommended outgoing" action successfully placed the recommended player on the transfer list without resolving/cancelling the incoming recruitment request.
-- The exact recommended outgoing can change with XI selection, transfers, player usage, wages and squad development.
-
-SCR PROJECTION REGRESSION — PASS
-- At exactly 85.0% SCR, first annual breach projection:
-  Status: BREACH
-  Projected fine: £2.5m in the tested Palace revenue state
-  Next-season available investment reduction: 15%
-  Transfer ban: no
-- At 86.0%, first annual breach projection:
-  Status: SEVERE
-  Projected fine: £5.0m in the tested Palace revenue state
-  Next-season available investment reduction: 32%
-- Finance screen rendered the projected sanction and repeat-breach count.
-- Projection formula matched the live annual-assessment formula.
-
-REGRESSION STABILITY — PASS
-- Corrected imported ages retained: 3,067 imported players; Yamal 18; Kane 32; only 242 genuinely age 25.
-- External-player transfer file still opens.
-- 40-day Palace smoke: ~111ms average headless logic day; ~561ms slowest sampled day; no JS/page errors.
-- Full Palace season: 304 days to 1 June; completed correctly; no JS/page errors; ~18.93s headless wall time with render/save UI stubbed.
-
-
-RECRUITMENT BALANCE REGRESSION — PASS
-Wolves £50m test:
-- Fresh Wolves squad had several possible upgrade areas around 75–77 OVR.
-- Recruitment planner identified genuine marquee opportunities rather than dividing £50m into four equal mini-budgets.
-- Generated manager request: LW marquee plan.
-- Marquee target: J. Grealish, 80 OVR, estimated £25.5m in this test run.
-- Alternatives retained a lower-cost upgrade and high-upside route.
-- No second optional marginal signing request was raised in the same manager review after the marquee plan.
-
-REPLACEMENT STRATEGY — PASS
-- Aston Villa Watkins test: 84 OVR starter lost; remaining starter 79.
-- Planner selected DIRECT REPLACEMENT strategy with target band around 81–84 OVR.
-- Artificial 90 OVR elite-player loss at Crystal Palace: equivalent quality was not realistically attainable.
-- Planner selected BEST ATTAINABLE strategy, identified an attainable ceiling around 84 OVR, and explicitly preserved budget for strengthening elsewhere.
-
-SUCCESSION RECRUITMENT — PASS
-- Ageing starter requests now search for a materially younger successor at comparable first-team level before considering ordinary value options.
-
-NEGOTIATION RETURN FLOW — PASS
-- Manager request remained unresolved after selecting a shortlist target.
-- Transfer/player negotiation opened normally.
-- Deliberately unacceptable wage offer was rejected.
-- Request remained live and recorded the failed target.
-- Closing the player transfer screen returned to the same manager shortlist.
-- Other shortlist options remained available; attempted target displayed a previous-terms-rejected note and could be resumed.
-- Successful signing test resolved/completed the request and did NOT reopen the shortlist.
-
-MOBILE SHORTLIST LAYOUT
-- Mobile CSS changed from bottom-anchored to top-anchored viewport scrolling.
-- Shortlist explicitly resets scroll position to the top whenever opened/reopened.
-- This addresses the real-device issue where the header/top of a long shortlist could sit above the reachable scroll area.
-- Physical iPhone verification remains for user playtesting; automated browser tests used a 390x844 viewport.
-
-STABILITY — PASS
-- Full 304-day Wolves season completed to 1 June with no JavaScript/page errors in automated headless testing.
-- Corrected imported ages remained intact (Yamal 18; Kane 32).
-- Existing v0.19.3 recruitment/SCR/database/signing-flow systems retained.
-
-
-============================================================
-Football CEO v0.20.0 — Mobile UI Foundation regression
-============================================================
-
-UI SHELL — PASS
-- Portrait Home rebuilt around the daily CEO loop.
-- 390x844 test: Home, fixed Continue and bottom navigation all visible.
-- Home renders 5 compact stakeholder buttons.
-- Tapping stakeholder opens relationship detail with score, mood, explanation, current factors, history and risk/threshold status.
-- Bottom navigation passed: Home / Squad / Transfers / Inbox / More.
-- Secondary More destinations passed, including Finance.
-- CEO Inbox preview opens the dedicated Inbox screen.
-- Persistent Continue advanced 1 Aug -> 2 Aug through the actual button flow and correctly restored its enabled state.
-
-LAYOUT MATRIX — PASS
-No document-level horizontal overflow or JavaScript errors at:
-- 375x812 portrait
-- 390x844 portrait
-- 430x932 portrait
-- 844x390 landscape
-- 1280x800 desktop
-Stakeholder detail remained within the viewport at all tested sizes.
-Mobile bottom nav is used through 760px; existing desktop tabs remain available above 760px.
-
-GAMEPLAY REGRESSION — PASS
-- External/world player transfer file still opens.
-- Player Database name click still opens transfer file.
-- Manager shortlist still opens.
-- Pursuing a manager target opens the transfer flow.
-- Closing the target without completing a deal returns to the same live manager shortlist; request remains unresolved.
-- Save Manager opens from the new More menu.
-- Post-match formation still rendered 11 player OVR labels.
-- Corrected world ages retained: Yamal 18, Kane 32, only 242 imported world players genuinely age 25.
-
-40-DAY UI SMOKE — PASS
-- 40 days with real UI rendering: 1 Aug -> 10 Sep 2025.
-- Average headless day ~177ms.
-- Slowest sampled day ~940ms.
-- Bottom navigation and all five stakeholder cards remained intact.
-- 0 page/JavaScript errors.
-
-FULL-SEASON LOGIC SMOKE — PASS
-- 304 days: 1 Aug 2025 -> 1 Jun 2026.
-- Season completed correctly.
-- 11 AI transfers in sampled random run.
-- 4 manager requests in sampled random run.
-- 3,067 imported world players retained.
-- 0 page/JavaScript errors.
-- ~17.17s headless wall time with heavy render/save/report UI stubbed for season-scale logic testing.
-
-PHYSICAL DEVICE NOTE
-- Automated Chromium/headless testing only. The assistant has not physically tested this build on the user's iPhone or MacBook.
+Notes
+-----
+These are deterministic logic/regression tests executed against the packaged JavaScript/database in a Node VM harness. They validate the recruitment/squad-selection logic but are not a substitute for final hands-on Safari/PWA UI testing on-device.

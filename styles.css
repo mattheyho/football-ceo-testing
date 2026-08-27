@@ -1486,3 +1486,11 @@ html.modal-open .mobile-bottom-nav,html.modal-open .mobile-continue-dock{visibil
   .budget-slider-summary{justify-content:space-between}
   .budget-slider-summary b{text-align:left}
 }
+
+
+/* v0.24.3 CEO recruitment brief */
+.manager-shortlist-feedback{margin:0 0 14px;padding:12px;border:1px solid var(--line,#3a3036);border-radius:12px;background:rgba(255,255,255,.025)}
+.manager-shortlist-feedback-actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px}
+.manager-shortlist-feedback-actions .btn{flex:1 1 150px}
+.manager-feedback-note{margin-top:10px;padding:10px 12px;border-left:3px solid currentColor;background:rgba(255,255,255,.035);border-radius:6px;font-size:.92em}
+@media(max-width:520px){.manager-shortlist-feedback-actions{display:grid;grid-template-columns:1fr}.manager-shortlist-feedback-actions .btn{width:100%}}

@@ -1,33 +1,48 @@
-Football CEO v0.24.1 — User Academy Intakes
+Football CEO v0.24.3 — Recruitment Intelligence, XI Selection & CEO Recruitment Briefs
 
-USER-CLUB ACADEMY INTAKE
-- The user-controlled club now receives 2–4 generated academy prospects every summer.
-- Prospects are aged 16–19 and immediately become normal senior-database/squad players.
-- Academy quality influences cohort strength and readiness without guaranteeing elite talent.
-- Most prospects are ordinary/good; very good players are uncommon and 88+ potential prospects remain rare.
-- User academy graduates receive cheap youth contracts and can be developed, sold or allowed to leave like any other player.
-- Each intake is persistent in the save and rehydrates correctly after reload.
-- Summer Inbox notification lists each new prospect with age, position, OVR and potential.
+RECRUITMENT INTELLIGENCE
+- Manager recruitment now distinguishes the role actually lost: starter, first-team competition, backup or prospect.
+- Replacement quality is benchmarked against the departed player's role and level instead of automatically matching the strongest remaining player in that position.
+- Existing internal replacements are recognised; a sale does not automatically trigger a signing when the squad can absorb the departure.
+- Recently sold players are excluded from being recommended as their own replacement.
+- Role-specific spending discipline stops depth signings from consuming starter-level transfer budgets without a strong reason.
+- Backup/competition goalkeeper searches now favour either affordable younger options with enough current ability or credible experienced senior backups.
+- Shortlist scoring now considers current ability, potential, positional fit, affordability, age, manager profile, interest and the importance of the vacancy.
 
-GENERATED NAMES
-- Generated prospects use nationality-specific first-name and surname pools.
-- User-club intakes are primarily drawn from the club's home nationality, with international academy recruits mixed in.
-- Active-database duplicate names are avoided; long careers fall back to believable double surnames when necessary.
+MANAGER SHORTLISTS
+- Recruitment requests now aim to present three credible strategic routes when the market supports them.
+- The old fixed Direct / Value / Long-term labels have been replaced.
+- The first recommendation is shown as Manager's First Choice.
+- Alternatives receive contextual descriptors such as Best Fit, Value, Youth, Experienced or High Upside.
+- A youth option is only presented when its ability, potential and price make sense for the role.
 
-BALANCE
-- Intake size is 2–4 players, lightly influenced by Academy rating.
-- Academy rating shifts potential probabilities rather than determining fixed outcomes, so weaker academies can still very occasionally produce a top prospect.
-- Existing passive youth development remains active: 16–20-year-olds with potential headroom can still gain around +1 without first-team minutes, while match time drives larger gains.
+CEO RECRUITMENT BRIEFS
+- The CEO can reject a manager shortlist and give one of three instructions:
+  • Aim higher / spend more
+  • Spend less
+  • Different options
+- Aim higher raises the quality/investment brief without allowing spending beyond the actual available playing budget.
+- Spend less prioritises value and preserves more of the transfer budget while maintaining a credible role floor.
+- Different options asks the manager to reassess the market without changing the financial brief.
+- Rejected targets are remembered so refreshed shortlists favour genuinely different names when the market permits.
+- If the CEO asks to aim higher but the current budget cannot access a clearly stronger player, the manager explains that the market ceiling has been reached rather than inventing a worse recommendation.
 
-PWA / COMPATIBILITY
-- Compatible with v0.24 saves; no destructive save migration is required.
-- Service-worker cache advanced to football-ceo-v0.24.1-pwa-1.
+SQUAD SELECTION
+- Manager XI selection now optimises the whole formation rather than filling positions greedily one by one.
+- This preserves scarce natural-position players for the roles where they are most valuable and prevents avoidable selections such as a central midfielder at striker while a natural striker is used elsewhere.
+- Emergency positional use remains possible only when a squad genuinely cannot fill the formation credibly.
+
+COMPATIBILITY
+- Additive update on v0.24.2 and compatible with existing v0.24.x save structures.
+- Service-worker cache advanced to football-ceo-v0.24.3-pwa-1.
 
 TESTING
-- User intake creation (2–4), squad visibility, age/OVR/potential/wage bounds: PASS.
-- User intake uniqueness and save/reload persistence: PASS.
-- Low-academy vs elite-academy distribution sanity: PASS.
-- Actual season-rollover Inbox intake notification: PASS.
-- Existing negotiated transfer terms regression: PASS.
-- Existing live playing-budget regression: PASS.
-- Existing 390px mobile finance/transfer/save regression: PASS.
+- All JavaScript syntax validation: PASS.
+- 20 Premier League club whole-XI assignment regression: PASS (11 unique players in every XI; no null slots; minimum normal-squad positional suitability 88).
+- Manchester City / Haaland sale regression: PASS (natural striker retained at ST; three credible starter-level recommendations).
+- Aston Villa / Bizot sale regression: PASS (three affordable backup/competition GK routes, all £10m or below in the test scenario).
+- Aston Villa / Watkins sale regression: PASS (three routes; Watkins cannot be recommended back).
+- CEO Aim higher feedback regression: PASS.
+- CEO Spend less feedback regression: PASS.
+- CEO Different options feedback regression: PASS.
+- Bournemouth / Christie sale regression: PASS (existing Cook/Adams depth absorbs the departure; no unnecessary CM vacancy remains open).

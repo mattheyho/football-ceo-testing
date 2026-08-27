@@ -725,6 +725,9 @@ function ensureStakeholderState(){
   const defaults={fans:74,owners:72,players:76,manager:80,sponsors:70};
   STAKEHOLDER_GROUPS.forEach(key=>{
     if(state.happiness[key]==null) state.happiness[key]=defaults[key];
+    // Stakeholder scores are whole-number percentages. Older saves may contain
+    // fractional values from the previous high/low-score damping model.
+    state.happiness[key]=clamp(Math.round(Number(state.happiness[key]??defaults[key])),0,100);
   });
 
   if(!state.happinessDrivers) state.happinessDrivers={};
@@ -735,6 +738,12 @@ function ensureStakeholderState(){
   if(!state.stakeholderHistory) state.stakeholderHistory={};
   STAKEHOLDER_GROUPS.forEach(key=>{
     if(!Array.isArray(state.stakeholderHistory[key])) state.stakeholderHistory[key]=[];
+    // One-time compatibility cleanup for v0.24.1 saves that recorded values such
+    // as +1.2000000000000028 in the relationship history.
+    state.stakeholderHistory[key]=state.stakeholderHistory[key]
+      .map(entry=>({...entry,delta:Math.round(Number(entry?.delta||0))}))
+      .filter(entry=>entry.delta!==0)
+      .slice(0,12);
   });
 
   if(!state.stakeholderThresholdState) state.stakeholderThresholdState={};
@@ -764,11 +773,12 @@ function stakeholderValue(key){
 
 function addStakeholderHistory(key,delta,reason,kind="change"){
   ensureStakeholderState();
-  if(!delta || !state.stakeholderHistory[key]) return;
+  const wholeDelta=Math.round(Number(delta||0));
+  if(!wholeDelta || !state.stakeholderHistory[key]) return;
   state.stakeholderHistory[key].unshift({
     date:typeof currentGameDateISO==="function"?currentGameDateISO():state.calendar?.date||null,
     week:state.week||0,
-    delta,
+    delta:wholeDelta,
     reason:reason||"Club events and stakeholder pressure",
     kind
   });
@@ -852,8 +862,12 @@ function stakeholderChange(key,delta,reason,{notify=true,save=false,render=false
   ensureStakeholderState();
   if(!STAKEHOLDER_GROUPS.includes(key)) return null;
   const before=stakeholderValue(key);
-  const after=clamp(before+Number(delta||0),0,100);
-  state.happiness[key]=after;
+  // Relationship movements are deliberately discrete. Routine decisions should
+  // normally sit inside -3..+3; exceptional sporting/club events can still call
+  // this function with larger integer values.
+  const wholeDelta=Math.round(Number(delta||0));
+  const after=clamp(before+wholeDelta,0,100);
+  state.happiness[key]=Math.round(after);
   const actual=after-before;
   if(actual) addStakeholderHistory(key,actual,reason,"decision");
   updateStakeholderMeta();
@@ -1005,13 +1019,14 @@ function ownerFootballExpectationTarget(club=state?.club){
 function ownerFootballPerformanceDriver(position,target=ownerFootballExpectationTarget()){
   if(!Number.isFinite(position)) return null;
   const gap=position-target;
-  if(gap<=-4) return {label:"Football performance well above expectations",value:6};
-  if(gap<=-2) return {label:"Football performance above expectations",value:4};
-  if(gap<=0) return {label:"Meeting league expectations",value:2};
-  if(gap===1) return {label:"Slightly below league expectations",value:-2};
-  if(gap<=3) return {label:"Below league expectations",value:-4};
-  if(gap<=5) return {label:"Significantly below league expectations",value:-6};
-  return {label:"Severe football underperformance",value:-8};
+  // Persistent weekly factors use the normal -3..+3 relationship scale.
+  // Exceptional season-end achievements are handled separately below.
+  if(gap<=-4) return {label:"Football performance well above expectations",value:3};
+  if(gap<=-2) return {label:"Football performance above expectations",value:2};
+  if(gap<=0) return {label:"Meeting league expectations",value:1};
+  if(gap===1) return {label:"Slightly below league expectations",value:-1};
+  if(gap<=3) return {label:"Below league expectations",value:-2};
+  return {label:"Severe football underperformance",value:-3};
 }
 
 function processOwnerSeasonFootballAssessment(finish){
@@ -1021,22 +1036,35 @@ function processOwnerSeasonFootballAssessment(finish){
   if(state.ownerSeasonAssessments[key]) return state.ownerSeasonAssessments[key];
   const target=ownerFootballExpectationTarget();
   const gap=Number(finish)-target;
+
+  // Routine season outcomes stay close to the normal -3..+3 scale. Genuine
+  // major success/failure can move a relationship by 5–8 points at once.
   let delta=0;
-  if(gap<=-4) delta=10;
-  else if(gap<=-2) delta=7;
-  else if(gap<=0) delta=4;
-  else if(gap===1) delta=-2;
-  else if(gap<=3) delta=-6;
-  else if(gap<=5) delta=-10;
-  else delta=-14;
-  if(target<=4 && finish>=8) delta-=3;
-  else if(target<=6 && finish>=10) delta-=3;
-  if(finish===1) delta+=3;
-  delta=clamp(delta,-18,13);
-  const reason=delta>=0
-    ? `League finish of ${ordinal(finish)} met or exceeded the board's ${ordinal(target)}-place expectation`
-    : `League finish of ${ordinal(finish)} fell short of the board's ${ordinal(target)}-place expectation`;
+  if(finish===1) delta=8;
+  else if(gap<=-4) delta=5;
+  else if(gap<=-2) delta=3;
+  else if(gap===-1) delta=2;
+  else if(gap===0) delta=1;
+  else if(gap===1) delta=-1;
+  else if(gap<=3) delta=-3;
+  else if(gap<=5) delta=-5;
+  else delta=-8;
+  if((target<=4 && finish>=8) || (target<=6 && finish>=10)) delta=Math.min(delta,-8);
+
+  const reason=finish===1
+    ? "Premier League title won"
+    : delta>=0
+      ? `League finish of ${ordinal(finish)} met or exceeded the board's ${ordinal(target)}-place expectation`
+      : `League finish of ${ordinal(finish)} fell short of the board's ${ordinal(target)}-place expectation`;
   stakeholderChange("owners",delta,reason,{notify:true});
+
+  // A league title is the clearest current example of an exceptional sporting
+  // event: supporters and commercial partners should feel it immediately.
+  if(finish===1){
+    stakeholderChange("fans",8,"Premier League title won",{notify:true});
+    stakeholderChange("sponsors",5,"Premier League title won",{notify:true});
+  }
+
   const assessment={season:currentSeasonLabel(),finish,target,delta,ownerHappiness:stakeholderValue("owners")};
   state.ownerSeasonAssessments[key]=assessment;
   if(typeof addNews==="function") addNews(`BOARD FOOTBALL REVIEW: ${ordinal(finish)} in the Premier League against a ${ordinal(target)}-place expectation. Owner confidence ${delta>0?`rose by ${delta}`:delta<0?`fell by ${Math.abs(delta)}`:"was unchanged"} point${Math.abs(delta)===1?"":"s"}.`);
@@ -1054,23 +1082,23 @@ function updateStakeholderDrivers(){
 
   const fans=[];
   if(state.form?.length){
-    if(ppg>=2.2) fans.push({label:"Excellent recent form",value:4});
+    if(ppg>=2.2) fans.push({label:"Excellent recent form",value:3});
     else if(ppg>=1.6) fans.push({label:"Positive recent form",value:2});
-    else if(ppg<=0.8) fans.push({label:"Poor recent form",value:-4});
+    else if(ppg<=0.8) fans.push({label:"Poor recent form",value:-3});
     else if(ppg<=1.2) fans.push({label:"Underwhelming recent form",value:-2});
   }
   if(state.week>=5){
     if(pos<=Math.max(1,target-2)) fans.push({label:"Above league expectation",value:3});
-    else if(pos>=Math.min(20,target+4)) fans.push({label:"Below league expectation",value:-4});
+    else if(pos>=Math.min(20,target+4)) fans.push({label:"Below league expectation",value:-3});
   }
   if(priceP>0.22){
-    fans.push({label:"Very high supporter pricing",value:ppg>=2.0?-1:ppg>=1.4?-3:-6});
+    fans.push({label:"Very high supporter pricing",value:ppg>=2.0?-1:-3});
   }else if(priceP>0.10){
-    fans.push({label:"High supporter pricing",value:ppg>=2.0?0:ppg>=1.3?-2:-4});
+    fans.push({label:"High supporter pricing",value:ppg>=2.0?0:ppg>=1.3?-2:-3});
   }else if(priceP<-0.12){
     fans.push({label:"Supporter-friendly pricing",value:2});
   }
-  if(state.sponsorship?.fanOpposed) fans.push({label:"Controversial sponsorship",value:-4});
+  if(state.sponsorship?.fanOpposed) fans.push({label:"Controversial sponsorship",value:-3});
   (state.transferSentiment?.fans||[]).slice(-2).forEach(x=>fans.push(x));
   if(typeof stadiumStakeholderDriver==="function"){ const stadiumDriver=stadiumStakeholderDriver(); if(stadiumDriver) fans.push(stadiumDriver); }
   state.happinessDrivers.fans=fans;
@@ -1078,10 +1106,10 @@ function updateStakeholderDrivers(){
   const owners=[];
   const seasonPL=state.seasonPL||0;
   const expectedTolerance=state.ownerProfile?.lossTolerance??15_000_000;
-  if(seasonPL>5_000_000) owners.push({label:"Healthy season profit",value:4});
+  if(seasonPL>5_000_000) owners.push({label:"Healthy season profit",value:3});
   else if(seasonPL>0) owners.push({label:"Club in profit",value:2});
-  else if(seasonPL<-expectedTolerance*1.5) owners.push({label:"Losses exceed owner tolerance",value:-6});
-  else if(seasonPL<-expectedTolerance) owners.push({label:"Financial losses",value:-4});
+  else if(seasonPL<-expectedTolerance*1.5) owners.push({label:"Losses exceed owner tolerance",value:-3});
+  else if(seasonPL<-expectedTolerance) owners.push({label:"Financial losses",value:-3});
   else if(seasonPL<0) owners.push({label:"Manageable operating loss",value:-1});
   if((state.staffSpend||0)>10_000_000) owners.push({label:"High staff compensation costs",value:-2});
   if(state.week>=4){
@@ -1094,24 +1122,24 @@ function updateStakeholderDrivers(){
   const players=[];
   const wageFairness=squadWageFairness();
   if(wageFairness>0.82) players.push({label:"Fair wage structure",value:3});
-  else if(wageFairness<0.55) players.push({label:"Perceived wage unfairness",value:-4});
+  else if(wageFairness<0.55) players.push({label:"Perceived wage unfairness",value:-3});
   const managerChanges=state.managerChangesThisSeason||0;
   if(managerChanges===0) players.push({label:"Managerial stability",value:2});
   else if(managerChanges===1) players.push({label:"Recent manager change",value:-2});
-  else players.push({label:"Managerial instability",value:-5});
+  else players.push({label:"Managerial instability",value:-3});
   const trainingRating=typeof facilityRating==="function"?facilityRating("training"):Math.round(byClub(state.club).reputation-4);
   const squadStandard=Math.round(strength(state.club));
   const facilityGap=trainingRating-squadStandard;
   if(facilityGap>=3) players.push({label:"Excellent training facilities",value:2});
-  else if(facilityGap<=-8) players.push({label:"Training facilities below squad standard",value:-4});
+  else if(facilityGap<=-8) players.push({label:"Training facilities below squad standard",value:-3});
   else if(facilityGap<=-4) players.push({label:"Training facilities need improvement",value:-2});
   state.happinessDrivers.players=players;
 
   const manager=[];
   const backing=state.managerBacking??70;
-  if(backing>=80) manager.push({label:"Strong board backing",value:4});
+  if(backing>=80) manager.push({label:"Strong board backing",value:3});
   else if(backing>=65) manager.push({label:"Board support",value:2});
-  else if(backing<45) manager.push({label:"Feels unsupported",value:-5});
+  else if(backing<45) manager.push({label:"Feels unsupported",value:-3});
   else if(backing<60) manager.push({label:"Wants more backing",value:-2});
   const offPitchFanNeg=fans.filter(x=>["Very high supporter pricing","High supporter pricing","Controversial sponsorship"].includes(x.label)).reduce((s,x)=>s+x.value,0);
   if(offPitchFanNeg<=-6) manager.push({label:"Fan anger creating pressure",value:-3});
@@ -1155,7 +1183,7 @@ function updateStakeholderDrivers(){
   const sponsorScore=stakeholderValue("sponsors");
 
   if(fanScore<25){
-    state.happinessDrivers.sponsors.push({label:"Severe supporter unrest",value:-5});
+    state.happinessDrivers.sponsors.push({label:"Severe supporter unrest",value:-3});
     state.happinessDrivers.owners.push({label:"Supporter unrest",value:-3});
   }else if(fanScore<40){
     state.happinessDrivers.sponsors.push({label:"Weak supporter sentiment",value:-3});
@@ -1177,12 +1205,15 @@ function updateStakeholderDrivers(){
 
 
 function applyHappinessDelta(current,delta){
-  // Extreme values should be difficult to reach and maintain.
-  if(delta>0 && current>=90) delta*=0.35;
-  else if(delta>0 && current>=80) delta*=0.60;
-  if(delta<0 && current<=15) delta*=0.40;
-  else if(delta<0 && current<=25) delta*=0.65;
-  return clamp(current+delta,0,100);
+  // Extreme values should be difficult to reach and maintain, but relationship
+  // scores and the visible history must remain whole numbers. Damping therefore
+  // changes whether a point is gained/lost rather than storing fractional points.
+  let adjusted=Number(delta||0);
+  if(adjusted>0 && current>=90) adjusted*=0.35;
+  else if(adjusted>0 && current>=80) adjusted*=0.60;
+  if(adjusted<0 && current<=15) adjusted*=0.40;
+  else if(adjusted<0 && current<=25) adjusted*=0.65;
+  return clamp(Math.round(current+adjusted),0,100);
 }
 
 function applyStakeholderHappiness(){
@@ -2461,7 +2492,7 @@ function renderStakeholderDetail(key){
     ?drivers.map(d=>`<div class="stakeholder-detail-row"><span>${d.label}</span><b class="delta ${d.value>0?"pos":d.value<0?"neg":"neu"}">${d.value>0?"+":""}${d.value}</b></div>`).join("")
     :`<div class="muted small">No major current pressure.</div>`;
   q("stakeholderDetailHistory").innerHTML=history.length
-    ?history.slice(0,10).map(h=>`<div class="stakeholder-detail-row"><span><b>${h.date?shortGameDate(h.date):`MW ${h.week||0}`}</b><small>${h.reason}</small></span><b class="delta ${h.delta>0?"pos":"neg"}">${h.delta>0?"+":""}${h.delta}</b></div>`).join("")
+    ?history.slice(0,10).map(h=>`<div class="stakeholder-detail-row"><span><b>${h.date?shortGameDate(h.date):`MW ${h.week||0}`}</b><small>${h.reason}</small></span><b class="delta ${h.delta>0?"pos":"neg"}">${h.delta>0?"+":""}${Math.round(h.delta)}</b></div>`).join("")
     :`<div class="muted small">No relationship changes recorded yet.</div>`;
 
   const status=q("stakeholderDetailStatus");
