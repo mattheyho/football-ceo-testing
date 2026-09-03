@@ -1,48 +1,34 @@
-Football CEO v0.24.3 — Recruitment Intelligence, XI Selection & CEO Recruitment Briefs
+Football CEO v0.24.7 — League-Linked Youth Ecosystem
 
-RECRUITMENT INTELLIGENCE
-- Manager recruitment now distinguishes the role actually lost: starter, first-team competition, backup or prospect.
-- Replacement quality is benchmarked against the departed player's role and level instead of automatically matching the strongest remaining player in that position.
-- Existing internal replacements are recognised; a sale does not automatically trigger a signing when the squad can absorb the departure.
-- Recently sold players are excluded from being recommended as their own replacement.
-- Role-specific spending discipline stops depth signings from consuming starter-level transfer budgets without a strong reason.
-- Backup/competition goalkeeper searches now favour either affordable younger options with enough current ability or credible experienced senior backups.
-- Shortlist scoring now considers current ability, potential, positional fit, affordability, age, manager profile, interest and the importance of the vacancy.
+YOUTH GENERATION
+- World prospects are now generated through simulated clubs rather than from one quality-agnostic global pool.
+- Starting OVR is driven primarily by club academy quality and the football level of the league the player emerges from.
+- Potential is influenced by academy quality and national talent depth, with only a light league effect so elite players can still emerge below the top flight.
+- Exceptional 90+ potential prospects can enter senior football unusually advanced, allowing a very small number to become genuine 90+ stars by prime age.
+- Generated players retain youthOriginClub, youthLeagueQuality and youthAcademyQuality for future history, debugging and pathway features.
 
-MANAGER SHORTLISTS
-- Recruitment requests now aim to present three credible strategic routes when the market supports them.
-- The old fixed Direct / Value / Long-term labels have been replaced.
-- The first recommendation is shown as Manager's First Choice.
-- Alternatives receive contextual descriptors such as Best Fit, Value, Youth, Experienced or High Upside.
-- A youth option is only presented when its ability, potential and price make sense for the role.
+LEAGUE QUALITY
+- Each simulated league now has a youth-environment rating calculated from senior squad quality and club standards.
+- League youth quality moves only 20% toward the newly observed level each season, preventing one promotion/relegation or anomalous season from instantly changing intake quality.
+- The system is data-driven: when League One, League Two or further leagues are added to WORLD_LEAGUES/WORLD_CLUBS, their standards feed the same youth model automatically.
 
-CEO RECRUITMENT BRIEFS
-- The CEO can reject a manager shortlist and give one of three instructions:
-  • Aim higher / spend more
-  • Spend less
-  • Different options
-- Aim higher raises the quality/investment brief without allowing spending beyond the actual available playing budget.
-- Spend less prioritises value and preserves more of the transfer budget while maintaining a credible role floor.
-- Different options asks the manager to reassess the market without changing the financial brief.
-- Rejected targets are remembered so refreshed shortlists favour genuinely different names when the market permits.
-- If the CEO asks to aim higher but the current budget cannot access a clearly stronger player, the manager explains that the market ceiling has been reached rather than inventing a worse recommendation.
+ACADEMIES / NATIONAL TALENT
+- The user's actual Academy facility rating remains the direct academy-quality input for the user's intake.
+- AI academy quality is estimated from club reputation with stable club-specific variance, so academy strength is not a perfect copy of league position.
+- National talent depth modestly influences potential distribution.
+- Lower-league clubs still retain a genuine, rare chance of producing elite or generational potential.
 
-SQUAD SELECTION
-- Manager XI selection now optimises the whole formation rather than filling positions greedily one by one.
-- This preserves scarce natural-position players for the roles where they are most valuable and prevents avoidable selections such as a central midfielder at striker while a natural striker is used elsewhere.
-- Emergency positional use remains possible only when a squad genuinely cannot fill the formation credibly.
+WORLD PIPELINE
+- Annual world intake no longer waits primarily for that summer's retirements.
+- The forward pipeline scales with the number of simulated clubs and the size of the active player database.
+- Current loaded world target is 151 world prospects per season, plus the user's 2–4 academy players.
+- In the expansion regression, adding synthetic League One + League Two (48 clubs) automatically raised the target from 151 to 168 even before their full player databases were added.
+- Retirement volume can still lift intake when required, but is no longer the main trigger for creating future talent.
 
-COMPATIBILITY
-- Additive update on v0.24.2 and compatible with existing v0.24.x save structures.
-- Service-worker cache advanced to football-ceo-v0.24.3-pwa-1.
+RETAINED
+- v0.24.6 loans/player pathways.
+- v0.24.5 save-specific ageing/longevity.
+- v0.24.4 summer squad planning and v0.24.3 recruitment intelligence/CEO briefs.
 
-TESTING
-- All JavaScript syntax validation: PASS.
-- 20 Premier League club whole-XI assignment regression: PASS (11 unique players in every XI; no null slots; minimum normal-squad positional suitability 88).
-- Manchester City / Haaland sale regression: PASS (natural striker retained at ST; three credible starter-level recommendations).
-- Aston Villa / Bizot sale regression: PASS (three affordable backup/competition GK routes, all £10m or below in the test scenario).
-- Aston Villa / Watkins sale regression: PASS (three routes; Watkins cannot be recommended back).
-- CEO Aim higher feedback regression: PASS.
-- CEO Spend less feedback regression: PASS.
-- CEO Different options feedback regression: PASS.
-- Bournemouth / Christie sale regression: PASS (existing Cook/Adams depth absorbs the departure; no unnecessary CM vacancy remains open).
+PWA
+- Service-worker cache advanced to football-ceo-v0.24.7-pwa-1.

@@ -213,7 +213,7 @@ function managerRoleNeedSatisfied(position,role,excludePlayerId=null,club=state.
 
   const starterFloor=standard.expectedStarter-3;
   const competitionFloor=standard.expectedDepth-2;
-  const backupFloor=standard.expectedDepth-6;
+  const backupFloor=Math.max(standard.expectedBackup||0,standard.expectedDepth-4);
 
   if(role==="starter"){
     return players.slice(0,required).length>=required &&
@@ -514,16 +514,18 @@ function managerPositionStandard(position){
     .map(x=>x.p);
   const starter=players[0]?.overall||68;
   const second=players[1]?.overall||Math.max(62,starter-8);
-  const clubRep=byClub(state.club)?.reputation||70;
+  const standards=typeof managerClubSquadStandards==="function"
+    ? managerClubSquadStandards(state.club)
+    : {starter:72,competition:69,backup:65};
 
-  // The manager's expected first-team standard is anchored to BOTH
-  // current squad quality and club reputation.
-  const reputationStandard=clamp(Math.round(68+(clubRep-70)*0.42),70,87);
+  // Position-specific expectations should reflect the level of the whole squad,
+  // not merely whichever weak reserve currently happens to be second in depth.
   return {
     starter,
     second,
-    expectedStarter:Math.max(starter,reputationStandard),
-    expectedDepth:Math.max(second,reputationStandard-6)
+    expectedStarter:Math.max(starter,standards.starter),
+    expectedDepth:Math.max(second,standards.competition),
+    expectedBackup:standards.backup
   };
 }
 
@@ -576,6 +578,16 @@ function clubRecruitmentStrategyFit(player,club=state.club){
   }
 
   if(rep>=90&&overall>=84&&age<=32) score+=4;
+
+  // v0.24.5: managers can still value experience, but they now see the likely
+  // two-year ageing cost as part of the football decision. This is deliberately
+  // a modest penalty rather than a hard age ban: a cheap 33-year-old can remain
+  // a sensible Experienced option, while a 36/37-year-old must offer exceptional
+  // short-term value to outrank prime-age alternatives.
+  if(typeof projectedAgeingLoss==="function" && age>=30){
+    const projectedLoss=projectedAgeingLoss(player,2,{projectedMinutes:2000,performanceFactor:1});
+    score-=Math.min(14,projectedLoss*2.25);
+  }
   return score;
 }
 
@@ -589,6 +601,7 @@ function playerSoldByUserClubRecently(p,days=365){
   for(let i=state.transferLedger.length-1;i>=0;i--){
     const tx=state.transferLedger[i];
     if(String(tx.playerId)!==String(p.id)) continue;
+    if(['loan','loan-return','loan-recall'].includes(tx.kind)) continue;
     if(tx.fromClub!==state.club) continue;
     if(tx.careerDay!=null) return current-tx.careerDay<days;
     return tx.season===currentSeasonLabel();
@@ -604,7 +617,7 @@ function realisticManagerTargetPool(position,limit=30,context={}){
   const excluded=new Set((context.excludePlayerIds||[]).map(String));
 
   return DB.players
-    .filter(p=>p.club!==club && p.club!=="Free Agent" && playsPositionGroup(p,position))
+    .filter(p=>!p.retired && p.club!=="Retired" && p.club!==club && p.club!=="Free Agent" && playsPositionGroup(p,position))
     .filter(p=>!excluded.has(String(p.id)))
     .filter(p=>!playerSoldByUserClubRecently(p,365))
     .map(p=>{
@@ -1226,13 +1239,21 @@ function maybeGenerateManagerSquadRequest(){
     const renewRejectedDay=state.managerRequestRejections?.[`renew-${p.id}`];
     const renewCooling=renewRejectedDay!=null && currentCareerDay()-renewRejectedDay<84;
     if(c && c.endYear<=currentContractSeasonEndYear() && p.overall>=78 && !renewCooling){
-      options.push({type:"renew",playerId:p.id,priority:3});
+      const pot=p.potential||p.overall||0;
+      const priority=(p.overall||0)>=82?9:((p.age||99)<=24&&pot>=(p.overall||0)+3)?8:5;
+      options.push({type:"renew",playerId:p.id,priority});
     }
 
     if(p.age>=29 && p.overall<=74 && state.playerListStatus?.[p.id]!=="Transfer"){
       options.push({type:"transfer",playerId:p.id,priority:2});
     }
   });
+
+  // Player pathways: young high-upside players outside the manager's realistic
+  // first-team minutes plan can be recommended for an outgoing development loan.
+  if(transferWindowOpen && typeof managerLoanOutRecommendations==="function"){
+    options.push(...managerLoanOutRecommendations(state.club));
+  }
 
   // A recently fulfilled recruitment role is suppressed for 12 weeks unless
   // a fresh explicit vacancy is created later.
@@ -1313,7 +1334,7 @@ function maybeGenerateManagerSquadRequest(){
         vacancy:Boolean(pick.vacancy),replacementOverall:pick.replacementOverall||0,replacementAge:pick.replacementAge||0,
         budgetCap:requestBudgetRemaining,needType:pick.needType,need:pick.needSnapshot||null
       });
-      const shortlist=buildManagerShortlist(pick.position,pick.squadRole||"starter",{
+      let shortlist=buildManagerShortlist(pick.position,pick.squadRole||"starter",{
         vacancy:Boolean(pick.vacancy),
         replacementOverall:pick.replacementOverall||0,
         replacementAge:pick.replacementAge||0,
@@ -1323,10 +1344,11 @@ function maybeGenerateManagerSquadRequest(){
         need:pick.needSnapshot||null,
         plan
       });
+      if(typeof injectManagerLoanOption==="function") shortlist=injectManagerLoanOption(shortlist,pick.position,pick.squadRole||"starter",{budgetCap:requestBudgetRemaining,need:pick.needSnapshot||null});
       if(!shortlist.length) continue;
       pick.playerId=shortlist[0].player.id;
       pick.alternatives=shortlist.slice(1).map(x=>x.player.id);
-      pick.shortlist=shortlist.map(x=>({playerId:x.player.id,role:x.role,descriptor:x.descriptor||"",asking:x.asking,interest:x.interest,planType:x.planType||plan.type}));
+      pick.shortlist=shortlist.map(x=>({playerId:x.player.id,role:x.role,descriptor:x.descriptor||"",asking:x.asking,interest:x.interest,planType:x.planType||plan.type,loanOption:Boolean(x.loanOption),loanTerms:x.loanTerms||null}));
       pick.recruitmentPlan={type:plan.type,message:plan.message,currentStarter:plan.currentStarter,lostOverall:plan.lostOverall||0,preferredFloor:plan.preferredFloor||0,minimumFloor:plan.minimumFloor||0,budgetTarget:plan.budgetTarget||0};
       if(plan.message) pick.reason=`${pick.reason||""} ${plan.message}`.trim();
       // Improvement recruitment must also plan the OUT side of the squad.
@@ -1450,7 +1472,11 @@ function resolveManagerRequest(id,accepted){
   if(accepted){
     if(req.type!=="sign") state.managerBacking=clamp((state.managerBacking||70)+3,0,100);
     if(req.type==="transfer") setPlayerListStatus(p.id,"Transfer","Manager");
-    
+    else if(req.type==="loan"){
+      if(typeof setLoanListed==="function") setLoanListed(p.id,true,"Manager");
+      else setPlayerListStatus(p.id,"Loan","Manager");
+      addNews(`You agreed with ${req.manager} to seek a development loan for ${p.name}.`);
+    }
     else if(req.type==="sign"){
       req.resolved=false;
       openManagerShortlist(req.id);
@@ -1755,10 +1781,16 @@ function toggleTransferList(id){
 function toggleLoanList(id){
   ensureContractState();
   const current=state.playerListStatus[id]||"None";
-  setPlayerListStatus(id,current==="Loan"?"None":"Loan");
-  saveGame(false);
-  openPlayerProfile(id);
-  renderSquad();
+  if(typeof activeLoanForPlayer==="function"){
+    const loan=activeLoanForPlayer(id);
+    if(loan){
+      if(loan.parentClub===state.club&&loan.recallAllowed&&typeof recallLoan==="function")return recallLoan(loan.id);
+      addNews(`A player already on loan cannot be added to another outgoing list.`);return;
+    }
+  }
+  if(typeof setLoanListed==="function") setLoanListed(id,current!=="Loan","CEO");
+  else setPlayerListStatus(id,current==="Loan"?"None":"Loan");
+  saveGame(false);openPlayerProfile(id);renderSquad();
 }
 
 
@@ -3177,6 +3209,100 @@ function clubSquadQualityBenchmark(club){
   return core.reduce((a,b)=>a+b,0)/core.length;
 }
 
+// v0.24.4 — Full-squad planning standards.
+// Recruitment depth must scale with the actual first-team level. The previous
+// reputation-only floor was too low for strong clubs and allowed academy players
+// in the mid-60s to count as credible senior cover at European-level sides.
+function managerClubSquadStandards(club){
+  const benchmark=clubSquadQualityBenchmark(club);
+  const rep=byClub(club)?.reputation||70;
+  const repFloor=clamp(Math.round(69+(rep-70)*0.34),69,86);
+  const starter=clamp(Math.max(repFloor,Math.round(benchmark-1)),70,89);
+  return {
+    benchmark,
+    starter,
+    competition:clamp(starter-3,67,86),
+    backup:clamp(starter-7,63,82)
+  };
+}
+
+function managerPreferredSeniorSquadSize(club){
+  const profile=managerProfileForClub(club);
+  const depth=profile?.depthDemand??70;
+  // A normal Premier League squad should contain roughly 21–23 players who are
+  // genuinely ready to contribute, with prospects sitting outside that quota.
+  if(depth>=90) return 23;
+  if(depth>=75) return 22;
+  return 21;
+}
+
+function managerPlayerSeniorReady(player,club,standards=managerClubSquadStandards(club)){
+  const o=player?.overall||0;
+  if(o>=standards.backup) return true;
+  // A near-ready high-upside youngster can legitimately be treated as senior
+  // depth, but a raw academy prospect cannot fill a first-team squad quota.
+  const age=player?.age||99,pot=player?.potential||o;
+  return age<=22 && o>=standards.backup-1 && pot>=standards.starter+1;
+}
+
+function managerPlayerDevelopmentalDepth(player,club,standards=managerClubSquadStandards(club)){
+  if(!player || (player.age||99)>22) return false;
+  if(managerPlayerSeniorReady(player,club,standards)) return false;
+  const o=player.overall||0,pot=player.potential||o;
+  return o>=standards.backup-10 && pot>=standards.starter+1;
+}
+
+function managerSummerSquadReview(club=state.club,{notify=true}={}){
+  const standards=managerClubSquadStandards(club);
+  const sq=clubSquadPlayers(club);
+  const seniorReady=sq.filter(p=>managerPlayerSeniorReady(p,club,standards));
+  const developmental=sq.filter(p=>managerPlayerDevelopmentalDepth(p,club,standards));
+  const targetSenior=managerPreferredSeniorSquadSize(club);
+  const needs=managerSquadNeedsFromFormation(club);
+  const priorities=needs.filter(n=>n.role!=="none" && n.score>=26).slice(0,3);
+  const shortage=Math.max(0,targetSenior-seniorReady.length);
+  const status=shortage>=4?"critical":shortage>=2?"thin":shortage===1?"slightly thin":"balanced";
+  const review={
+    season:currentSeasonLabel(),date:currentGameDateISO(),manager:managerNameForClub(club),
+    formation:managerFormationForClub(club),seniorReady:seniorReady.length,targetSenior,
+    developmental:developmental.length,total:sq.length,status,
+    standards:{starter:standards.starter,competition:standards.competition,backup:standards.backup},
+    priorities:priorities.map(n=>({position:n.position,role:n.role,score:n.score,reason:n.reason,needType:n.needType}))
+  };
+
+  if(club===state.club){
+    state.managerSummerSquadReview=review;
+    state.managerSummerSquadReviews=state.managerSummerSquadReviews||[];
+    state.managerSummerSquadReviews=state.managerSummerSquadReviews.filter(r=>r.season!==review.season);
+    state.managerSummerSquadReviews.push(review);
+
+    if(notify && typeof addNews==="function"){
+      const priorityText=priorities.length
+        ? priorities.map(n=>`${positionLabel(n.position)} (${n.role})`).join(" • ")
+        : "No urgent positional recruitment priorities";
+      const depthText=shortage
+        ? `${seniorReady.length} senior-ready players against a preferred ${targetSenior}`
+        : `${seniorReady.length} senior-ready players, meeting the preferred ${targetSenior}-player core`;
+      const youthText=developmental.length
+        ? ` ${developmental.length} additional development prospect${developmental.length===1?" is":"s are"} being tracked but not counted as full senior cover.`
+        : "";
+      addNews(`<strong>SUMMER SQUAD REVIEW — ${review.manager}:</strong> ${depthText}. ${priorityText}.${youthText}`);
+    }
+
+    // The formal transfer window opens on 16 June. Queue the manager's first
+    // recruitment meeting for that date so the summer plan becomes actionable
+    // immediately without creating requests while registration is closed.
+    if(typeof scheduleManagerReassessment==="function"){
+      const today=currentGameDateISO();
+      const y=today.slice(0,4);
+      const opening=`${y}-06-16`;
+      const days=today<opening?Math.max(1,dateDiffDays(today,opening)):1;
+      scheduleManagerReassessment(days);
+    }
+  }
+  return review;
+}
+
 
 let TRANSFER_POSITION_INDEX=null;
 let TRANSFER_POSITION_INDEX_COUNT=0;
@@ -3261,13 +3387,17 @@ function proactiveRecruitmentNeed(club,position,slotInfo){
     reason=`The manager believes ${positionLabel(position)} is an area where the squad can be improved while investment is available.`;
   }
 
-  if(age>=30 && context.appetite>=0.45 && !internalSuccessor){
-    const ageScore=22+(age-29)*5+context.appetite*8;
+  const ageingThreshold=position==="GK"?35:30;
+  if(age>=ageingThreshold && context.appetite>=0.45 && !internalSuccessor){
+    const ageBase=position==="GK"?34:29;
+    const ageScore=22+(age-ageBase)*5+context.appetite*8;
     if(ageScore>score){
       score=ageScore;
       needType="strategic";
-      role=age>=32?"starter":"competition";
-      reason=`The manager wants to strengthen ${positionLabel(position)} before an ageing first-team option becomes a problem.`;
+      role=position==="GK"?"competition":age>=32?"starter":"competition";
+      reason=position==="GK"
+        ?`The manager wants a credible goalkeeper succession option as the current first choice moves into the later stage of his career.`
+        :`The manager wants to strengthen ${positionLabel(position)} before an ageing first-team option becomes a problem.`;
     }
   }
 
@@ -3296,12 +3426,12 @@ function proactiveRecruitmentNeed(club,position,slotInfo){
 
 function managerSquadNeedsFromFormation(club){
   const depth=managerDepthChart(club);
-  const rep=byClub(club)?.reputation||72;
   const profile=managerProfileForClub(club);
-
-  const starterStandard=clamp(Math.round(70+(rep-70)*0.42),72,88);
-  const competitionStandard=clamp(starterStandard-3,69,85);
-  const backupStandard=clamp(starterStandard-8,64,81);
+  const standards=managerClubSquadStandards(club);
+  const starterStandard=standards.starter;
+  const competitionStandard=standards.competition;
+  const backupStandard=standards.backup;
+  const fullSquad=clubSquadPlayers(club);
   const needs=[];
 
   [...new Set(depth.xi.map(x=>x.slot))].forEach(slot=>{
@@ -3311,18 +3441,27 @@ function managerSquadNeedsFromFormation(club){
     const requiredStarters=sameSlotXI.length;
     const filledStarters=starters.length;
     const weakestStarter=starters[starters.length-1]?.overall||0;
-    const bestBackup=backups[0]?.overall||0;
     const position=formationSlotToRecruitmentGroup(slot);
 
     const seniorBackupsRequired = slot==="GK"
       ? 1
-      : Math.max(1,Math.min(2,requiredStarters + (profile.depthDemand>=88?1:0)));
-    const credibleSeniorBackups=backups.filter(p=>(p.overall||0)>=backupStandard-6).length;
+      : slot==="CB"
+        ? Math.min(2,Math.max(1,requiredStarters))
+        : requiredStarters>=2 && profile.depthDemand>=88 ? 2 : 1;
+    const credibleSeniorBackups=backups.filter(p=>
+      positionSuitability(p,slot)>=78 && managerPlayerSeniorReady(p,club,standards)
+    );
+    const bestSeniorBackup=credibleSeniorBackups[0]||null;
+    const bestBackup=bestSeniorBackup?.overall||0;
+    const credibleSeniorStarters=starters.filter(p=>managerPlayerSeniorReady(p,club,standards)).length;
+    const credibleSeniorCover=credibleSeniorStarters+credibleSeniorBackups.length;
+    const requiredSeniorCover=requiredStarters+seniorBackupsRequired;
 
-    const prospectCandidates=clubSquadPlayers(club).filter(p=>{
-      if(!playerFitsFormationSlot(p,slot) || p.age>22) return false;
+    const prospectCandidates=fullSquad.filter(p=>{
+      if(positionSuitability(p,slot)<78 || (p.age||99)>22) return false;
       const potential=p.potential||p.overall||0;
-      return potential>=Math.max(competitionStandard,starterStandard-2);
+      return managerPlayerDevelopmentalDepth(p,club,standards) &&
+        potential>=Math.max(competitionStandard+2,starterStandard);
     });
 
     let role="none",score=0,reason="",needType="none";
@@ -3333,13 +3472,14 @@ function managerSquadNeedsFromFormation(club){
     }else if(weakestStarter<starterStandard-3){
       role="starter"; score=65+(starterStandard-weakestStarter)*5; needType="upgrade";
       reason=`The current ${slot} starter is below the level expected for this club.`;
-    }else if(bestBackup<competitionStandard-5){
-      role="competition"; score=46+(competitionStandard-bestBackup)*4; needType="depth";
-      reason=`The manager wants stronger competition behind the ${slot} starter${requiredStarters>1?"s":""}.`;
-    }else if(credibleSeniorBackups<seniorBackupsRequired){
+    }else if(!bestSeniorBackup || bestBackup<competitionStandard-5){
+      const depthBenchmark=bestBackup||Math.max(0,backupStandard-3);
+      role="competition"; score=46+Math.max(0,competitionStandard-depthBenchmark)*4; needType="depth";
+      reason=`The manager wants stronger senior competition behind the ${slot} starter${requiredStarters>1?"s":""}.`;
+    }else if(credibleSeniorBackups.length<seniorBackupsRequired){
       role="backup"; needType="depth";
-      score=26+(seniorBackupsRequired-credibleSeniorBackups)*10+(profile.depthDemand-70)*0.25;
-      reason=`The ${slot} depth is below ${managerNameForClub(club)}'s preferred senior cover level.`;
+      score=30+(seniorBackupsRequired-credibleSeniorBackups.length)*11+(profile.depthDemand-70)*0.25;
+      reason=`The ${slot} depth is below ${managerNameForClub(club)}'s preferred senior cover level. Development players are not being treated as full first-team cover.`;
     }else if(profile.youthTrust>=68 && prospectCandidates.length===0 && (slot==="GK" || profile.depthDemand>=78)){
       role="prospect"; needType="strategic";
       score=20+(profile.youthTrust-60)*0.35+(profile.depthDemand-70)*0.15;
@@ -3347,7 +3487,7 @@ function managerSquadNeedsFromFormation(club){
     }
 
     const proactive=proactiveRecruitmentNeed(club,position,{
-      starters,backups,weakestStarter,bestBackup,
+      starters,backups:credibleSeniorBackups,weakestStarter,bestBackup,
       starterStandard,competitionStandard,backupStandard
     });
 
@@ -3370,7 +3510,10 @@ function managerSquadNeedsFromFormation(club){
       weakestStarter:weakestStarter||starters[0]?.overall||0,
       starterAge:starters[starters.length-1]?.age||starters[0]?.age||26,
       second:bestBackup,
-      depth:starters.length+backups.length,
+      depth:starters.length+credibleSeniorBackups.length,
+      credibleSeniorCover,
+      requiredSeniorCover,
+      developmentalCover:prospectCandidates.length,
       standards:{starter:starterStandard,competition:competitionStandard,backup:backupStandard},
       managerProfile:profile,
       investmentAppetite:recruitmentInvestmentContext(club).appetite
@@ -3379,7 +3522,40 @@ function managerSquadNeedsFromFormation(club){
 
   const merged={};
   needs.forEach(n=>{ if(!merged[n.position] || n.score>merged[n.position].score) merged[n.position]=n; });
-  return Object.values(merged).sort((a,b)=>b.score-a.score);
+  let result=Object.values(merged);
+
+  // Whole-squad safeguard. A versatile 18-man group can appear to cover every
+  // position on paper because the same players are counted in several roles.
+  // Managers therefore also maintain a minimum number of genuinely senior-ready
+  // players and identify the thinnest positions when that core falls short.
+  const seniorReady=fullSquad.filter(p=>managerPlayerSeniorReady(p,club,standards));
+  const preferredSenior=managerPreferredSeniorSquadSize(club);
+  const shortage=Math.max(0,preferredSenior-seniorReady.length);
+  if(shortage>0){
+    const candidates=result
+      .filter(n=>n.role==="none" || n.role==="prospect" || (n.role==="backup" && n.score<45))
+      // Two credible goalkeepers already satisfy a normal senior squad. A global
+      // outfield shortage must not create an artificial third-GK request.
+      .filter(n=>n.position!=="GK" || (n.credibleSeniorCover||0)<(n.requiredSeniorCover||1))
+      .sort((a,b)=>{
+        const ar=(a.credibleSeniorCover||0)/Math.max(1,a.requiredSeniorCover||1);
+        const br=(b.credibleSeniorCover||0)/Math.max(1,b.requiredSeniorCover||1);
+        if(ar!==br) return ar-br;
+        if((a.second||0)!==(b.second||0)) return (a.second||0)-(b.second||0);
+        return (b.managerProfile?.depthDemand||70)-(a.managerProfile?.depthDemand||70);
+      });
+    const extras=Math.min(3,shortage,candidates.length);
+    for(let i=0;i<extras;i++){
+      const n=candidates[i];
+      const severe=shortage>=3 || (n.credibleSeniorCover||0)<(n.requiredSeniorCover||1);
+      n.role=severe?"competition":"backup";
+      n.needType="squad-depth";
+      n.score=Math.max(n.score,severe?52+Math.min(12,shortage*3):35+Math.min(10,shortage*4));
+      n.reason=`The senior squad has ${seniorReady.length} first-team-ready players against ${managerNameForClub(club)}'s preferred ${preferredSenior}. The manager wants additional ${positionLabel(n.position)} depth rather than relying on development players or the same versatile players across several roles.`;
+    }
+  }
+
+  return result.sort((a,b)=>b.score-a.score);
 }
 
 function evaluateSquadNeeds(club){
@@ -3845,6 +4021,7 @@ function playerRecentlyTransferred(p,days=120){
   for(let i=state.transferLedger.length-1;i>=0;i--){
     const tx=state.transferLedger[i];
     if(String(tx.playerId)!==String(p.id)) continue;
+    if(['loan','loan-return','loan-recall'].includes(tx.kind)) continue;
     if(tx.careerDay!=null) return current-tx.careerDay<days;
     // Legacy/current entries without careerDay: a move in the current season
     // and current transfer window is treated as recent.
@@ -3857,6 +4034,7 @@ function playerRecentlyTransferred(p,days=120){
 
 function transferTargetAttainableForClub(player,buyingClub){
   if(!player || player.club===buyingClub) return false;
+  if(typeof activeLoanForPlayer==="function" && activeLoanForPlayer(player)) return false;
   const interest=playerInterestScore(player,buyingClub);
   const buyerRep=byClub(buyingClub)?.reputation||70;
   const sellerRep=byClub(player.club)?.reputation||70;
@@ -4322,6 +4500,10 @@ function submitNewSigningTerms(id){
 
     if(!state.managerRoleFulfilledUntil) state.managerRoleFulfilledUntil={};
     state.managerRoleFulfilledUntil[`${req.position}-${req.squadRole||"starter"}`]=currentCareerDay()+84;
+    // A completed signing advances the summer plan rather than ending it. The
+    // manager reassesses the whole squad on the following day and can raise the
+    // next unresolved priority while the transfer window remains open.
+    if(typeof scheduleManagerReassessment==="function") scheduleManagerReassessment(1);
   }
 
   state.playerContracts[p.id]={wage,endYear:currentSeasonStartYear()+years};
@@ -4832,6 +5014,7 @@ function generateIncomingOffer(options={}){
   }
 
   let candidates=squad(state.club).filter(p=>{
+    if(typeof activeLoanForPlayer==="function" && activeLoanForPlayer(p)) return false;
     const listed=state.playerListStatus?.[p.id]==="Transfer";
     const strong=p.overall>=74;
     return listedOnly?listed:(listed||strong);
@@ -5101,11 +5284,14 @@ function saudiPremiumCanComplete(club,p,fee,wage){const c=worldClubByName(club);
 function createSaudiPremiumOffer(){
   if(!isTransferWindowOpen())return false;const candidates=saudiPremiumEligiblePlayers();if(!candidates.length)return false;
   const p=weightedSaudiTarget(candidates),buyer=saudiPremiumBuyerForPlayer(p);if(!buyer)return false;
-  const expected=expectedTransferCost(p,buyer.name),premium=.12+Math.random()*.16,fee=Math.max(250000,Math.round((expected.mid*(1+premium))/250000)*250000);
+  const market=Math.max(250000,dynamicPlayerMarketValue(p));
+  const elite=(p.overall||0)>=86;
+  const premium=.10+Math.random()*(elite?.18:.14);
+  const fee=Math.max(250000,Math.round((market*(1+premium))/250000)*250000);
   const wage=Math.round(Math.min((p.wage||50000)*(1.65+Math.random()*1.10),(buyer.maxWage||250000)*1.10)/500)*500;
   if(!saudiPremiumCanComplete(buyer.name,p,fee,wage).ok)return false;
   const offer={id:'sa'+Date.now()+Math.floor(Math.random()*1000),playerId:p.id,buyingClub:buyer.name,buyerCompetition:'Saudi Pro League • Saudi Arabia',externalBuyer:false,worldBuyer:true,saudiPremium:true,premiumRate:premium,fee,paymentTerms:typeof normaliseTransferPaymentTerms==='function'?normaliseTransferPaymentTerms(fee,75,1):null,status:'pending',round:1,expectedWage:wage};
-  state.incomingTransferOffers.push(offer);state.news.unshift({week:state.week,date:currentGameDateISO(),incomingOfferId:offer.id,text:`Saudi approach: ${buyer.name} have offered ${money(fee)} for ${p.name} — ${Math.round(premium*100)}% above the expected transfer cost.`});return offer;
+  state.incomingTransferOffers.push(offer);state.news.unshift({week:state.week,date:currentGameDateISO(),incomingOfferId:offer.id,text:`Saudi approach: ${buyer.name} have offered ${money(fee)} for ${p.name} — ${Math.round(premium*100)}% above current market value.`});return offer;
 }
 function maybeGenerateSaudiPremiumOffer(){
   if(!isTransferWindowOpen())return false;state.saudiPremiumWindows=state.saudiPremiumWindows||{};const key=currentTransferWindowKey();if(state.saudiPremiumWindows[key])return false;
@@ -5191,6 +5377,7 @@ function rebuildManagerRequestShortlist(req,feedback="refresh"){
     replacementPlayerId:req.replacementPlayerId||null,budgetCap,needType:req.needType,need,plan,
     brief:req.recruitmentBrief,excludePlayerIds:req.rejectedShortlistIds
   });
+  if(typeof injectManagerLoanOption==="function") shortlist=injectManagerLoanOption(shortlist,req.position,req.squadRole||"starter",{budgetCap,need});
   const oldFirst=oldIds.length?DB.players.find(p=>String(p.id)===String(oldIds[0])):null;
   const newFirst=shortlist[0]?.player||null;
   if(feedback==="higher" && oldFirst && (!newFirst || (newFirst.overall||0)<=(oldFirst.overall||0))){
@@ -5213,7 +5400,7 @@ function rebuildManagerRequestShortlist(req,feedback="refresh"){
   }
   if(!shortlist.length) return false;
 
-  req.shortlist=shortlist.map(x=>({playerId:x.player.id,role:x.role,descriptor:x.descriptor||"",asking:x.asking,interest:x.interest,planType:x.planType||plan.type}));
+  req.shortlist=shortlist.map(x=>({playerId:x.player.id,role:x.role,descriptor:x.descriptor||"",asking:x.asking,interest:x.interest,planType:x.planType||plan.type,loanOption:Boolean(x.loanOption),loanTerms:x.loanTerms||null}));
   req.playerId=shortlist[0].player.id;
   req.alternatives=shortlist.slice(1).map(x=>x.player.id);
   req.recruitmentPlan={type:plan.type,message:plan.message,currentStarter:plan.currentStarter,lostOverall:plan.lostOverall||0,preferredFloor:plan.preferredFloor||0,minimumFloor:plan.minimumFloor||0,budgetTarget:plan.budgetTarget||0};
@@ -5285,7 +5472,8 @@ function openManagerShortlist(requestId){
         <div><span>Interest</span><b>${Math.round(x.interest??playerInterestScore(p,state.club))}%</b></div>
       </div>
       ${req.failedTargetIds?.some(id=>String(id)===String(p.id))?`<div class="manager-target-note">Previous contract offer rejected — you can resume talks or choose another option.</div>`:""}
-      <button class="btn ${i===0?"primary":"secondary"} pursue-shortlist-btn" data-request-id="${req.id}" data-player-id="${p.id}" data-role="${descriptor}">${req.failedTargetIds?.some(id=>String(id)===String(p.id))?"Resume talks":"Pursue "+descriptor.toLowerCase()+" option"}</button>
+      ${x.loanOption&&x.loanTerms?`<div class="manager-target-note">Season loan • ${x.loanTerms.expectedRole} • ${x.loanTerms.wageContribution}% wages • ${money(x.loanTerms.loanFee)} fee</div>`:""}
+      <button class="btn ${i===0?"primary":"secondary"} pursue-shortlist-btn" data-request-id="${req.id}" data-player-id="${p.id}" data-role="${descriptor}">${x.loanOption?"Pursue loan option":req.failedTargetIds?.some(id=>String(id)===String(p.id))?"Resume talks":"Pursue "+descriptor.toLowerCase()+" option"}</button>
     </div>`;
   }).join("");
 
@@ -5307,6 +5495,11 @@ function pursueManagerShortlistTarget(requestId,playerId,role){
   const req=state.managerRequests?.find(r=>r.id===requestId);
   const p=DB.players.find(x=>String(x.id)===String(playerId));
   if(!req||!p) return;
+  const entry=(req.shortlist||[]).find(x=>String(x.playerId)===String(playerId));
+  if(entry?.loanOption && typeof pursueManagerLoanTarget==="function"){
+    q("managerShortlistModal")?.classList.add("hide");
+    return pursueManagerLoanTarget(requestId,playerId);
+  }
 
   // Choosing a player is NOT resolving the manager request. The request remains
   // live until a signing is completed, explicitly declined, or closed for the

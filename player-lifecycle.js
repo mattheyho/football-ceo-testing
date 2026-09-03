@@ -1,4 +1,4 @@
-/* Football CEO v0.24.1 — Long-term player lifecycle + user academy intakes
+/* Football CEO v0.24.7 — Long-term player lifecycle + league-linked youth ecosystem
    - Persistent generated-player intake
    - Retirement planning and retirement processing
    - Save rehydration for generated/retired players
@@ -180,21 +180,97 @@
     return retired;
   }
 
-  function playerPotential(rng){
-    const r=rng();
-    if(r<.006)return 93+Math.floor(rng()*3);       // generational: very rare
-    if(r<.035)return 88+Math.floor(rng()*5);       // elite prospect
-    if(r<.13)return 83+Math.floor(rng()*5);        // high potential
-    if(r<.35)return 78+Math.floor(rng()*5);        // strong professional
-    if(r<.68)return 72+Math.floor(rng()*6);        // ordinary top-level depth
-    return 64+Math.floor(rng()*8);                 // lower-level career
+  // Youth generation is linked to the environment the player emerges from.
+  // Starting ability is strongly shaped by academy + league standard; potential
+  // is deliberately less league-dependent so a lower-league club can still
+  // occasionally produce an elite talent.
+  const NATIONAL_TALENT={
+    England:79,Spain:81,Germany:80,France:83,Italy:79,Portugal:81,Netherlands:80,Belgium:79,
+    Brazil:85,Argentina:84,Colombia:77,Uruguay:81,Croatia:80,Serbia:77,Denmark:77,Sweden:76,Norway:77,
+    Turkey:74,Morocco:78,Nigeria:79,Ghana:76,Senegal:79,Japan:73,"South Korea":73,USA:73
+  };
+  const COUNTRY_TO_NATIONALITY={
+    England:"England",Spain:"Spain",Germany:"Germany",France:"France",Italy:"Italy",Portugal:"Portugal",
+    Netherlands:"Netherlands",Belgium:"Belgium",Brazil:"Brazil",Argentina:"Argentina",Colombia:"Colombia",
+    Uruguay:"Uruguay",Croatia:"Croatia",Serbia:"Serbia",Denmark:"Denmark",Sweden:"Sweden",Norway:"Norway",
+    Turkey:"Turkey",Morocco:"Morocco",Nigeria:"Nigeria",Ghana:"Ghana",Senegal:"Senegal",Japan:"Japan",
+    "South Korea":"South Korea",USA:"USA","United States":"USA"
+  };
+  function stableUnit(key){return hash32(key)/4294967295;}
+  function worldClubObject(club){
+    return typeof worldClubByName==="function"?worldClubByName(club):[...(DB.clubs||[]),...(DB.worldClubs||[])].find(x=>x.name===club)||null;
   }
-  function initialOverallForProspect(age,potential,rng){
-    const gapBase=age<=16?20:age===17?17:age===18?14:11;
-    const gap=gapBase+Math.floor(rng()*8);
-    let ovr=potential-gap;
-    if(potential>=90&&rng()<.28)ovr+=3;
-    return clampLocal(Math.round(ovr),50,74);
+  function activeGenerationClubs(){
+    return (typeof allWorldClubs==="function"?allWorldClubs():[...(DB.clubs||[]),...(DB.worldClubs||[])])
+      .filter(c=>c&&c.name&&c.name!==state.club&&c.leagueId!=="saudi-pro-league"&&c.simulationLevel!=="market-feature");
+  }
+  function clubSquadQualityForYouth(club){
+    const c=worldClubObject(club);if(!c)return 68;
+    const players=(DB.players||[]).filter(p=>!p.retired&&p.club===club).sort((a,b)=>(b.overall||0)-(a.overall||0)).slice(0,18);
+    const roster=players.length>=8?players.reduce((sum,p)=>sum+Number(p.overall||60),0)/players.length:null;
+    const seed=Number(c.standard||c.strength||c.reputation||70);
+    return clampLocal(roster==null?seed:roster*.78+seed*.22,50,90);
+  }
+  function rawLeagueYouthQuality(leagueId){
+    const clubs=(typeof clubsInLeague==="function"?clubsInLeague(leagueId):activeGenerationClubs().filter(c=>c.leagueId===leagueId));
+    if(!clubs.length)return 68;
+    const values=clubs.map(c=>clubSquadQualityForYouth(c.name));
+    return clampLocal(values.reduce((a,b)=>a+b,0)/values.length,50,90);
+  }
+  function leagueYouthQuality(leagueId,{update=false}={}){
+    ensurePlayerLifecycleState();
+    state.playerLifecycleMeta.leagueYouthEnvironment=state.playerLifecycleMeta.leagueYouthEnvironment||{};
+    const raw=rawLeagueYouthQuality(leagueId);
+    const prev=Number(state.playerLifecycleMeta.leagueYouthEnvironment[leagueId]);
+    if(update){
+      const next=Number.isFinite(prev)?prev*.80+raw*.20:raw;
+      state.playerLifecycleMeta.leagueYouthEnvironment[leagueId]=Math.round(next*100)/100;
+      return next;
+    }
+    return Number.isFinite(prev)?prev:raw;
+  }
+  function refreshLeagueYouthEnvironments(){
+    const ids=new Set(activeGenerationClubs().map(c=>c.leagueId).filter(Boolean));
+    const out={};ids.forEach(id=>{out[id]=leagueYouthQuality(id,{update:true});});return out;
+  }
+  function academyQualityForClub(club){
+    if(club===state.club&&typeof facilityRating==="function")return clampLocal(Number(facilityRating("academy")||70),40,95);
+    const c=worldClubObject(club);if(!c)return 65;
+    if(Number.isFinite(Number(c.academyRating)))return clampLocal(Number(c.academyRating),40,95);
+    const rep=Number(c.reputation||c.standard||70);
+    const variance=(stableUnit(`academy|${c.id||c.name}`)-.5)*6;
+    return clampLocal(52+(rep-60)*1.05+variance,42,94);
+  }
+  function nationalityTalentScore(nationality){return Number(NATIONAL_TALENT[nationality]||75);}
+  function basePotentialRoll(rng){
+    const r=rng();
+    if(r<.008)return 93+Math.floor(rng()*3);
+    if(r<.050)return 88+Math.floor(rng()*5);
+    if(r<.190)return 83+Math.floor(rng()*5);
+    if(r<.470)return 78+Math.floor(rng()*5);
+    if(r<.750)return 72+Math.floor(rng()*6);
+    return 64+Math.floor(rng()*8);
+  }
+  function playerPotentialForEnvironment(rng,{academyRating=70,leagueQuality=70,nationality="England"}={}){
+    const base=basePotentialRoll(rng);
+    const academy=(Number(academyRating)-70)/20;
+    const nation=(nationalityTalentScore(nationality)-75)/15;
+    const league=(Number(leagueQuality)-72)/18;
+    const noise=(rng()-.5)*1.8;
+    const modifier=clampLocal(Math.round(academy*2.4+nation*1.4+league*.7+noise),-5,5);
+    return clampLocal(base+modifier,62,95);
+  }
+  function initialOverallForProspect(age,potential,rng,context={}){
+    const academy=Number(context.academyRating??70),leagueQ=Number(context.leagueQuality??70);
+    const ageBonus=Math.max(0,Number(age||16)-16)*2;
+    const noise=(rng()-.5)*6;
+    let ovr=52+(leagueQ-60)*.32+(academy-55)*.22+ageBonus+(Number(potential)-72)*.25+noise;
+    if(potential>=93)ovr+=12;
+    else if(potential>=90)ovr+=8;
+    else if(potential>=88)ovr+=6;
+    else if(potential>=85)ovr+=3;
+    const ceiling=potential>=93?82:potential>=90?80:78;
+    return clampLocal(Math.round(ovr),48,ceiling);
   }
   function generatedWage(overall,clubStandard){
     const base=Math.max(1200,Math.pow(Math.max(1,overall-48),1.72)*145);
@@ -212,17 +288,21 @@
     if(positions==="ST")return 174+Math.floor(rng()*18);
     return 165+Math.floor(rng()*21);
   }
-  function chooseGeneratedClub(potential,nationality,rng){
-    const clubs=(typeof allWorldClubs==="function"?allWorldClubs():[...(DB.clubs||[]),...(DB.worldClubs||[])]).filter(c=>c&&c.name&&c.name!==state.club&&c.leagueId!=="saudi-pro-league");
-    if(!clubs.length)return "Free Agent";
-    const countryLeague={England:["premier-league","championship"],Spain:["la-liga"],Germany:["bundesliga"],France:["ligue-1"],Italy:["serie-a"]}[nationality];
-    let pool=countryLeague?clubs.filter(c=>countryLeague.includes(c.leagueId)):clubs;
-    if(!pool.length)pool=clubs;
-    // Most elite prospects join strong clubs, but a meaningful minority emerge
-    // at smaller sides so the transfer market can still discover breakout talent.
-    if(potential>=88&&rng()>.38){const strong=pool.filter(c=>(c.reputation||c.standard||70)>=82);if(strong.length)pool=strong;}
-    else if(potential<=75){const modest=pool.filter(c=>(c.reputation||c.standard||70)<=80);if(modest.length)pool=modest;}
-    return pool[Math.floor(rng()*pool.length)]?.name||"Free Agent";
+  function chooseGeneratedOriginClub(rng){
+    const clubs=activeGenerationClubs();if(!clubs.length)return null;
+    const weights=clubs.map(c=>.72+academyQualityForClub(c.name)/180);
+    const total=weights.reduce((a,b)=>a+b,0);let roll=rng()*total;
+    for(let i=0;i<clubs.length;i++){roll-=weights[i];if(roll<=0)return clubs[i];}
+    return clubs[clubs.length-1];
+  }
+  function homeNationalityForLeagueId(leagueId){
+    const league=typeof leagueById==="function"?leagueById(leagueId):(DB.leagues||[]).find(l=>l.id===leagueId);
+    return COUNTRY_TO_NATIONALITY[league?.country]||null;
+  }
+  function generatedNationalityForClub(clubObj,rng){
+    const home=homeNationalityForLeagueId(clubObj?.leagueId);
+    if(home&&FIRST_NAMES[home]&&rng()<.64)return home;
+    return weightedChoice(NATIONALITIES,rng);
   }
   function leagueIdForClubName(club){
     const c=typeof worldClubByName==="function"?worldClubByName(club):[...(DB.clubs||[]),...(DB.worldClubs||[])].find(x=>x.name===club);
@@ -237,16 +317,19 @@
     return `regen-${year}-${index}-${state.playerLifecycleMeta.nextGeneratedId}`;
   }
   function createGeneratedPlayer(year,index,rng){
-    const nationality=weightedChoice(NATIONALITIES,rng);
-    const first=FIRST_NAMES[nationality][Math.floor(rng()*FIRST_NAMES[nationality].length)];
-    const last=LAST_NAMES[nationality][Math.floor(rng()*LAST_NAMES[nationality].length)];
+    const origin=chooseGeneratedOriginClub(rng);
+    const club=origin?.name||"Free Agent";
+    const leagueId=origin?.leagueId||leagueIdForClubName(club);
+    const nationality=generatedNationalityForClub(origin,rng);
+    const firstPool=FIRST_NAMES[nationality]||FIRST_NAMES.England,lastPool=LAST_NAMES[nationality]||LAST_NAMES.England;
+    const first=firstPool[Math.floor(rng()*firstPool.length)],last=lastPool[Math.floor(rng()*lastPool.length)];
     const fullName=`${first} ${last}`;
     const age=16+Math.floor(rng()*4);
-    const potential=playerPotential(rng);
-    const overall=initialOverallForProspect(age,potential,rng);
+    const academyRating=club==="Free Agent"?65:academyQualityForClub(club);
+    const leagueQuality=leagueId?leagueYouthQuality(leagueId):68;
+    const potential=playerPotentialForEnvironment(rng,{academyRating,leagueQuality,nationality});
+    const overall=initialOverallForProspect(age,potential,rng,{academyRating,leagueQuality});
     const positions=weightedChoice(POSITION_PROFILES,rng);
-    const club=chooseGeneratedClub(potential,nationality,rng);
-    const leagueId=leagueIdForClubName(club);
     const standard=clubStandardForName(club);
     const foot=rng()<.27?"Left":"Right";
     const id=nextGeneratedId(year,index);
@@ -254,18 +337,15 @@
       id,name:fullName,fullName,club,leagueId,positions,overall,potential,age,nationality,
       value:basicGeneratedValue(overall,potential,age),wage:generatedWage(overall,standard),contract:year+3+Math.floor(rng()*3),
       number:null,foot,preferredFoot:foot,weakFoot:2+Math.floor(rng()*3),skills:positions.includes("GK")?1:2+Math.floor(rng()*3),height:generatedHeight(positions,rng),
-      joined:`Jul ${year}`,joinedSource:"generated",generatedPlayer:true,dataSource:GENERATED_MARKER,potentialSource:"Football CEO generated career potential",
+      joined:`Jul ${year}`,joinedSource:"club youth intake",generatedPlayer:true,dataSource:GENERATED_MARKER,potentialSource:"Football CEO club/league-linked career potential",
+      youthOriginClub:club,youthLeagueQuality:Math.round(leagueQuality*10)/10,youthAcademyQuality:Math.round(academyRating),
       birthdate:`${year-age}-${String(1+Math.floor(rng()*12)).padStart(2,"0")}-${String(1+Math.floor(rng()*27)).padStart(2,"0")}`
     };
   }
 
   function homeNationalityForClub(club=state.club){
     const leagueId=leagueIdForClubName(club);
-    const map={
-      "premier-league":"England","championship":"England","la-liga":"Spain","bundesliga":"Germany",
-      "ligue-1":"France","serie-a":"Italy"
-    };
-    return map[leagueId]||"England";
+    return homeNationalityForLeagueId(leagueId)||"England";
   }
 
   function userAcademyNationality(rng){
@@ -277,19 +357,9 @@
     return weightedChoice(NATIONALITIES,rng);
   }
 
-  function userAcademyPotential(rng,academyRating){
-    const q=clampLocal((Number(academyRating||70)-50)/45,0,1);
-    const elite=.010+.035*q;
-    const veryGood=.080+.080*q;
-    const good=.230+.100*q;
-    const r=rng();
-    if(r<elite){
-      if(rng()<.07)return 93+Math.floor(rng()*3); // exceptional academy graduate
-      return 88+Math.floor(rng()*5);
-    }
-    if(r<elite+veryGood)return 83+Math.floor(rng()*5);
-    if(r<elite+veryGood+good)return 77+Math.floor(rng()*6);
-    return 68+Math.floor(rng()*9);
+  function userAcademyPotential(rng,academyRating,nationality=null){
+    const leagueId=leagueIdForClubName(state.club);
+    return playerPotentialForEnvironment(rng,{academyRating,leagueQuality:leagueYouthQuality(leagueId),nationality:nationality||homeNationalityForClub()});
   }
 
   function userAcademyIntakeCount(rng,academyRating){
@@ -325,9 +395,10 @@
     const fullName=uniqueAcademyName(nationality,rng,usedNames);
     usedNames.add(fullName.toLowerCase());
     const age=16+Math.floor(rng()*4);
-    const potential=userAcademyPotential(rng,academyRating);
-    let overall=initialOverallForProspect(age,potential,rng);
-    overall=clampLocal(overall+Math.round((Number(academyRating||70)-70)/25),50,76);
+    const leagueQuality=leagueYouthQuality(leagueIdForClubName(state.club));
+    const potential=userAcademyPotential(rng,academyRating,nationality);
+    let overall=initialOverallForProspect(age,potential,rng,{academyRating,leagueQuality});
+    overall=clampLocal(overall,48,potential>=93?82:potential>=90?80:78);
     const positions=weightedChoice(POSITION_PROFILES,rng);
     const club=state.club;
     const leagueId=leagueIdForClubName(club);
@@ -339,7 +410,8 @@
       value:basicGeneratedValue(overall,potential,age),wage:youthWage,contract:year+3+Math.floor(rng()*2),
       number:null,foot,preferredFoot:foot,weakFoot:2+Math.floor(rng()*3),skills:positions.includes("GK")?1:2+Math.floor(rng()*3),height:generatedHeight(positions,rng),
       joined:`Jul ${year}`,joinedSource:"academy intake",generatedPlayer:true,userAcademyGraduate:true,dataSource:GENERATED_MARKER,
-      potentialSource:"Football CEO generated academy potential",
+      potentialSource:"Football CEO club/league-linked academy potential",
+      youthOriginClub:club,youthLeagueQuality:Math.round(leagueQuality*10)/10,youthAcademyQuality:Math.round(Number(academyRating||70)),
       birthdate:`${year-age}-${String(1+Math.floor(rng()*12)).padStart(2,"0")}-${String(1+Math.floor(rng()*27)).padStart(2,"0")}`
     };
   }
@@ -362,14 +434,21 @@
     return created;
   }
 
+  function annualWorldIntakeTarget(retiredCount=0){
+    const activePlayers=(DB.players||[]).filter(p=>!p.retired&&p.club!=="Retired").length;
+    const clubCount=activeGenerationClubs().length+1;
+    const pipeline=Math.max(clubCount,Math.round(activePlayers/24));
+    const retirementSupport=Math.round(Number(retiredCount||0)*.55);
+    return clampLocal(Math.max(pipeline,retirementSupport),72,360);
+  }
+
   function generateAnnualPlayerIntake(retiredCount=0){
     ensurePlayerLifecycleState();
     const intakeYear=currentYear()+1;
     if(state.generatedIntakes.some(x=>Number(x.year)===intakeYear))return [];
-    // A minimum cohort prevents the world ageing faster than replacements during
-    // the early years; later, retirements naturally determine most of the volume.
-    const count=clampLocal(Math.max(72,Number(retiredCount||0)),72,260);
-    const rng=seededRandom(`${state.saveId||state.club||"career"}-intake-${intakeYear}`);
+    refreshLeagueYouthEnvironments();
+    const count=annualWorldIntakeTarget(retiredCount);
+    const rng=seededRandom(`${state.worldSeed??state.saveId??state.club??"career"}-intake-${intakeYear}`);
     const userIntake=generateUserAcademyIntake(intakeYear,rng);
     const created=[];const usedNames=new Set(DB.players.map(p=>String(p.name).toLowerCase()));
     for(let i=0;i<count;i++){
@@ -379,7 +458,7 @@
       state.generatedPlayers.push({...p});DB.players.push(p);created.push(p);
     }
     const elite=created.filter(p=>p.potential>=88).length,high=created.filter(p=>p.potential>=83&&p.potential<88).length;
-    state.generatedIntakes.push({year:intakeYear,season:`${intakeYear}/${String((intakeYear+1)%100).padStart(2,"0")}`,count:created.length,elite,high,userCount:userIntake.length});
+    state.generatedIntakes.push({year:intakeYear,season:`${intakeYear}/${String((intakeYear+1)%100).padStart(2,"0")}`,count:created.length,elite,high,userCount:userIntake.length,leagueYouthEnvironment:{...(state.playerLifecycleMeta.leagueYouthEnvironment||{})}});
     if(typeof ensurePlayerDevelopmentState==="function"){state._developmentKnownCount=0;ensurePlayerDevelopmentState();}
     if(typeof invalidateClubSquadCache==="function")invalidateClubSquadCache();
     return created;
@@ -422,4 +501,11 @@
   window.processPlayerLifecycleSeasonRollover=processPlayerLifecycleSeasonRollover;
   window.generatedPlayerSummary=generatedPlayerSummary;
   window.retirementChance=retirementChance;
+  window.leagueYouthQuality=leagueYouthQuality;
+  window.refreshLeagueYouthEnvironments=refreshLeagueYouthEnvironments;
+  window.academyQualityForClub=academyQualityForClub;
+  window.playerPotentialForEnvironment=playerPotentialForEnvironment;
+  window.initialOverallForProspect=initialOverallForProspect;
+  window.createGeneratedPlayer=createGeneratedPlayer;
+  window.annualWorldIntakeTarget=annualWorldIntakeTarget;
 })();

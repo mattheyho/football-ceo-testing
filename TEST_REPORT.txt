@@ -1,48 +1,109 @@
-Football CEO v0.24.3 — Test Report
+Football CEO v0.24.7 — Test Report
 ==================================
 
 Build focus
 -----------
-Recruitment Intelligence, XI Selection & CEO Recruitment Briefs
+League-linked youth quality, sustainable future-player distribution and scalable world intake.
 
-Automated / headless regression checks
---------------------------------------
-PASS — JavaScript syntax validation across all runtime JS files.
-PASS — Whole-XI selection: Manchester City after Haaland departure selects Marmoush at ST rather than Kovačić.
-PASS — Whole-XI selection across all 20 Premier League clubs: 11 unique starters, no null slots, minimum positional suitability >= 78.
-PASS — Aston Villa / Bizot sale: competition-GK vacancy recognised; three options returned; all <= £10m; younger options >= 74 OVR or senior option >= 78 OVR.
-PASS — Manchester City / Haaland sale: three striker routes returned; elite lifecycle filter avoids ageing stop-gaps and non-primary strikers in the shortlist.
-PASS — Bournemouth / Christie sale: no replacement vacancy created because Cook + Adams + Scott provide sufficient internal cover.
-PASS — Aston Villa / Watkins sale with £60m budget: three credible striker routes returned and Watkins is excluded from his own replacement shortlist.
-PASS — CEO feedback / Aim higher: revised shortlist raises the average immediate quality where the market permits; if the ceiling is reached the manager can retain the strongest credible route.
-PASS — CEO feedback / Spend less: revised shortlist lowers average transfer cost without collapsing the search to reserve-level players.
-PASS — CEO feedback / Different options: manager returns at least one different target while preserving the same investment brief.
-PASS — Repeated recruitment regression: 8 consecutive runs passed all core assertions, including Haaland age/primary-position guards.
+League-linked youth regression
+------------------------------
+PASS — Current Premier League youth environment is materially stronger than the Championship.
+Measured starting league environments:
+- Premier League: 79.12
+- Championship: 70.76
+- La Liga: 77.60
+- Bundesliga: 76.67
+- Serie A: 76.91
+- Ligue 1: 75.03
 
-Representative outputs from final regression run
--------------------------------------------------
-Aston Villa — Bizot sold (~£5m), £60m club transfer budget:
-  1. Michael Cooper — 25 — 76 OVR — £9.5m — Best Fit
-  2. Viktor Johansson — 26 — 74 OVR — £6.25m — Value
-  3. Milan Borjan — 37 — 78 OVR — £8.0m — Experienced
+Synthetic environment test (12,000 players per context):
+- Elite academy / top league: 71.51 avg starting OVR, 79.31 avg POT
+- Championship-level environment: 62.37 avg starting OVR, 76.20 avg POT
+- Lower-league environment: 57.38 avg starting OVR, 74.79 avg POT
 
-Manchester City — Haaland sold (~£150m), £120m available budget:
-  1. Lautaro Martínez — 27 — 88 OVR — £113.5m — Best Fit
-  2. Moise Kean — 25 — 83 OVR — £56.25m — Value
-  3. Hugo Ekitiké — 23 — 83 OVR / 88 POT — £116.5m — Youth
+PASS — Starting current ability forms a strong pyramid.
+PASS — Potential differences are much smaller than starting-OVR differences.
+PASS — Lower-level environments still produce rare 85+ and 90+ potential prospects.
+PASS — AI academy estimates distinguish elite and mid-level clubs.
+PASS — Generated players store youth origin / league environment / academy environment.
+PASS — League environment uses 20% annual smoothing.
 
-Aston Villa — Watkins sold, £60m available budget:
-  Initial shortlist:
-    1. Mateo Retegui — 83 OVR — £50m — Best Fit
-    2. Tolu Arokodare — 79 OVR — £43m — Value
-    3. Thierno Barry — 77 OVR / 85 POT — £36.25m — Youth
+Production intake distribution
+------------------------------
+5,000-player production intake sample:
+- Championship: 62.20 average starting OVR / 76.17 POT
+- Premier League: 67.16 / 77.51
+- La Liga: 67.95 / 78.38
+- Bundesliga: 67.44 / 78.03
+- Serie A: 66.63 / 77.33
+- Ligue 1: 65.76 / 77.33
 
-  After "Aim higher / spend more":
-    - quality of the three-player shortlist increases overall; where no better first-choice player is affordable, the manager keeps the strongest credible first choice and upgrades alternatives.
+PASS — Top-flight generated players enter materially closer to senior football than Championship players.
+PASS — Potential remains less tightly tied to league standard than current ability.
 
-  After "Spend less":
-    - target spend falls materially while retaining credible first-team options and a lower-cost youth route.
+10-year generated-player pathway sanity
+----------------------------------------
+Production generator + production ageing/development/loan bonus, 1,200 players:
+- Prime-age average OVR: 74.31
+- 75+: 48.0%
+- 80+: 20.1%
+- 85+: 5.0%
+- 90+: 0.25%
+- Championship-origin prime average: 71.78
+- Top-flight-origin prime average: 74.98
 
-Notes
------
-These are deterministic logic/regression tests executed against the packaged JavaScript/database in a Node VM harness. They validate the recruitment/squad-selection logic but are not a substitute for final hands-on Safari/PWA UI testing on-device.
+PASS — 80+ pool is large enough to sustain top-flight recruitment.
+PASS — 85+ players remain a minority.
+PASS — 90+ players exist but remain exceptional.
+PASS — Development preserves a meaningful league-quality gradient.
+
+10,000-player stress run
+------------------------
+- Prime-age average OVR: 74.56
+- 75+: 50.9%
+- 80+: 20.0%
+- 85+: 5.4%
+- 90+: 0.37%
+
+Current loaded-league ages 26–29 benchmark:
+- Average OVR: 74.97
+- 75+: 51.17%
+- 80+: 17.25%
+- 85+: 4.31%
+- 90+: 0.35%
+
+PASS — Future generated talent broadly reproduces the current loaded-league quality curve rather than creating the previous elite-player shortage.
+
+Future pyramid / scalability regression
+---------------------------------------
+Current annual world-intake target: 151 players (+ user academy intake).
+Synthetic addition of League One + League Two (48 clubs): target rises to 168 before adding those leagues' player databases.
+Synthetic league standards: League One 65.5, League Two 60.5.
+PASS — Intake volume scales with future league expansion.
+PASS — Lower divisions naturally receive lower starting-OVR youth.
+PASS — Future lower-league additions do not require a separate youth-generator implementation.
+
+Retained regressions
+--------------------
+PASS — Loans & Player Pathways core regression.
+PASS — Four-season loan development cohort advantage.
+PASS — Ageing/longevity distribution and scalability.
+PASS — Aston Villa veteran decline projection.
+PASS — Summer squad planning / Bournemouth internal replacement.
+PASS — Retired-player recruitment exclusion.
+PASS — Controlled Saudi premium pricing.
+PASS — Recruitment-plan continuity / contract priority.
+PASS — Manager return cooldown.
+
+Packaging
+---------
+PASS — All JavaScript and packaged tests pass Node syntax validation.
+PASS — All packaged regression tests pass.
+PASS — Cache-busting asset versions advanced to 0247-youth1.
+PASS — Service worker cache advanced to football-ceo-v0.24.7-pwa-1.
+
+Limitations
+-----------
+- This build models League One/League Two readiness generically; it does not add those leagues themselves.
+- Full AI academy facility investment is not yet simulated. AI academy strength currently uses stable club-specific estimates.
+- The 10-year cohort is a world/pathway regression, not a full user-controlled Aston Villa CEO save.

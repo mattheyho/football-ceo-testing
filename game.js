@@ -486,7 +486,9 @@ function openPlayerProfile(id){
 
   q("profileName").textContent=p.name;
   const isStar=typeof isClubStarPlayer==="function" && p.club===state.club && isClubStarPlayer(p,state.club);
-  q("profileSubtitle").innerHTML=`${p.retired?"Retired":p.club} • ${p.positions}${isStar?` <span class="star-player-badge profile-star-badge">★ STAR PLAYER</span>`:""}`;
+  const activeLoan=typeof activeLoanForPlayer==="function"?activeLoanForPlayer(p):null;
+  const loanStatus=activeLoan?(activeLoan.parentClub===state.club?` • On loan at ${activeLoan.loanClub}`:activeLoan.loanClub===state.club?` • On loan from ${activeLoan.parentClub}`:""):"";
+  q("profileSubtitle").innerHTML=`${p.retired?"Retired":p.club} • ${p.positions}${loanStatus}${isStar?` <span class="star-player-badge profile-star-badge">★ STAR PLAYER</span>`:""}`;
   const ovrChange=playerSeasonOverallChange(p);
   q("profileOverall").textContent=`${p.overall}${ovrChange?` (${ovrChange>0?"+":""}${ovrChange})`:""}`;
   q("profileMorale").textContent=morale;
@@ -529,11 +531,13 @@ function openPlayerProfile(id){
   q("negotiateContractBtn").dataset.playerId=p.id;
   q("transferListBtn").dataset.playerId=p.id;
   q("loanListBtn").dataset.playerId=p.id;
-  q("negotiateContractBtn").disabled=Boolean(p.retired);
-  q("transferListBtn").disabled=Boolean(p.retired);
-  q("loanListBtn").disabled=Boolean(p.retired);
+  const incomingLoan=Boolean(activeLoan&&activeLoan.loanClub===state.club&&activeLoan.parentClub!==state.club);
+  const recallableLoan=Boolean(activeLoan&&activeLoan.parentClub===state.club&&activeLoan.recallAllowed);
+  q("negotiateContractBtn").disabled=Boolean(p.retired||incomingLoan);
+  q("transferListBtn").disabled=Boolean(p.retired||activeLoan);
+  q("loanListBtn").disabled=Boolean(p.retired||(activeLoan&&!recallableLoan));
   q("transferListBtn").textContent=listStatus==="Transfer"?"Remove from transfer list":"Add to transfer list";
-  q("loanListBtn").textContent=listStatus==="Loan"?"Remove from loan list":"Add to loan list";
+  q("loanListBtn").textContent=recallableLoan?"Recall from loan":listStatus==="Loan"?"Remove from loan list":"Add to loan list";
   q("contractNegotiation")?.classList.add("hide");
 
   q("playerModal").classList.remove("hide");
@@ -1748,6 +1752,7 @@ function createCareer(club){
   state={
     club,
     saveId:activeSaveId,
+    worldSeed:typeof generateCareerWorldSeed==="function"?generateCareerWorldSeed():(Math.floor(Math.random()*4294967296)>>>0),
     season:{year:2025,label:"2025/26",number:1,phase:"preseason"},
     calendar:{date:"2025-08-01",careerDay:0,lastWeeklyProcess:null,monthlyMonthKey:"2025-08",managerReassessOn:null},
     week:0,
@@ -1766,6 +1771,7 @@ function createCareer(club){
     ownerProfile:{lossTolerance:15_000_000},
     managerBacking:70,
     managerChangesThisSeason:0,
+    recentlyDismissedManagers:{},
     facilities:{
       training:clamp(Math.round(c.reputation-3),55,94),
       medical:clamp(Math.round(c.reputation-5),52,92),
@@ -1802,6 +1808,9 @@ function createCareer(club){
   if(typeof ensureFootballCEOFeatureState==="function") ensureFootballCEOFeatureState();
   if(typeof ensurePlayerLifecycleState==="function") ensurePlayerLifecycleState();
   if(typeof ensureFinancialRegulationState==="function") ensureFinancialRegulationState();
+  // The manager begins every career with a full-squad review rather than waiting
+  // for the first individual departure to expose a depth problem.
+  if(typeof managerSummerSquadReview==="function") managerSummerSquadReview(state.club,{notify:true});
   // Build the initial recruitment picture before the first matchweek so the
   // manager and AI clubs enter the season with real squad priorities.
   if(typeof ensureChampionshipState==="function") ensureChampionshipState();
@@ -1819,6 +1828,7 @@ function enterGame(){
   if(!state.ownerProfile) state.ownerProfile={lossTolerance:15_000_000};
   if(state.managerBacking==null) state.managerBacking=70;
   if(state.managerChangesThisSeason==null) state.managerChangesThisSeason=0;
+  if(!state.recentlyDismissedManagers) state.recentlyDismissedManagers={};
   if(!state.facilities){
     const rep=byClub(state.club)?.reputation||72;
     state.facilities={
@@ -1836,6 +1846,7 @@ function enterGame(){
   if(!state.transferSentiment) state.transferSentiment={fans:[],owners:[],players:[],manager:[]};
   if(!state.transferFinance) state.transferFinance={spent:0,received:0};
   if(!state.aiClubFinances) state.aiClubFinances={};
+  if(typeof ensureCareerWorldSeed==="function") ensureCareerWorldSeed();
   if(typeof ensureFootballCEOFeatureState==="function") ensureFootballCEOFeatureState();
   if(typeof ensureFinancialRegulationState==="function") ensureFinancialRegulationState();
   if(typeof ensureAIClubFinances==="function") ensureAIClubFinances();
@@ -2362,6 +2373,7 @@ async function advanceDay(){
   processInjuries();
   if(typeof checkManagerDepthComplaints==="function") checkManagerDepthComplaints();
   if(typeof processTransferDay==="function") processTransferDay();
+  if(typeof processLoanDay==="function") processLoanDay(nextDate);
   if(typeof processScheduledWorldMarketUpdate==="function") processScheduledWorldMarketUpdate(nextDate);
   if(typeof runScheduledAIClubReview==="function" && isTransferWindowOpen()) runScheduledAIClubReview(nextDate);
   if(typeof processChampionshipDay==="function") processChampionshipDay(nextDate);
@@ -2613,6 +2625,7 @@ function renderDashboardInboxPreview(){
       const offer=state.incomingTransferOffers?.find(o=>o.id===n.incomingOfferId);
       return offer && offer.status==="pending";
     }
+    if(n.loanOfferId){const offer=state.incomingLoanOffers?.find(o=>o.id===n.loanOfferId);return offer&&offer.status==="pending";}
     return false;
   });
 
@@ -2790,6 +2803,8 @@ function renderInbox(){
         actions=`<div class="inbox-action"><button class="btn primary incoming-offer-btn" data-offer-id="${offer.id}">Review offer</button></div>`;
       }
     }
+    if(n.loanOfferId){const offer=state.incomingLoanOffers?.find(o=>o.id===n.loanOfferId);if(offer&&offer.status==="pending")actions=`<div class="inbox-action"><button class="btn primary loan-offer-btn" data-loan-offer-id="${offer.id}">Review loan offer</button></div>`;}
+    if(n.loanReviewId){actions=`<div class="inbox-action"><button class="btn primary loan-review-btn" data-loan-review-id="${n.loanReviewId}">View loan review</button></div>`;}
     if(n.developmentReviewId){
       actions=`<div class="inbox-action"><button class="btn primary development-review-btn" data-review-id="${n.developmentReviewId}">View development review</button></div>`;
     }
@@ -2816,6 +2831,8 @@ function renderInbox(){
   document.querySelectorAll(".manager-list-outgoing-btn").forEach(btn=>{
     btn.addEventListener("click",()=>approveManagerOutgoingRecommendation(btn.dataset.requestId));
   });
+  document.querySelectorAll(".loan-offer-btn").forEach(btn=>btn.addEventListener("click",()=>openLoanOffer(btn.dataset.loanOfferId)));
+  document.querySelectorAll(".loan-review-btn").forEach(btn=>btn.addEventListener("click",()=>openLoanReview(btn.dataset.loanReviewId)));
   document.querySelectorAll(".development-review-btn").forEach(btn=>btn.addEventListener("click",()=>openDevelopmentReview(btn.dataset.reviewId)));
   document.querySelectorAll(".manager-complaint-btn").forEach(btn=>{
     btn.addEventListener("click",()=>resolveManagerDepthComplaint(btn.dataset.complaintId,btn.dataset.response));
@@ -3644,7 +3661,7 @@ function processWeeklyClubCycle(){
   if(state.calendar.lastWeeklyProcess===date) return;
   state.calendar.lastWeeklyProcess=date;
 
-  const playerWages=squad(state.club).reduce((s,p)=>s+(state.playerContracts?.[p.id]?.wage??p.wage??0),0);
+  const playerWages=squad(state.club).reduce((s,p)=>s+(state.playerContracts?.[p.id]?.wage??p.wage??0),0)+(typeof userLoanWeeklyWageAdjustment==="function"?userLoanWeeklyWageAdjustment():0);
   const staffWeekly=(state.staff?.manager?.wage||0)+(state.staff?.dof?.wage||0)+(state.staff?.physio?.wage||0);
   const operatingCosts=weeklyClubOperatingCosts();
 
@@ -3911,45 +3928,46 @@ function playerSeasonOverallChange(p){
   return (p.overall||0)-(d?.seasonStartOverall??p.overall??0);
 }
 
-function developmentAgeOpportunity(age){
+function developmentAgeOpportunity(age,p=null){
+  // v0.24.5: late-20s growth tapers sharply and normal outfield potential growth
+  // ends at 30. Goalkeepers retain a small later-maturation window.
+  if(typeof ageingDevelopmentOpportunity==="function") return ageingDevelopmentOpportunity(age,p);
   if(age<=18) return 1.00;
   if(age<=21) return 0.94;
   if(age<=24) return 0.82;
-  if(age<=27) return 0.62;
-  if(age===28) return 0.34;
-  if(age===29) return 0.18;
-  if(age===30) return 0.08;
+  if(age===25) return 0.50;
+  if(age===26) return 0.35;
+  if(age===27) return 0.20;
+  if(age===28) return 0.08;
+  if(age===29) return 0.03;
   return 0;
 }
 
 function developmentDeclinePressure(age,p=null){
-  // v0.19.2: ageing creates risk, not an automatic three-checkpoint conveyor belt.
-  // Goalkeepers age later than outfield players.
-  const goalkeeper=Boolean(p && String(p.positions||"").toUpperCase().split(/[^A-Z]+/).includes("GK"));
-  const effectiveAge=goalkeeper?age-2:age;
-  if(effectiveAge<=29) return 0;
-  if(effectiveAge===30) return 0.025;
-  if(effectiveAge===31) return 0.055;
-  if(effectiveAge===32) return 0.10;
-  if(effectiveAge===33) return 0.18;
-  if(effectiveAge===34) return 0.28;
-  if(effectiveAge===35) return 0.40;
-  if(effectiveAge===36) return 0.54;
-  return Math.min(0.78,0.62+(effectiveAge-37)*0.04);
+  // Compatibility helper for UI/diagnostics. Actual biological decline is now
+  // determined once per season by ageing.js and applied at year-end.
+  if(p && typeof playerExpectedAnnualAgeDecline==="function")
+    return clamp(playerExpectedAnnualAgeDecline(p,{age,projectedMinutes:1800,performanceFactor:1})/3,0,1);
+  const effective=age-(p&&String(p.positions||"").toUpperCase().includes("GK")?3:0);
+  return effective<31?0:clamp((effective-30)*.08,0,.80);
 }
 
 function playerSeasonMinutes(p){
+  const liveLoan=typeof activeLoanForPlayer==="function"?activeLoanForPlayer(p):null;
+  if(liveLoan&&liveLoan.loanClub!==state.club&&typeof loanEstimatedMinutesToDate==="function") return loanEstimatedMinutesToDate(liveLoan);
+  const loanMinutes=typeof loanSeasonMinutesForPlayer==="function"?loanSeasonMinutesForPlayer(p):0;
   if(p.club===state.club){
     const s=state.playerStats?.[p.id]||{};
-    return s.minutes||((s.starts||0)*75+(Math.max(0,(s.appearances||0)-(s.starts||0))*24));
+    return (s.minutes||((s.starts||0)*75+(Math.max(0,(s.appearances||0)-(s.starts||0))*24)))+loanMinutes;
   }
 
   // AI clubs do not yet store individual match minutes. Estimate a season role
   // from positional depth so their players develop/decline alongside the user world.
-  if(typeof primaryRecruitmentGroup==="function" && byClub(p.club)){
+  if(typeof primaryRecruitmentGroup==="function" && p.club && p.club!=="Free Agent" && p.club!=="Retired"){
     const group=primaryRecruitmentGroup(p);
     if(group){
-      const peers=DB.players.filter(x=>x.club===p.club && playsPositionGroup(x,group))
+      const clubPlayers=typeof clubSquadPlayers==="function"?clubSquadPlayers(p.club):DB.players.filter(x=>x.club===p.club);
+      const peers=clubPlayers.filter(x=>playsPositionGroup(x,group))
         .sort((a,b)=>(b.overall||0)-(a.overall||0));
       const rank=peers.findIndex(x=>String(x.id)===String(p.id));
       const progress=clamp((state.week||0)/38,0,1);
@@ -3970,6 +3988,7 @@ function developmentEnvironmentFactor(p){
     const youth=typeof managerProfileForClub==="function"?(managerProfileForClub(state.club)?.youthTrust||60):60;
     if((p.age||25)<=24) f*=clamp(0.92+(youth-50)*0.003,0.88,1.10);
   }
+  if(typeof loanSeasonEnvironmentFactorForPlayer==="function") f*=loanSeasonEnvironmentFactorForPlayer(p);
   return f;
 }
 
@@ -4033,7 +4052,7 @@ function calculatePlayerYearEndChange(p){
   const age=p.age||25;
   const potential=Math.max(p.overall||0,p.potential??p.overall??0);
   const gap=Math.max(0,potential-(p.overall||0));
-  const opportunity=developmentAgeOpportunity(age);
+  const opportunity=developmentAgeOpportunity(age,p);
   const env=developmentEnvironmentFactor(p);
   const minutes=developmentPlayingTimeFactor(p);
   const perf=developmentPerformanceFactor(p);
@@ -4058,22 +4077,33 @@ function calculatePlayerYearEndChange(p){
     const seasonChange=(p.overall||0)-(state.playerDevelopment?.[String(p.id)]?.seasonStartOverall??p.overall??0);
     delta=Math.max(delta,passiveYouthDevelopmentFloor(p,seasonChange));
   }
+  // A genuinely productive development loan can accelerate a high-upside
+  // youngster beyond passive maturation, but never beyond +3 in one season.
+  // Minutes, destination suitability and remaining potential all matter.
+  if(typeof loanDevelopmentBonus==="function" && delta>=0){
+    delta+=loanDevelopmentBonus(p,delta);
+    delta=Math.min(delta,3,gap);
+  }
 
-  const decline=developmentDeclinePressure(age,p);
-  if(decline>0){
+  // Growth and ageing no longer fight each other. Once a player has entered
+  // their save-specific decline phase, normal potential growth is disabled.
+  if(typeof playerInAgeDeclinePhase==="function" && playerInAgeDeclinePhase(p) && delta>0) delta=0;
+
+  // Biological decline is calculated once at year-end. Longevity is fixed for
+  // the career, while playing time, performance and injuries affect how much of
+  // that underlying curve is realised this season.
+  if(typeof playerAnnualAgeDeclineTarget==="function") {
     const projected=projectedSeasonMinutes(p);
-    const avg=p.club===state.club && typeof playerAverageRating==="function"?playerAverageRating(p.id):null;
-    const playingProtection=projected>=2400?0.45:projected>=1600?0.68:projected>=800?0.88:1.08;
-    const performanceProtection=avg!=null&&avg>=7.0?0.65:avg!=null&&avg>=6.7?0.82:avg!=null&&avg<6.3?1.18:1;
-    const injuryBoost=1+injuryPenalty*1.15;
-    const chance=clamp(decline*playingProtection*performanceProtection*injuryBoost,0,0.86);
+    const performance=developmentPerformanceFactor(p);
+    const ageDrop=playerAnnualAgeDeclineTarget(p,{
+      age,seasonYear:currentSeasonStartYear(),projectedMinutes:projected,
+      performanceFactor:performance,injuryPenalty
+    });
+    delta-=ageDrop;
+  } else {
+    const decline=developmentDeclinePressure(age,p);
     const declineRoll=typeof stablePlayerTrait==="function"?stablePlayerTrait(p,`decline-${currentSeasonStartYear()}`):Math.random();
-    if(declineRoll<chance){
-      let drop=1;
-      if(age>=35 && declineRoll<chance*0.18) drop=2;
-      if(age>=37 && declineRoll<chance*0.07) drop=3;
-      delta-=drop;
-    }
+    if(declineRoll<decline) delta-=1;
   }
 
   // Serious long-term injuries remain capable of reducing ability separately.
@@ -4109,19 +4139,21 @@ function lightweightBackgroundDevelopmentStep(p){
   const trait=typeof stablePlayerTrait==='function'?stablePlayerTrait(p,`checkpoint-${developmentCheckpointKey()}`):Math.random();
   const minutes=developmentPlayingTimeFactor(p);
   let step=0;
-  if(age<=25&&gap>0){
-    const base=age<=20?.38:age<=22?.30:age<=24?.20:.12;
-    const chance=base*Math.min(1,gap/4)*minutes;
+  const opportunity=developmentAgeOpportunity(age,p);
+  const declining=typeof playerInAgeDeclinePhase==="function"?playerInAgeDeclinePhase(p):age>=31;
+  if(!declining&&opportunity>0&&gap>0){
+    const chance=.38*opportunity*Math.min(1,gap/4)*minutes;
     if(trait<chance)step=1;
-  }else{
-    const decline=developmentDeclinePressure(age,p);
-    const protection=projectedSeasonMinutes(p)>=2200?.55:projectedSeasonMinutes(p)>=1200?.80:1.05;
-    if(decline>0&&trait<decline*protection*.34)step=-1;
   }
+  // v0.24.5: age-related negative changes are deliberately NOT applied at the
+  // three checkpoints. All biological decline is resolved once at year-end,
+  // preventing checkpoint multiplication and allowing full-season performance
+  // to protect a veteran appropriately.
   const seasonChange=before-(d?.seasonStartOverall??before);
-  if(step>0&&seasonChange>=3)step=0;if(step<0&&seasonChange<=-2)step=0;
+  if(step>0&&seasonChange>=3)step=0;
   return step;
 }
+
 function applyDevelopmentCheckpointToPlayers(players,{userReport=false}={}){
   ensurePlayerDevelopmentState();if(typeof ensurePlayerMarketState==='function')ensurePlayerMarketState();const changes=[];
   (players||[]).forEach(p=>{
@@ -4132,15 +4164,13 @@ function applyDevelopmentCheckpointToPlayers(players,{userReport=false}={}){
       const checkpointTrait=typeof stablePlayerTrait==="function"?stablePlayerTrait(p,`user-checkpoint-${developmentCheckpointKey()}`):Math.random();
       const minutesFactor=developmentPlayingTimeFactor(p);
       const perfFactor=developmentPerformanceFactor(p);
-      if(projected>0&&seasonChange<3&&before<(p.potential??before)){
+      const declining=typeof playerInAgeDeclinePhase==="function"?playerInAgeDeclinePhase(p):(p.age||25)>=31;
+      if(!declining&&projected>0&&seasonChange<3&&before<(p.potential??before)){
         // A season-level positive projection is not an automatic +1 at every
         // checkpoint. Playing time + performance determine whether this window
         // actually converts into a rating gain.
         const chance=clamp(0.18+minutesFactor*.34+Math.max(0,perfFactor-.85)*.45,0.08,0.82);
         if(checkpointTrait<chance) step=1;
-      }else if(projected<0&&seasonChange>-2){
-        const declineChance=clamp(0.18+developmentDeclinePressure(p.age||25,p)*.45,0.08,0.46);
-        if(checkpointTrait<declineChance) step=-1;
       }
     }else step=lightweightBackgroundDevelopmentStep(p);
     if(step){const ceiling=Math.max(before,p.potential??before);p.overall=clamp(before+step,55,ceiling);const actual=p.overall-before;if(actual){d.status=developmentLabelFromChange(actual,p.age||25);state.playerWorldOverrides=state.playerWorldOverrides||{};state.playerWorldOverrides[p.id]={...(state.playerWorldOverrides[p.id]||{}),overall:p.overall};if(typeof updatePlayerStoredMarketValue==='function')updatePlayerStoredMarketValue(p);changes.push({playerId:p.id,name:p.name,age:p.age,before,after:p.overall,change:actual,potential:p.potential??p.overall});}}
@@ -4175,10 +4205,44 @@ function processPlayerDevelopmentCheckpoint(dateISO=currentGameDateISO()){
 
 function processPlayerYearEnd(players=DB.players){
   ensurePlayerDevelopmentState();if(typeof ensurePlayerMarketState==='function')ensurePlayerMarketState();
-  (players||[]).forEach(p=>{if(p.retired)return;const before=p.overall||0,d=state.playerDevelopment[String(p.id)];if(!d)return;const seasonSoFar=before-(d.seasonStartOverall??before);let proposed;
-    if(p.club===state.club)proposed=calculatePlayerYearEndChange(p);else{const age=p.age||25,gap=Math.max(0,(p.potential??before)-before),trait=typeof stablePlayerTrait==='function'?stablePlayerTrait(p,`yearend-${currentSeasonStartYear()}`):Math.random();const growthChance=age<=20?.72:age===21?.62:age===22?.52:age===23?.40:age===24?.28:0;proposed=age<=24&&gap>0&&trait<growthChance*Math.min(1,gap/4)?1:age>=31&&trait<Math.min(.68,.12+(age-30)*.08)?-1:0;}
-    const delta=clamp(proposed,-3-seasonSoFar,4-seasonSoFar),potential=Math.max(before,p.potential??before);p.overall=clamp(before+delta,55,Math.max(potential,before));const actual=p.overall-before;d.lastSeasonChange=seasonSoFar+actual;d.status=developmentLabelFromChange(actual,p.age||25);d.history=(d.history||[]).slice(-7);d.history.push({season:currentSeasonLabel(),start:d.seasonStartOverall,end:p.overall,change:seasonSoFar+actual,minutes:p.club===state.club?playerSeasonMinutes(p):null});state.playerWorldOverrides=state.playerWorldOverrides||{};p.age=(p.age||0)+1;state.playerWorldOverrides[p.id]={...(state.playerWorldOverrides[p.id]||{}),overall:p.overall,age:p.age};d.seasonStartOverall=p.overall;if(state.playerMarket?.[String(p.id)]){state.playerMarket[String(p.id)].severeInjuriesThisSeason=0;state.playerMarket[String(p.id)].seasonStartValue=p.value||0;}}
-  );
+  (players||[]).forEach(p=>{
+    if(p.retired)return;
+    const before=p.overall||0,d=state.playerDevelopment[String(p.id)];if(!d)return;
+    const seasonSoFar=before-(d.seasonStartOverall??before);
+    // v0.24.5: user and AI players now share the same career-curve engine. AI
+    // players use estimated role/minutes and neutral performance, while user
+    // players use their real minutes/ratings. Biological ageing is identical.
+    const desiredAnnual=calculatePlayerYearEndChange(p);
+    let delta;
+    if(desiredAnnual>=0){
+      // Checkpoint growth can realise some/all of the annual improvement early.
+      // Never reverse a genuine checkpoint gain merely because the final target
+      // was lower; simply stop adding more.
+      delta=Math.max(0,desiredAnnual-Math.max(0,seasonSoFar));
+      delta=Math.min(delta,3-Math.max(0,seasonSoFar));
+    }else{
+      // No age decline is applied at checkpoints, so the year-end target is the
+      // complete biological loss. Any unusual positive change is preserved and
+      // the decline is then applied from the player's current level.
+      delta=desiredAnnual;
+    }
+    delta=clamp(delta,-3,3);
+    const potential=Math.max(before,p.potential??before);
+    p.overall=clamp(before+delta,55,Math.max(potential,before));
+    const actual=p.overall-before;
+    d.lastSeasonChange=seasonSoFar+actual;
+    d.status=developmentLabelFromChange(actual,p.age||25);
+    d.history=(d.history||[]).slice(-7);
+    d.history.push({season:currentSeasonLabel(),start:d.seasonStartOverall,end:p.overall,change:seasonSoFar+actual,minutes:p.club===state.club?playerSeasonMinutes(p):null});
+    state.playerWorldOverrides=state.playerWorldOverrides||{};
+    p.age=(p.age||0)+1;
+    state.playerWorldOverrides[p.id]={...(state.playerWorldOverrides[p.id]||{}),overall:p.overall,age:p.age};
+    d.seasonStartOverall=p.overall;
+    if(state.playerMarket?.[String(p.id)]){
+      state.playerMarket[String(p.id)].severeInjuriesThisSeason=0;
+      state.playerMarket[String(p.id)].seasonStartValue=p.value||0;
+    }
+  });
 }
 
 function resetSeasonPlayerStats(){ state.playerStats={}; state.playerMorale={}; ensurePlayerState(); }
@@ -4251,10 +4315,10 @@ async function performSeasonRollover(){
   await seasonPrepStage(70,'Calculating background squad strengths',()=>{if(typeof worldMatchStrength==='function')(DB.worldClubs||[]).filter(c=>c.leagueId!=='saudi-pro-league').forEach(c=>worldMatchStrength(c.name));});
   state.season.year+=1;state.season.number+=1;state.season.label=`${state.season.year}/${String((state.season.year+1)%100).padStart(2,'0')}`;state.season.phase='preseason';state.week=0;state.seasonComplete=false;state.leagueSeasonFinished=false;state.seasonSummaryViewed=false;
   await seasonPrepStage(80,'Preparing league competitions',()=>{state.fixtures=generateFixtures(DB.clubs.map(x=>x.name),state.season.year);state.table=blankTable();if(typeof resetChampionshipCompetitionForSeason==='function')resetChampionshipCompetitionForSeason();state.results={};state.form=[];state.matchdayStats={revenue:0,attendance:0,homeGames:0};});
-  await seasonPrepStage(86,'Resetting season records',()=>{state.seasonPL=offSeasonCarryPL;state.transferFinance={spent:0,received:0};if(typeof resetClubFinanceForNewSeason==='function')resetClubFinanceForNewSeason();if(typeof prepareTicketingForNewSeason==='function')prepareTicketingForNewSeason();state.managerChangesThisSeason=0;state.managerPressureNotified=false;state.managerRequests=[];state.managerRequestCooldowns={};state.managerRequestsByWeek={};state.managerRoleFulfilledUntil={};state.managerSquadVacancies=[];state.transferReviewsRun={};state.incomingTransferOffers=[];state.transferNegotiations={};state.aiTransferPlans={};state.developmentWindows={};state.saudiPremiumWindows={};resetSeasonPlayerStats();resetMonthlyTracker();state.calendar.monthlyMonthKey=currentGameDateISO().slice(0,7);Object.keys(state.happiness).forEach(k=>state.happiness[k]=stakeholderSummerReset(state.happiness[k]));});
+  await seasonPrepStage(86,'Resetting season records',()=>{state.seasonPL=offSeasonCarryPL;state.transferFinance={spent:0,received:0};if(typeof resetClubFinanceForNewSeason==='function')resetClubFinanceForNewSeason();if(typeof prepareTicketingForNewSeason==='function')prepareTicketingForNewSeason();state.managerChangesThisSeason=0;state.managerPressureNotified=false;state.managerRequests=[];state.managerRequestCooldowns={};state.managerRequestsByWeek={};state.managerRoleFulfilledUntil={};state.managerSquadVacancies=[];state.transferReviewsRun={};state.incomingTransferOffers=[];state.incomingLoanOffers=[];state.transferNegotiations={};state.aiTransferPlans={};state.developmentWindows={};state.saudiPremiumWindows={};resetSeasonPlayerStats();resetMonthlyTracker();state.calendar.monthlyMonthKey=currentGameDateISO().slice(0,7);Object.keys(state.happiness).forEach(k=>state.happiness[k]=stakeholderSummerReset(state.happiness[k]));});
   await seasonPrepStage(90,'Updating the transfer market',()=>{resetAIClubFinancesForNewSeason();if(typeof reviewAIClubs==='function')reviewAIClubs(DB.clubs.filter(c=>c.name!==state.club));});
   await seasonPrepStage(96,'Setting budgets and expectations',()=>{const fr=ensureFinancialRegulationState(),resources=typeof ceoPlayingBudgetResources==='function'?ceoPlayingBudgetResources():{maxAllocation:nextSeasonBudgetForUser(archive),selfFunded:nextSeasonBudgetForUser(archive)},sanctionMultiplier=fr.nextInvestmentMultiplier??1;fr.availableInvestment=Math.max(0,Math.round((resources.maxAllocation*sanctionMultiplier)/250000)*250000);const defaultAllocation=resources.distressed?Math.min(fr.availableInvestment,resources.selfFunded||0):Math.min(fr.availableInvestment,Math.max(5_000_000,resources.selfFunded||fr.availableInvestment*.65));fr.pendingTransferBudget=Math.max(0,Math.round(defaultAllocation/5_000_000)*5_000_000);fr.nextInvestmentMultiplier=1;state.budget=fr.pendingTransferBudget;if(resources.distressed&&typeof addNews==='function')addNews(`FINANCIAL CONTROL: New owner funding for player recruitment has been suspended while the club restores liquidity. You may only allocate genuinely self-funded resources.`);if(typeof rollFinancialRegulationsSeason==='function')rollFinancialRegulationsSeason();if(state.sponsorship){if(state.sponsorship.seasonsRemaining==null)state.sponsorship.seasonsRemaining=state.sponsorship.years||1;state.sponsorship.seasonsRemaining=Math.max(0,state.sponsorship.seasonsRemaining-1);if(state.sponsorship.seasonsRemaining<=0){addNews(`${state.sponsorship.name}'s sponsorship agreement has expired.`);state.sponsorship=null;state.sponsorOffers=[];}else{state.sponsorOffers=[];state.sponsorship.totalValue=state.sponsorship.annualValue*state.sponsorship.seasonsRemaining;}}else state.sponsorOffers=[];state.pricingLocked=false;if(!state.pricing)state.pricing=defaultPricing(state.club);state.managerBacking=Math.round((state.managerBacking||70)*.75+70*.25);});
-  await seasonPrepStage(100,`${currentSeasonLabel()} ready`,()=>{addNews(`The ${currentSeasonLabel()} season has begun. You can allocate up to ${money(state.financialRegulations?.availableInvestment??state.budget??0)} to the playing budget from currently available club resources${typeof clubFinancialDistressStatus==='function'&&clubFinancialDistressStatus().distressed?' while financial controls remain active': ' and available owner funding'}.`);saveGame(false);});
+  await seasonPrepStage(100,`${currentSeasonLabel()} ready`,()=>{addNews(`The ${currentSeasonLabel()} season has begun. You can allocate up to ${money(state.financialRegulations?.availableInvestment??state.budget??0)} to the playing budget from currently available club resources${typeof clubFinancialDistressStatus==='function'&&clubFinancialDistressStatus().distressed?' while financial controls remain active': ' and available owner funding'}.`);if(typeof managerSummerSquadReview==='function')managerSummerSquadReview(state.club,{notify:true});saveGame(false);});
   await new Promise(r=>setTimeout(r,180));seasonPrepHide();renderAll();openSeasonSetup();
 }
 
@@ -4432,7 +4496,7 @@ function renderFinances(){
   if(!q("financeCards")) return;
   ensureFinancialRegulationState();
   const sq=squad(state.club);
-  const wages=sq.reduce((s,p)=>s+(state.playerContracts?.[p.id]?.wage??p.wage??0),0);
+  const wages=sq.reduce((s,p)=>s+(state.playerContracts?.[p.id]?.wage??p.wage??0),0)+(typeof userLoanWeeklyWageAdjustment==="function"?userLoanWeeklyWageAdjustment():0);
   const vals=sq.reduce((s,p)=>s+(p.value||0),0);
   const staffWages=(state.staff?.manager?.wage||0)+(state.staff?.dof?.wage||0)+(state.staff?.physio?.wage||0);
   const transferNet=(state.transferFinance?.received||0)-(state.transferFinance?.spent||0);
@@ -4967,7 +5031,12 @@ function openStaffMarket(role){
   else pool=PHYSIO_POOL;
 
   const currentName=state.staff[role]?.name;
-  const candidates=pool.filter(x=>x.name!==currentName).sort((a,b)=>b.rating-a.rating);
+  const candidates=pool.filter(x=>{
+    if(x.name===currentName) return false;
+    if(role!=="manager") return true;
+    const dismissedDay=state.recentlyDismissedManagers?.[x.name];
+    return dismissedDay==null || currentCareerDay()-dismissedDay>=548; // ~18 months
+  }).sort((a,b)=>b.rating-a.rating);
 
   q("staffMarket").innerHTML=candidates.map(c=>{
     const poachClub=role==="manager" ? managerClub(c.name) : null;
@@ -4998,6 +5067,13 @@ function hireStaff(role,name){
   let pool=role==="manager"?MANAGER_POOL:role==="dof"?DOF_POOL:PHYSIO_POOL;
   const candidate=pool.find(x=>x.name===name);
   if(!candidate) return;
+  if(role==="manager"){
+    const dismissedDay=state.recentlyDismissedManagers?.[candidate.name];
+    if(dismissedDay!=null && currentCareerDay()-dismissedDay<548){
+      addNews(`${candidate.name} is not currently willing to return so soon after being dismissed by the club.`);
+      return;
+    }
+  }
 
   let fee=0;
   if(role==="manager") fee=managerCompensation(candidate);
@@ -5054,6 +5130,8 @@ function fireStaff(role){
   if(typeof recordClubCash==="function") recordClubCash(-severance,`Staff severance: ${person.name}`,"staff");
 
   if(role==="manager"){
+    state.recentlyDismissedManagers=state.recentlyDismissedManagers||{};
+    state.recentlyDismissedManagers[person.name]=currentCareerDay();
     state.staffAssignments.managers[state.club]="Caretaker Manager";
     state.staff.manager=null;
     if(state.managerTactics) delete state.managerTactics[state.club];
