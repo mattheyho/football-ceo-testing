@@ -1640,3 +1640,35 @@ body{background:radial-gradient(circle at 100% 0%,color-mix(in srgb,var(--club-s
 .transfer-primary-action{margin:9px 0}.transfer-primary-action .btn{width:100%}.transfer-dossier-details{margin-top:10px;border:1px solid var(--line);border-radius:10px;background:#09131f}.transfer-dossier-details>summary{cursor:pointer;padding:11px 12px;color:var(--club-accent);font-weight:850;font-size:11px;list-style:none}.transfer-dossier-details>summary::-webkit-details-marker{display:none}.transfer-dossier-details>summary:after{content:'＋';float:right;color:var(--muted)}.transfer-dossier-details[open]>summary:after{content:'−'}.transfer-dossier-details[open]{padding-bottom:10px}.transfer-dossier-details[open]>summary{border-bottom:1px solid var(--line);margin-bottom:8px}.transfer-dossier-details .transfer-grid,.transfer-dossier-details .transfer-box{margin-left:9px!important;margin-right:9px!important}.transfer-file-summary{margin-top:7px}
 
 .player-status-line{display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-top:7px}.player-status-line>div{display:flex;justify-content:space-between;align-items:center;gap:8px;background:#0b1726;border:1px solid var(--line);border-radius:9px;padding:7px 9px}.player-status-line span{font-size:8px;color:var(--muted);text-transform:uppercase;font-weight:850;letter-spacing:.4px}.player-status-line b{font-size:10px;text-align:right}
+
+/* v0.24.31 — Piece 9B.4a contrast hotfix
+   Keep legacy light-surface components aligned with the dark, club-themed UI. */
+.playing-budget-control{
+  background:#0b1726;
+  border-color:var(--line);
+  color:var(--text);
+}
+.playing-budget-control .budget-slider-summary b{
+  color:var(--text);
+  font-size:16px;
+  font-variant-numeric:tabular-nums;
+}
+.playing-budget-control input[type="range"]{accent-color:var(--club-accent)}
+.playing-budget-control .muted{color:var(--muted)}
+
+/* Availability chips must remain legible inside dark player/database cards. */
+.availability-chip{
+  background:#17283b;
+  color:var(--text);
+  border:1px solid var(--line);
+}
+.availability-chip.listed{
+  background:rgba(255,107,122,.14);
+  color:#ffb0ba;
+  border-color:rgba(255,107,122,.38);
+}
+.availability-chip.open{
+  background:color-mix(in srgb,var(--club-accent) 15%,#0b1726);
+  color:var(--club-accent);
+  border-color:color-mix(in srgb,var(--club-accent) 42%,var(--line));
+}
