@@ -1,8 +1,8 @@
-/* FOOTBALL CEO — CLUB FINANCE MODULE v0.24.24
+/* FOOTBALL CEO — CLUB FINANCE MODULE v0.24.34
    Division-aware club cash + CEO allocation architecture.
    state.budget / state.wageBudget remain compatibility mirrors for recruitment code.
    EFL central distributions use the 2024/25 pooled-payment benchmark; EFL merit-by-place is zero.
-   Club-specific profiles are supplied by financial-profiles.js. Parachute payments remain a later roadmap job. */
+   Club-specific profiles are supplied by financial-profiles.js. Premier League parachute payments are supplied by parachute-payments.js. */
 (function(){
   const ROUND=250000;
   const round250=n=>Math.round((Number(n)||0)/ROUND)*ROUND;
@@ -57,6 +57,28 @@
     const c=typeof byClub==='function'&&state?.club?byClub(state.club):null;
     return {revenue:Math.round((150_000_000+Math.max(0,(c?.reputation||70)-70)*8_000_000)/1_000_000)*1_000_000,sponsorBaseline:14_000_000,startingRatio:.65};
   }
+  window.divisionAdjustedFootballRevenueTarget=function(club=state?.club){
+    if(!club)return 0;
+    const p=typeof financialProfileForClub==='function'?financialProfileForClub(club):(club===state?.club?profile():null),base=Math.max(0,Number(p?.revenue)||0);
+    const current=(()=>{try{return (typeof leagueForClub==='function'?leagueForClub(club)?.id:null)||(typeof worldClubByName==='function'?worldClubByName(club)?.leagueId:null)||p?.leagueId||'premier-league';}catch(e){return p?.leagueId||'premier-league';}})();
+    const original=p?.leagueId||current;if(current===original)return base;
+    const c=typeof byClub==='function'?byClub(club):null,rep=Number(c?.reputation||70);
+    if(original==='premier-league'&&current==='championship'){
+      // Relegation removes most PL broadcast exposure but large brands retain more
+      // commercial/matchday income. Parachute support is added separately.
+      const brand=clampF((rep-65)/35,0,1),retention=.28+brand*.08;
+      let target=base*retention;
+      const e=typeof parachuteEntitlementForClub==='function'?parachuteEntitlementForClub(club):null;
+      if(e?.firstEligibleSeasonYear&&state?.season?.year){const years=Math.max(0,Number(state.season.year)-Number(e.firstEligibleSeasonYear));target*=Math.max(.85,1-years*.05);}
+      return leagueRound(Math.max(35_000_000,target),'championship');
+    }
+    if(original==='championship'&&current==='premier-league'){
+      // A promoted EFL club gains the PL central-distribution floor immediately,
+      // while its own commercial scale remains much smaller than an established giant.
+      return round250(Math.max(base*1.75,125_000_000+Math.max(0,rep-70)*2_000_000));
+    }
+    return base;
+  };
   function expectedLeagueFinish(){
     if(!state?.club)return 10;
     const leagueId=clubLeagueId();
@@ -133,7 +155,7 @@
     let rawMatchday=0;
     state._calibratingRevenueModel=true;
     try{if(typeof projectedMatchday==='function'){const md=projectedMatchday();rawMatchday=(md.unscaledAccountingRevenue??md.accountingRevenue??md.revenue??0)*(arch.homeGames||19);}}catch(e){}finally{state._calibratingRevenueModel=false;}
-    const totalRevenue=Math.max(0,Number(p.revenue)||0),sponsor=Math.max(0,Number(typeof commercialSponsorBenchmark==='function'?commercialSponsorBenchmark(state.club):p.sponsorBaseline)||0),availableAfterCentral=Math.max(0,totalRevenue-dist.total-sponsor);
+    const totalRevenue=Math.max(0,Number(typeof divisionAdjustedFootballRevenueTarget==='function'?divisionAdjustedFootballRevenueTarget(state.club):p.revenue)||0),sponsor=Math.max(0,Number(typeof commercialSponsorBenchmark==='function'?commercialSponsorBenchmark(state.club):p.sponsorBaseline)||0),availableAfterCentral=Math.max(0,totalRevenue-dist.total-sponsor);
     // Keep a meaningful commercial/retail stream even for clubs with large grounds.
     // Matchday income can still outperform/underperform this baseline through pricing,
     // attendances and stadium growth; it simply no longer swamps the club profile at day one.
@@ -177,7 +199,7 @@
   window.settlePremierLeagueRevenue=function(finish=null){return settleLeagueRevenue(finish);};
   window.coreFootballRevenueForSCR=function(){
     const commercial=annualCommercialRetailRevenue(),sponsor=Number(state.sponsorship?.annualValue??clubRevenueModel()?.baselineSponsor??0),arch=leagueFinanceArchitecture();let matchday=clubRevenueModel()?.baselineMatchday||0;try{if(typeof projectedMatchday==='function')matchday=(projectedMatchday().accountingRevenue??projectedMatchday().revenue??0)*(arch.homeGames||19);}catch(e){}
-    let finish=expectedLeagueFinish();try{if(typeof seasonTableFinish==='function'&&state?.week>0)finish=seasonTableFinish(state.club)||finish;}catch(e){}const settled=leagueDistributionSeasonState()?.settlement,league=settled?.total||leagueRevenueForFinish(finish,clubLeagueId()).total,europe=0;return Math.max(0,Math.round(commercial+sponsor+matchday+league+europe));
+    let finish=expectedLeagueFinish();try{if(typeof seasonTableFinish==='function'&&state?.week>0)finish=seasonTableFinish(state.club)||finish;}catch(e){}const settled=leagueDistributionSeasonState()?.settlement,league=settled?.total||leagueRevenueForFinish(finish,clubLeagueId()).total,parachute=typeof currentParachuteAnnualForClub==='function'?currentParachuteAnnualForClub(state.club):0,europe=0;return Math.max(0,Math.round(commercial+sponsor+matchday+league+parachute+europe));
   };
 
   /* ---------------------- Transfer payment terms --------------------- */
@@ -228,16 +250,16 @@
 
   /* -------------------- CEO resource / liquidity model -------------------- */
   window.clubFinancialDistressStatus=function(){
-    const f=ensureClubFinanceState(),p=profile(),cash=clubCash(),arch=leagueFinanceArchitecture(),reserve=leagueRound(Math.max(0,(Number(p.revenue)||0)*arch.liquidityReserveRate));
-    const liquidityDebt=(f.debts||[]).filter(d=>d.status==='active'&&(d.kind==='working_capital'||d.kind==='emergency_refinance')).reduce((sum,d)=>sum+(d.outstanding||0),0),distressed=cash<reserve*.75||liquidityDebt>(Number(p.revenue)||0)*.05,severe=cash<0||liquidityDebt>(Number(p.revenue)||0)*.18;
+    const f=ensureClubFinanceState(),p=profile(),cash=clubCash(),arch=leagueFinanceArchitecture(),revenueBase=Math.max(0,Number(typeof divisionAdjustedFootballRevenueTarget==='function'?divisionAdjustedFootballRevenueTarget(state.club):p.revenue)||0),reserve=leagueRound(revenueBase*arch.liquidityReserveRate);
+    const liquidityDebt=(f.debts||[]).filter(d=>d.status==='active'&&(d.kind==='working_capital'||d.kind==='emergency_refinance')).reduce((sum,d)=>sum+(d.outstanding||0),0),distressed=cash<reserve*.75||liquidityDebt>revenueBase*.05,severe=cash<0||liquidityDebt>revenueBase*.18;
     return {distressed,severe,cash,reserve,liquidityDebt};
   };
   window.ceoPlayingBudgetResources=function(){
-    const f=ensureClubFinanceState(),cash=Math.max(0,clubCash()),p=profile(),arch=leagueFinanceArchitecture(),reserve=leagueRound(Math.max(0,(Number(p.revenue)||0)*arch.liquidityReserveRate)),payable12=futureTransferCommitments(370),receivable12=futureTransferReceivables(370);
+    const f=ensureClubFinanceState(),cash=Math.max(0,clubCash()),p=profile(),arch=leagueFinanceArchitecture(),revenueBase=Math.max(0,Number(typeof divisionAdjustedFootballRevenueTarget==='function'?divisionAdjustedFootballRevenueTarget(state.club):p.revenue)||0),reserve=leagueRound(revenueBase*arch.liquidityReserveRate),payable12=futureTransferCommitments(370),receivable12=futureTransferReceivables(370);
     // Reserve is now a warning benchmark, not a hard CEO spending floor. The player
     // can allocate the club into a dangerous liquidity position if they choose.
     const selfFunded=Math.max(0,leagueRound(cash-payable12+receivable12*.65)),distress=clubFinancialDistressStatus();
-    const revenue=Math.max(0,Number(p.revenue)||0),profileFundingRate=typeof ownerFundingRate==='function'?ownerFundingRate(state.club):.075,ownerConfidence=Number(state.happiness?.owners??70),confidenceMultiplier=ownerConfidence>=60?1:ownerConfidence>=40?.65:.35;
+    const revenue=revenueBase,profileFundingRate=typeof ownerFundingRate==='function'?ownerFundingRate(state.club):.075,ownerConfidence=Number(state.happiness?.owners??70),confidenceMultiplier=ownerConfidence>=60?1:ownerConfidence>=40?.65:.35;
     // Ownership determines willingness/capacity to add NEW equity only. It never
     // ring-fences existing club cash or vetoes CEO spending decisions.
     const normalOwnerFunding=leagueRound(Math.max(0,revenue*profileFundingRate*confidenceMultiplier)),ownerFundingUsed=Math.max(0,Number(f.ownerFootballFundingThisSeason)||0),ownerFunding=distress.distressed?0:Math.max(0,normalOwnerFunding-ownerFundingUsed),maxAllocation=Math.max(0,leagueRound(selfFunded+ownerFunding));
@@ -319,8 +341,8 @@
     const ledger=(f.ledger||[]).filter(x=>!season||x.season===season);
     const sum=(obj,keys)=>keys.reduce((t,k)=>t+(Number(obj?.[k])||0),0);
     const leagueIncome=Object.entries(revenue).reduce((t,[k,v])=>/(Central|Facility|Merit)$/.test(k)?t+(Number(v)||0):t,0);
-    const sponsorship=Number(revenue.sponsorship)||0,commercial=Number(revenue.commercialRetail)||0,matchday=Number(revenue.matchday)||0;
-    const knownRevenueKeys=new Set(['sponsorship','commercialRetail','matchday']);
+    const sponsorship=Number(revenue.sponsorship)||0,commercial=Number(revenue.commercialRetail)||0,matchday=Number(revenue.matchday)||0,parachute=Number(revenue.parachutePayments)||0;
+    const knownRevenueKeys=new Set(['sponsorship','commercialRetail','matchday','parachutePayments']);
     Object.keys(revenue).forEach(k=>{if(/(Central|Facility|Merit)$/.test(k))knownRevenueKeys.add(k);});
     let otherIncome=Object.entries(revenue).reduce((t,[k,v])=>knownRevenueKeys.has(k)?t:t+(Number(v)||0),0);
     const staffChanges=ledger.filter(x=>x.category==='staff'&&Number(x.amount)<0).reduce((t,x)=>t-Math.min(0,Number(x.amount)||0),0);
@@ -330,7 +352,7 @@
     const hasSplit=!!(Number.isFinite(Number(costs.clubOperations))&&Number.isFinite(Number(costs.facilities))&&(Number(costs.clubOperations)||Number(costs.facilities)));
     const facilities=hasSplit?Number(costs.facilities)||0:0;
     const clubOperations=hasSplit?(Number(costs.clubOperations)||0)+matchdayCosts:operatingRecorded+matchdayCosts;
-    const knownIncome=leagueIncome+sponsorship+commercial+matchday+otherIncome;
+    const knownIncome=leagueIncome+parachute+sponsorship+commercial+matchday+otherIncome;
     let knownCosts=playerWages+staffWages+clubOperations+facilities+financeInterest+staffChanges+regulation;
     const reportedPL=Number(state?.seasonPL)||0;
     const reconciliation=reportedPL-(knownIncome-knownCosts);
@@ -355,7 +377,7 @@
     return {
       openingCash:Number(f.openingCash)||0,currentCash:Number(f.cash)||0,cashMovement,
       operatingPL:reportedPL,operatingIncome,operatingCosts,
-      income:{league:leagueIncome,sponsorship,commercial,matchday,other:otherIncome},
+      income:{league:leagueIncome,parachute,sponsorship,commercial,matchday,other:otherIncome},
       costs:{playerWages,staffWages,clubOperations,facilities,financeInterest,staffChanges,regulation,other:otherCosts,hasSplit},
       cash:{transfers,ownerFunding,borrowing,capital,debtService,seasonTickets,acquisition,other:otherCash},
       debt:totalClubDebt(),capitalSpent:Number(f.capitalSpentThisSeason)||0

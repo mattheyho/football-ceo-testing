@@ -2026,7 +2026,9 @@ function deterministicClubNumber(club,salt="finance"){
 }
 
 function estimateClubFootballRevenue(club){
-  return financialProfileForClub(club).revenue;
+  const base=typeof divisionAdjustedFootballRevenueTarget==='function'?divisionAdjustedFootballRevenueTarget(club):financialProfileForClub(club).revenue;
+  const parachute=typeof currentParachuteAnnualForClub==='function'?currentParachuteAnnualForClub(club):0;
+  return base+parachute;
 }
 
 function currentClubWeeklyPlayerWages(club){
@@ -2109,7 +2111,7 @@ function aiProjectedSquadCost(club,extraFee=0,extraWeeklyWage=0){
   // more detailed, but AI clubs still face the same broad regulatory pressure.
   const positiveNetSpend=Math.max(0,aiNetTransferSpend(club)+extraFee);
   const transferCommitment=positiveNetSpend*0.20;
-  const inheritedBurden=(financialProfileForClub(club).revenue*financialProfileForClub(club).startingRatio)-annualWages;
+  const inheritedBurden=(f.footballRevenue*financialProfileForClub(club).startingRatio)-annualWages;
   return annualWages+Math.max(0,inheritedBurden)+transferCommitment;
 }
 
@@ -2892,6 +2894,7 @@ function ensureTransferMarketState(){
       if(Array.isArray(state.news)) state.news=state.news.filter(n=>!String(n?.text||"").includes(" from Retired for "));
     }
 
+    if(typeof syncPlayerLeagueIdsToClubDivisions==="function") syncPlayerLeagueIdsToClubDivisions();
     TRANSFER_MARKET_APPLIED_STATE=state;
     CLUB_SQUAD_CACHE.clear();
     CLUB_SQUAD_CACHE_PLAYER_COUNT=DB.players.length;

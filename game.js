@@ -19,6 +19,7 @@ function resetWorldDatabase(){
   // Every career then reapplies only its own saved world overrides.
   DB.players.length=0;
   BASE_PLAYER_SNAPSHOT.forEach(p=>DB.players.push({...p}));
+  if(typeof resetEnglishPyramidRuntimeDivisions==="function") resetEnglishPyramidRuntimeDivisions();
 }
 
 
@@ -1480,6 +1481,7 @@ function createEmptyMonthlyFinance(){
     commercialIncome:0,
     sponsorIncome:0,
     leagueIncome:0,
+    parachuteIncome:0,
     playerWages:0,
     staffWages:0,
     operatingCosts:0,
@@ -1545,7 +1547,7 @@ function monthlyInjurySnapshot(){
 }
 
 function monthlyOperatingPL(finance){
-  const income=finance.matchdayRevenue+finance.commercialIncome+finance.sponsorIncome+(finance.leagueIncome||0);
+  const income=finance.matchdayRevenue+finance.commercialIncome+finance.sponsorIncome+(finance.leagueIncome||0)+(finance.parachuteIncome||0);
   const expenses=finance.playerWages+finance.staffWages+finance.operatingCosts+(finance.debtInterest||0);
   return income-expenses;
 }
@@ -1586,7 +1588,7 @@ function renderMonthlySummary(summary=null){
   if(!summary) return;
 
   const f=summary.finance;
-  const totalIncome=f.matchdayRevenue+f.commercialIncome+f.sponsorIncome;
+  const totalIncome=f.matchdayRevenue+f.commercialIncome+f.sponsorIncome+(f.leagueIncome||0)+(f.parachuteIncome||0);
   const totalExpenses=f.playerWages+f.staffWages+f.operatingCosts+(f.debtInterest||0);
 
   q("monthlySummaryTitle").textContent=summary.monthLabel || monthLabelFromKey(summary.monthKey);
@@ -1600,6 +1602,8 @@ function renderMonthlySummary(summary=null){
     <div class="monthly-finance-row"><span>Matchday revenue</span><b class="good">${money(f.matchdayRevenue)}</b></div>
     <div class="monthly-finance-row"><span>Commercial income</span><b class="good">${money(f.commercialIncome)}</b></div>
     <div class="monthly-finance-row"><span>Sponsorship income</span><b class="good">${money(f.sponsorIncome)}</b></div>
+    ${(f.leagueIncome||0)?`<div class="monthly-finance-row"><span>League & broadcast income</span><b class="good">${money(f.leagueIncome)}</b></div>`:""}
+    ${(f.parachuteIncome||0)?`<div class="monthly-finance-row"><span>Parachute payments</span><b class="good">${money(f.parachuteIncome)}</b></div>`:""}
     <div class="monthly-finance-row monthly-total"><span>Total operating income</span><b>${money(totalIncome)}</b></div>
     <div class="monthly-finance-row"><span>Player wages</span><b class="bad">-${money(f.playerWages)}</b></div>
     <div class="monthly-finance-row"><span>Senior staff wages</span><b class="bad">-${money(f.staffWages)}</b></div>
@@ -1742,13 +1746,15 @@ function ensureFixtureDates(fixtures,seasonYear=currentSeasonStartYear()){
 }
 
 function nextUserFixture(){
-  if(!state?.fixtures?.length) return null;
   const today=currentGameDateISO();
-  for(const round of state.fixtures){
-    if(round.date<today) continue;
-    const game=round.games.find(g=>g.home===state.club||g.away===state.club);
-    if(game) return {round,game};
+  if(state?.fixtures?.length){
+    for(const round of state.fixtures){
+      if(round.date<today) continue;
+      const game=round.games.find(g=>g.home===state.club||g.away===state.club);
+      if(game) return {round,game};
+    }
   }
+  if(typeof nextUserEnglishPlayoffFixture==='function') return nextUserEnglishPlayoffFixture();
   return null;
 }
 
@@ -2040,6 +2046,7 @@ function createCareer(club){
 }
 
 function enterGame(){
+  if(typeof applySavedEnglishDivisionState==="function") applySavedEnglishDivisionState();
   applyClubTheme(state?.club);
   if(!activeSaveId) activeSaveId=state?.saveId||null;
   if(activeSaveId && state) state.saveId=activeSaveId;
@@ -2655,13 +2662,32 @@ async function advanceDay(){
     if(round.week>=(typeof careerLeagueMatchCount==='function'?careerLeagueMatchCount():state.fixtures.length)){
       if(typeof settleLeagueRevenue==="function") settleLeagueRevenue(seasonTableFinish(state.club));
       else if(typeof settlePremierLeagueRevenue==="function") settlePremierLeagueRevenue(seasonTableFinish(state.club));
+      if(typeof settleParachuteRevenue==='function'){
+        const pr=settleParachuteRevenue();const parachuteTrueUp=Number(pr?.amount)||0;
+        if(parachuteTrueUp>0){
+          state.seasonPL=(state.seasonPL||0)+parachuteTrueUp;
+          if(!state.monthlyFinance)state.monthlyFinance=createEmptyMonthlyFinance();
+          state.monthlyFinance.parachuteIncome=(state.monthlyFinance.parachuteIncome||0)+parachuteTrueUp;
+          if(typeof recordClubCash==='function')recordClubCash(parachuteTrueUp,'Premier League parachute payment season true-up','competition',{competition:'Premier League parachute payments'});
+          if(typeof ensureClubFinanceState==='function'){const cf=ensureClubFinanceState();cf.seasonRevenue.parachutePayments=(cf.seasonRevenue.parachutePayments||0)+parachuteTrueUp;}
+        }
+      }
       if(typeof processOwnerSeasonFootballAssessment==="function") processOwnerSeasonFootballAssessment(seasonTableFinish(state.club));
       // The Premier League can finish before other domestic leagues.
       // Record that our league is done, but keep the calendar running until
       // 1 June so every background league can complete naturally.
       state.leagueSeasonFinished=true;
       state.season.phase="postseason";
+      if(typeof processEnglishSeasonOutcomeNotice==="function") processEnglishSeasonOutcomeNotice();
+      if(typeof ensureChampionshipPlayoffs==="function" && careerLeagueId()==="championship") ensureChampionshipPlayoffs();
     }
+  }
+
+  // Championship play-offs continue on the daily calendar after MW46. Background
+  // Championship play-offs also run while the user is managing in the Premier League.
+  if(typeof processEnglishPlayoffDay==="function"){
+    const playoffReport=processEnglishPlayoffDay(nextDate);
+    if(playoffReport) todaysMatchReport=playoffReport;
   }
 
   // 1 June is the hard football-season boundary. By this point the configured
@@ -2846,8 +2872,10 @@ function renderDashboard(){
         const days=Math.max(0,dateDiffDays(currentGameDateISO(),r.date));
         const opponent=g.home===state.club?g.away:g.home;
         const venue=g.home===state.club?"Home":"Away";
+        const competitionMeta=r.playoff?(r.roundLabel||r.competitionLabel||"CHAMPIONSHIP PLAY-OFFS"):`MW ${r.week}`;
+        const playoffVenue=r.playoff&&r.venue?` • ${String(r.venue).toUpperCase()}`:"";
         q("dashboardNextFixture").innerHTML=`<div class="fixture home-fixture">
-          <div class="home-fixture-meta">${shortGameDate(r.date).toUpperCase()} • MW ${r.week} • ${venue.toUpperCase()}${days?` • ${days} DAY${days===1?"":"S"}`:" • TODAY"}</div>
+          <div class="home-fixture-meta">${shortGameDate(r.date).toUpperCase()} • ${competitionMeta.toUpperCase()} • ${venue.toUpperCase()}${playoffVenue}${days?` • ${days} DAY${days===1?"":"S"}`:" • TODAY"}</div>
           <div class="home-fixture-matchup">
             <div class="home-fixture-team"><span class="home-fixture-mark">${footballClubInitials(state.club)}</span><b>${state.club}</b></div>
             <div class="home-fixture-vs"><strong>${venue==="Home"?"VS":"AT"}</strong><span>${venue}</span></div>
@@ -3199,6 +3227,7 @@ function renderSquad(){
 let DATABASE_VISIBLE_LIMIT=50;
 let DATABASE_SEARCH_TIMER=null;
 const DATABASE_COST_CACHE=new Map();
+function invalidateDatabaseCostCache(){DATABASE_COST_CACHE.clear();}
 function databasePlayerLeagueId(p){return (typeof byClub==='function'?byClub(p.club)?.leagueId:null)||'other';}
 function databaseLeagueLabel(id){const labels={'premier-league':'Premier League','championship':'Championship','league-one':'League One','league-two':'League Two','bundesliga':'Bundesliga','la-liga':'La Liga','serie-a':'Serie A','ligue-1':'Ligue 1','saudi-pro-league':'Saudi Pro League'};return labels[id]||String(id||'Other').replace(/-/g,' ').replace(/\b\w/g,m=>m.toUpperCase());}
 function databaseExpectedCost(p){const day=typeof currentCareerDay==='function'?currentCareerDay():state?.week||0;const key=`${state?.club}|${day}|${p.id}|${aiAvailabilityStatus(p)}`;if(DATABASE_COST_CACHE.has(key))return DATABASE_COST_CACHE.get(key);const cost=typeof expectedTransferCost==='function'?expectedTransferCost(p,state.club):{mid:p.value,low:p.value,high:p.value,status:'Not for sale'};DATABASE_COST_CACHE.set(key,cost);if(DATABASE_COST_CACHE.size>12000){const first=DATABASE_COST_CACHE.keys().next().value;DATABASE_COST_CACHE.delete(first);}return cost;}
@@ -3954,20 +3983,24 @@ function processWeeklyClubCycle(){
   const commercialIncome=coreIncome.commercial||0;
   const sponsorIncome=coreIncome.sponsor||0;
   const leagueIncome=coreIncome.leagueIncome||0;
+  const parachuteResult=typeof processWeeklyParachuteRevenue==='function'?processWeeklyParachuteRevenue():{amount:0};
+  const parachuteIncome=Number(parachuteResult?.amount)||0;
 
   if(!state.monthlyFinance) state.monthlyFinance=createEmptyMonthlyFinance();
   state.monthlyFinance.commercialIncome+=commercialIncome;
   state.monthlyFinance.sponsorIncome+=sponsorIncome;
   state.monthlyFinance.leagueIncome=(state.monthlyFinance.leagueIncome||0)+leagueIncome;
+  state.monthlyFinance.parachuteIncome=(state.monthlyFinance.parachuteIncome||0)+parachuteIncome;
   state.monthlyFinance.playerWages+=playerWages;
   state.monthlyFinance.staffWages+=staffWeekly;
   state.monthlyFinance.operatingCosts+=operatingCosts.total;
 
-  const netOperating=leagueIncome+commercialIncome+sponsorIncome-playerWages-staffWeekly-operatingCosts.total;
+  const netOperating=leagueIncome+parachuteIncome+commercialIncome+sponsorIncome-playerWages-staffWeekly-operatingCosts.total;
   state.seasonPL += netOperating;
   if(typeof recordClubCash==="function") recordClubCash(netOperating,"Weekly club operating cash flow","operating");
   if(typeof ensureClubFinanceState==="function"){
     const cf=ensureClubFinanceState();
+    cf.seasonRevenue.parachutePayments=(cf.seasonRevenue.parachutePayments||0)+parachuteIncome;
     cf.seasonCosts.playerWages=(cf.seasonCosts.playerWages||0)+playerWages;
     cf.seasonCosts.staffWages=(cf.seasonCosts.staffWages||0)+staffWeekly;
     cf.seasonCosts.operating=(cf.seasonCosts.operating||0)+operatingCosts.total;
@@ -4155,7 +4188,8 @@ function buildSeasonArchive(){
       overall:p.overall
     };
   });
-  return {season:currentSeasonLabel(),year:currentSeasonStartYear(),seasonNumber:seasonDisplayNumber(),club:state.club,leagueId:(typeof currentUserLeagueId==="function"?currentUserLeagueId():(state.leagueId||byClub(state.club)?.leagueId||"premier-league")),sportingExpectation:(typeof currentSportingExpectation==="function"?{...currentSportingExpectation()}:null),leagueFinish:finish,record,seasonProfitLoss:state.seasonPL||0,transferPL,transferSpent:state.transferFinance?.spent||0,transferReceived:state.transferFinance?.received||0,scr:scr?{ratio:scr.ratio,status:scr.status,revenue:scr.revenue,squadCost:scr.squadCost}:null,stakeholders:{...state.happiness},topScorer:top?{id:top.id,name:top.name,goals:state.playerStats?.[top.id]?.goals||0}:null,stadium:typeof buildStadiumHistorySnapshot==="function"?buildStadiumHistorySnapshot():null,clubCash:typeof clubCash==="function"?clubCash():null,totalDebt:typeof totalClubDebt==="function"?totalClubDebt():null,premierLeagueRevenue:typeof premierLeagueSeasonState==="function"?(premierLeagueSeasonState()?.settlement||null):null,finance:typeof clubFinanceSeasonSnapshot==="function"?clubFinanceSeasonSnapshot():null,playerStats};
+  const pyramid=typeof englishMovementArchiveSnapshot==="function"?englishMovementArchiveSnapshot():null;
+  return {season:currentSeasonLabel(),year:currentSeasonStartYear(),seasonNumber:seasonDisplayNumber(),club:state.club,leagueId:(typeof currentUserLeagueId==="function"?currentUserLeagueId():(state.leagueId||byClub(state.club)?.leagueId||"premier-league")),sportingExpectation:(typeof currentSportingExpectation==="function"?{...currentSportingExpectation()}:null),leagueFinish:finish,record,seasonProfitLoss:state.seasonPL||0,transferPL,transferSpent:state.transferFinance?.spent||0,transferReceived:state.transferFinance?.received||0,scr:scr?{ratio:scr.ratio,status:scr.status,revenue:scr.revenue,squadCost:scr.squadCost}:null,stakeholders:{...state.happiness},topScorer:top?{id:top.id,name:top.name,goals:state.playerStats?.[top.id]?.goals||0}:null,stadium:typeof buildStadiumHistorySnapshot==="function"?buildStadiumHistorySnapshot():null,clubCash:typeof clubCash==="function"?clubCash():null,totalDebt:typeof totalClubDebt==="function"?totalClubDebt():null,premierLeagueRevenue:typeof premierLeagueSeasonState==="function"?(premierLeagueSeasonState()?.settlement||null):null,finance:typeof clubFinanceSeasonSnapshot==="function"?clubFinanceSeasonSnapshot():null,pyramid,playerStats};
 }
 function archiveCurrentSeason(){
   if(!state.careerHistory)state.careerHistory={seasons:[]};
@@ -4175,7 +4209,7 @@ function renderSeasonSummary(){
   q("summaryRecord").textContent=`${a.record.w}W • ${a.record.d}D • ${a.record.l}L`; q("summaryProfitLoss").textContent=money(a.seasonProfitLoss); q("summaryProfitLoss").className="v "+(a.seasonProfitLoss>0?"good":a.seasonProfitLoss<0?"bad":"");
   q("summaryTransferPL").textContent=money(a.transferPL); q("summaryTransferPL").className="v "+(a.transferPL>0?"good":a.transferPL<0?"bad":""); q("summarySCR").textContent=a.scr?`${(a.scr.ratio*100).toFixed(1)}% ${a.scr.status}`:"—"; q("summaryTopScorer").textContent=a.topScorer?`${a.topScorer.name} • ${a.topScorer.goals}`:"—";
   q("summaryStakeholders").innerHTML=[["Fans",a.stakeholders.fans],["Owners",a.stakeholders.owners],["Players",a.stakeholders.players],["Manager",a.stakeholders.manager],["Sponsors",a.stakeholders.sponsors??70]].map(([label,value])=>`<div class="summary-stakeholder"><div style="display:flex;justify-content:space-between"><span>${label}</span><b>${Math.round(value)}%</b></div><div class="happy-bar"><span style="width:${Math.max(0,Math.min(100,value))}%"></span></div></div>`).join("");
-  q("summarySeasonNumber").textContent=`Season ${a.seasonNumber}`; q("summarySeasonNotes").innerHTML=`<div class="notice"><b>League:</b> ${ordinal(a.leagueFinish)} place.</div><div class="notice"><b>Financial:</b> ${money(a.seasonProfitLoss)} season P/L; ${money(a.transferPL)} transfer P/L.</div><div class="notice"><b>SCR:</b> ${a.scr?`${(a.scr.ratio*100).toFixed(1)}% — ${a.scr.status}`:"Unavailable"}.</div>`;
+  q("summarySeasonNumber").textContent=`Season ${a.seasonNumber}`; const movementNote=a.pyramid?.outcome&&a.pyramid.outcome.type!=="none"?`<div class="notice"><b>Season outcome:</b> ${a.pyramid.outcome.label}.</div>`:""; const wembleyNote=a.pyramid?.playoffs?.userWembleyRevenue?`<div class="notice"><b>Wembley:</b> Play-Off Final income added ${money(a.pyramid.playoffs.userWembleyRevenue.total)} to the club.</div>`:""; q("summarySeasonNotes").innerHTML=`<div class="notice"><b>League:</b> ${ordinal(a.leagueFinish)} place.</div>${movementNote}${wembleyNote}<div class="notice"><b>Financial:</b> ${money(a.seasonProfitLoss)} season P/L; ${money(a.transferPL)} transfer P/L.</div><div class="notice"><b>SCR:</b> ${a.scr?`${(a.scr.ratio*100).toFixed(1)}% — ${a.scr.status}`:"Unavailable"}.</div>`;
   q("seasonSummary").classList.remove("hide"); state.seasonSummaryViewed=true; saveGame(false);
 }
 function stakeholderSummerReset(v){ return Math.round(v*.70+70*.30); }
@@ -4734,6 +4768,7 @@ async function performSeasonRollover(){
   for(let i=0;i<cohorts.length;i++)await seasonPrepStage(pct[i],labels[i],()=>processPlayerYearEnd(cohorts[i]));
   await seasonPrepStage(45,'Updating player market values',()=>{if(typeof recalculateAllPlayerMarketValues==='function')recalculateAllPlayerMarketValues({recordHistory:true});});
   await seasonPrepStage(52,'Processing retirements, contracts and club infrastructure',()=>{if(typeof processPlayerLifecycleSeasonRollover==='function'){const lifecycle=processPlayerLifecycleSeasonRollover();if(lifecycle?.userIntake?.length&&typeof addNews==='function'){const rows=lifecycle.userIntake.map(p=>`${p.name} — ${p.age}, ${p.positions}, ${p.overall} OVR / ${p.potential} POT`).join('<br>');addNews(`<strong>ACADEMY INTAKE:</strong> ${lifecycle.userIntake.length} new prospects have joined the club for ${currentSeasonStartYear()+1}/${String((currentSeasonStartYear()+2)%100).padStart(2,'0')}.<br>${rows}`);}if(lifecycle?.generated?.length&&typeof addNews==='function'){const elite=lifecycle.generated.filter(p=>(p.potential||0)>=88).length;addNews(`PLAYER MARKET: ${lifecycle.generated.length} new young players have entered the global player database for ${currentSeasonStartYear()+1}/${String((currentSeasonStartYear()+2)%100).padStart(2,'0')}${elite?`, including ${elite} elite-potential prospect${elite===1?'':'s'}`:''}.`);}}if(typeof processFacilityYearEnd==='function')processFacilityYearEnd();if(typeof rollStadiumSeason==='function')rollStadiumSeason();expireContractsAndHandleFreeAgents();if(typeof processLightweightNonLeagueSeasonRollover==='function')processLightweightNonLeagueSeasonRollover();updateReputationFromSeason(archive.leagueFinish);if(typeof refreshCommercialReach==='function')refreshCommercialReach({seasonRollover:true});});
+  await seasonPrepStage(57,'Applying promotion and relegation',()=>{if(typeof finaliseEnglishSeasonMovements==='function')finaliseEnglishSeasonMovements();});
   await seasonPrepStage(60,'Rebuilding club squads',()=>{if(typeof invalidateClubSquadCache==='function')invalidateClubSquadCache();if(typeof invalidateWorldStrengthCache==='function')invalidateWorldStrengthCache();});
   await seasonPrepStage(70,'Calculating background squad strengths',()=>{if(typeof worldMatchStrength==='function')(DB.worldClubs||[]).filter(c=>c.leagueId!=='saudi-pro-league').forEach(c=>worldMatchStrength(c.name));});
   state.season.year+=1;state.season.number+=1;state.season.label=`${state.season.year}/${String((state.season.year+1)%100).padStart(2,'0')}`;state.season.phase='preseason';state.week=0;state.seasonComplete=false;state.leagueSeasonFinished=false;state.seasonSummaryViewed=false;state.sportingExpectation=null;if(typeof ensureSportingExpectationState==='function')ensureSportingExpectationState();
@@ -4746,8 +4781,8 @@ async function performSeasonRollover(){
 }
 
 function tableArray(){
-  return Object.entries(state.table).map(([name,x])=>({name,...x,gd:x.gf-x.ga}))
-    .sort((a,b)=>b.pts-a.pts||b.gd-a.gd||b.gf-a.gf);
+  const rows=Object.entries(state.table).map(([name,x])=>({name,...x,gd:x.gf-x.ga}));
+  return typeof sortEnglishStandings==='function'?sortEnglishStandings(rows,typeof careerLeagueId==='function'?careerLeagueId():state?.leagueId):rows.sort((a,b)=>b.pts-a.pts||b.gd-a.gd||b.gf-a.gf||a.name.localeCompare(b.name));
 }
 function leagueTableRowClass(index){
   const id=typeof careerLeagueId==='function'?careerLeagueId():'premier-league';
@@ -4844,12 +4879,14 @@ function renderFormationPitch(report){
 
 function renderMatchReport(report){
   if(!report || !q("matchReportModal")) return;
-  const score=report.userHome
+  let score=report.userHome
     ? `${report.goalsFor}–${report.goalsAgainst}`
     : `${report.goalsAgainst}–${report.goalsFor}`;
+  if(report.penalties) score+=` (${report.penalties.home}–${report.penalties.away} pens)`;
 
   q("matchReportTitle").textContent=`${report.home} ${score} ${report.away}`;
-  q("matchReportMeta").textContent=`${shortGameDate(report.date)} • MW ${report.week} • ${report.formation}`;
+  const matchMeta=report.competitionLabel?`${report.competitionLabel}${report.roundLabel?` • ${report.roundLabel}`:""}${report.venue?` • ${report.venue}`:""}`:`MW ${report.week}`;
+  q("matchReportMeta").textContent=`${shortGameDate(report.date)} • ${matchMeta}${report.formation?` • ${report.formation}`:""}`;
   q("matchReportPitch").innerHTML=renderFormationPitch(report);
 
   q("matchReportBench").innerHTML=report.bench?.length
@@ -4904,9 +4941,13 @@ function openStoredMatchReport(week,home,away){
   const result=state.results?.[`${week}-${home}-${away}`];
   if(result?.matchReport) renderMatchReport(result.matchReport);
 }
+function openStoredPlayoffMatchReport(matchId){
+  const result=state.results?.[`PO-${matchId}`];
+  if(result?.matchReport) renderMatchReport(result.matchReport);
+}
 
 function renderFixtures(){
-  q("fixturesList").innerHTML=state.fixtures.map(r=>`<div class="fixture">
+  const leagueHtml=(state.fixtures||[]).map(r=>`<div class="fixture">
     <div class="sectiontitle">
       <div><b>Matchweek ${r.week}</b><div class="muted small">${shortGameDate(r.date)}</div></div>
       <span class="pill">${r.week<=state.week?"Played":"Upcoming"}</span>
@@ -4924,8 +4965,36 @@ function renderFixtures(){
     }).join("")}
   </div>`).join("");
 
+  let playoffHtml="";
+  if(state.leagueId==='championship'&&typeof currentChampionshipPlayoffState==='function'){
+    const po=currentChampionshipPlayoffState();
+    if(po?.matches?.length){
+      playoffHtml=`<div class="sectiontitle" style="margin-top:18px"><div><div class="eyebrow">POSTSEASON</div><h3 style="margin:3px 0 0">Championship Play-Offs</h3></div>${po.winner?`<span class="pill good">${po.winner} promoted</span>`:`<span class="pill">${po.status==='final'?'Wembley final':'In progress'}</span>`}</div>`+po.matches.sort((a,b)=>a.date.localeCompare(b.date)).map(m=>{
+        const z=m.result||state.results?.[`PO-${m.id}`];
+        const userMatch=m.home===state.club||m.away===state.club;
+        const round=m.stage==='final'?'Play-Off Final':`Semi-final • ${m.leg===1?'First leg':'Second leg'}`;
+        const venue=m.venue?` • ${m.venue}`:'';
+        const pens=z?.penalties?` <span class="muted small">(${z.penalties.home}–${z.penalties.away} pens)</span>`:'';
+        return `<div class="fixture ${userMatch?'user-fixture':''}">
+          <div class="sectiontitle">
+            <div><b>${round}</b><div class="muted small">${shortGameDate(m.date)}${venue}</div></div>
+            <span class="pill">${m.status==='played'?'Played':'Upcoming'}</span>
+          </div>
+          <div class="fixture-result-row ${userMatch?'user-fixture':''}">
+            <div class="fixture-scoreline"><span>${m.home}</span><b>${z?z.hg+" – "+z.ag:"vs"}${pens}</b><span>${m.away}</span></div>
+            ${z?.matchReport&&userMatch?`<button class="btn secondary playoff-lineup-history-btn" type="button" data-po-id="${m.id}">View lineup</button>`:""}
+          </div>
+        </div>`;
+      }).join("");
+    }
+  }
+  q("fixturesList").innerHTML=leagueHtml+playoffHtml;
+
   document.querySelectorAll(".lineup-history-btn").forEach(btn=>{
     btn.addEventListener("click",()=>openStoredMatchReport(Number(btn.dataset.week),btn.dataset.home,btn.dataset.away));
+  });
+  document.querySelectorAll(".playoff-lineup-history-btn").forEach(btn=>{
+    btn.addEventListener("click",()=>openStoredPlayoffMatchReport(btn.dataset.poId));
   });
 }
 function financeScheduleEscape(value){return String(value??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));}
@@ -5015,8 +5084,11 @@ function renderFinances(){
   const fmtSigned=n=>`${n>0?"+":""}${money(n)}`;
   const financeRow=(label,value,{sub="",cls="",bold=false}={})=>`<div class="finance-flow-row ${bold?"finance-flow-total":""}"><div><span>${label}</span>${sub?`<small>${sub}</small>`:""}</div><b class="${cls}">${money(Math.abs(Number(value)||0))}</b></div>`;
   const income=overview?.income||{},costs=overview?.costs||{},cashFlow=overview?.cash||{};
+  const parachuteForecast=typeof parachutePaymentForecast==='function'?parachutePaymentForecast(state.club):null;
+  const parachuteCurrent=parachuteForecast?.current||null;
   const opIncomeRows=[
     financeRow("League & broadcast",income.league||0),
+    (income.parachute||0)>0?financeRow("Parachute payments",income.parachute||0,{sub:parachuteCurrent?`Year ${parachuteCurrent.entitlementYear} entitlement • ${money(parachuteCurrent.target)} annual support`:"Temporary Premier League relegation support"}):"",
     financeRow("Sponsorship",income.sponsorship||0,{sub:`Current deal ${state.sponsorship?.annualValue?money(state.sponsorship.annualValue)+"/yr":"—"} • ${typeof commercialReachLabel==="function"?commercialReachLabel():"Commercial reach"} • benchmark ${typeof commercialSponsorBenchmark==="function"?money(commercialSponsorBenchmark(state.club)):"—"}/yr`}),
     financeRow("Commercial & retail",income.commercial||0),
     financeRow("Matchday",income.matchday||0),
@@ -5041,7 +5113,8 @@ function renderFinances(){
     {label:"Agent / acquisition cash",value:cashFlow.acquisition||0}
   ].filter(x=>Math.abs(x.value)>25000);
   const largestDriver=[...nonOperatingDrivers].sort((a,b)=>Math.abs(b.value)-Math.abs(a.value))[0];
-  const outlook=`Cash has ${cashMove>25000?"risen":cashMove<-25000?"fallen":"been broadly stable"}${Math.abs(cashMove)>25000?` by ${money(Math.abs(cashMove))}`:""} this season. The club is operating at ${operatingPL>=0?"a profit":"a loss"} of ${money(Math.abs(operatingPL))}.${largestDriver?` ${largestDriver.label} (${fmtSigned(largestDriver.value)}) is the largest non-operating cash movement.`:""}`;
+  let outlook=`Cash has ${cashMove>25000?"risen":cashMove<-25000?"fallen":"been broadly stable"}${Math.abs(cashMove)>25000?` by ${money(Math.abs(cashMove))}`:""} this season. The club is operating at ${operatingPL>=0?"a profit":"a loss"} of ${money(Math.abs(operatingPL))}.${largestDriver?` ${largestDriver.label} (${fmtSigned(largestDriver.value)}) is the largest non-operating cash movement.`:""}`;
+  if(parachuteCurrent){const next=parachuteForecast?.future?.[0];outlook+=` ${money(parachuteCurrent.target)} of this season's expected operating income is temporary Premier League parachute support${next?`; the current estimate falls to ${money(next.target)} next season`:''}. Remaining payments cease immediately on promotion.`;}
   const activeDebt=typeof activeDebtScheduleDetails==="function"?activeDebtScheduleDetails():[];
   const monthlyDebt=activeDebt.reduce((t,d)=>t+(Number(d.monthlyPayment)||0),0);
 
@@ -5059,6 +5132,8 @@ function renderFinances(){
     <section class="finance-flow-card"><div class="finance-flow-title"><span>Operating income this season</span><b>${money(overview?.operatingIncome||0)}</b></div>${opIncomeRows}</section>
     <section class="finance-flow-card"><div class="finance-flow-title"><span>Operating outgoings this season</span><b>${money(overview?.operatingCosts||0)}</b></div>${opCostRows}</section>
   </div>
+
+  ${parachuteCurrent?`<section class="finance-section"><div class="sectiontitle"><div><div class="k">Premier League parachute payments</div><div class="muted small">Temporary support after relegation. Entitlement belongs to the club and ends on promotion.</div></div></div><div class="finance-cashflow-list"><div class="finance-cashflow-chip"><span>This season • Year ${parachuteCurrent.entitlementYear}</span><b>${money(parachuteCurrent.target)}</b></div>${(parachuteForecast.future||[]).map(x=>`<div class="finance-cashflow-chip"><span>${x.seasonYear}/${String((x.seasonYear+1)%100).padStart(2,'0')} • Year ${x.entitlementYear}</span><b>${money(x.target)}</b></div>`).join('')}</div><div class="muted small" style="margin-top:8px">Received this season: ${money(income.parachute||0)} • Remaining annual entitlement: ${money(Math.max(0,parachuteCurrent.target-(income.parachute||0)))}</div></section>`:''}
 
   <section class="finance-section">
     <div class="sectiontitle"><div><div class="k">Cash movements outside operations</div><div class="muted small">These explain why cash can rise or fall even when the club records an operating profit.</div></div></div>

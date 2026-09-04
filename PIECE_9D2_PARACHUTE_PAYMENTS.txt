@@ -1,0 +1,33 @@
+FOOTBALL CEO v0.24.34 — PIECE 9D.2 PARACHUTE PAYMENTS
+
+Scope
+- Premier League -> EFL parachute entitlement attached to the club, not the CEO.
+- 55% / 45% / 20% of the current Premier League equal central distribution.
+- Established PL clubs: up to three seasons. Clubs relegated after a one-season PL spell: two seasons.
+- Payments stop immediately on promotion back to the Premier League.
+- A later relegation creates a new entitlement; old cancelled entitlement never resumes.
+- Payments are staged across weekly operating cycles and true-up safely at season end.
+- Entitlement/payment state is idempotent and save-safe. Existing v0.24.33 movement history is migrated.
+
+Current in-game values (using £88m PL equal-share base)
+- Year 1: £48.4m
+- Year 2: £39.6m
+- Year 3: £17.6m
+
+Finance integration
+- Parachute income is its own operating-income line, not hidden inside generic league revenue.
+- It counts in operating P/L and SCR revenue.
+- Finance screen shows current entitlement, future schedule and promotion-cancellation warning.
+- AI club financial capacity includes current-season parachute support.
+- Payments enter club cash/revenue normally; they are not auto-assigned to the transfer budget.
+
+Relegation-transition calibration
+- Starting club revenue profiles are snapshots of the 2025/26 starting division.
+- A PL club relegated to the Championship now loses most PL exposure before parachute support is added.
+- Example test: West Ham £290m starting PL profile -> ~£90.5m Championship underlying target + £48.4m Year-1 parachute = ~£138.9m.
+- A promoted Championship club receives a sensible PL revenue floor without inheriting an established giant's profile.
+
+Out of scope
+- EFL transitional/parachute payments for Championship -> League One / League One -> League Two.
+- Player wage promotion/relegation clauses.
+- League One/League Two playability and movement.

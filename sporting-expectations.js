@@ -213,15 +213,28 @@
   function recordLeagueMovement(type,fromLeagueId,toLeagueId,extra={}){
     if(typeof state==='undefined'||!state) return null;
     state.sportingContext=state.sportingContext||{};
+    const ctx=state.sportingContext;
+    ctx.processedMovements=ctx.processedMovements||{};
     const phase=String(state.season?.phase||'');
     const defaultSeasonNumber=Number(state.season?.number||1)+(['postseason','complete','offseason'].includes(phase)?1:0);
-    const movement={type,fromLeagueId,toLeagueId,seasonNumber:defaultSeasonNumber,date:state.calendar?.date||null,...extra};
-    state.sportingContext.lastMovement=movement;
+    const movementId=String(extra.movementId||`${extra.seasonYear??state.season?.year??'season'}:${state.club||'club'}:${type}:${fromLeagueId}->${toLeagueId}:${extra.via||''}`);
+    if(ctx.processedMovements[movementId]){
+      ctx.lastMovement=ctx.processedMovements[movementId];
+      state.sportingExpectation=null;
+      return ctx.lastMovement;
+    }
+    const movement={type,fromLeagueId,toLeagueId,seasonNumber:defaultSeasonNumber,date:state.calendar?.date||null,...extra,movementId,hookResults:{}};
+    // Mark the movement before subscriber effects run. A reload or repeated call can
+    // therefore never apply staff/commercial promotion clauses twice.
+    ctx.processedMovements[movementId]=movement;
+    ctx.lastMovement=movement;
     state.sportingExpectation=null;
-    // Finance/staff systems subscribe to the same movement record so the future
-    // promotion/relegation executor only needs one canonical hook.
-    if(state.club&&typeof applyStaffDivisionMovement==='function') applyStaffDivisionMovement(fromLeagueId,toLeagueId);
-    if(state.club&&typeof refreshCommercialReach==='function') refreshCommercialReach({seasonRollover:false});
+    try{
+      if(state.club&&typeof applyStaffDivisionMovement==='function') movement.hookResults.staff=applyStaffDivisionMovement(fromLeagueId,toLeagueId);
+    }catch(e){movement.hookResults.staff={error:String(e?.message||e)};}
+    try{
+      if(state.club&&typeof refreshCommercialReach==='function') movement.hookResults.commercial=refreshCommercialReach({seasonRollover:false});
+    }catch(e){movement.hookResults.commercial={error:String(e?.message||e)};}
     return movement;
   }
 

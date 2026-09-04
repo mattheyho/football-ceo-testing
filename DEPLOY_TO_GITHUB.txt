@@ -1,0 +1,8 @@
+FOOTBALL CEO v0.24.34 — GITHUB DEPLOYMENT
+
+1. Replace the repository game files with the contents of this ZIP.
+2. Keep all files at the same root level as index.html.
+3. New required runtime file: parachute-payments.js.
+4. Service-worker cache: football-ceo-v0.24.34-parachute-payments.
+5. Runtime asset query strings: 02434-parachute-payments.
+6. Existing saves are migrated on load; do not delete local save data.

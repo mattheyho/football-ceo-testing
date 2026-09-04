@@ -63,7 +63,7 @@ function worldLeagueStandings(id){
   const active=typeof careerLeagueId==='function'?careerLeagueId():state?.leagueId;
   if(id===active&&state?.table){return Object.entries(state.table).map(([name,x])=>({name,...x,gd:x.gf-x.ga})).sort((a,b)=>b.pts-a.pts||b.gd-a.gd||b.gf-a.gf||a.name.localeCompare(b.name));}
   const c=ensureWorldCompetitionState(id);if(!c)return[];
-  return Object.entries(c.table).map(([name,x])=>({name,...x,gd:x.gf-x.ga})).sort((a,b)=>b.pts-a.pts||b.gd-a.gd||b.gf-a.gf||a.name.localeCompare(b.name));
+  const rows=Object.entries(c.table).map(([name,x])=>({name,...x,gd:x.gf-x.ga}));return typeof sortEnglishStandings==='function'?sortEnglishStandings(rows,id):rows.sort((a,b)=>b.pts-a.pts||b.gd-a.gd||b.gf-a.gf||a.name.localeCompare(b.name));
 }
 function backgroundDate(year,md){const [m,d]=md.split('-');const y=Number(m)<=6?year+1:year;return `${y}-${m}-${d}`;}
 function bgDateDiff(a,b){return Math.round((Date.parse(`${b}T00:00:00Z`)-Date.parse(`${a}T00:00:00Z`))/86400000);}

@@ -1,0 +1,59 @@
+FOOTBALL CEO v0.24.32 — PIECES 9C/9D
+CHAMPIONSHIP PLAY-OFFS + PL/CHAMPIONSHIP PROMOTION/RELEGATION
+
+Scope
+-----
+This build extends the merged v0.24.31 UI-hotfix source of truth.
+It enables the first real divisional movement boundary in Football CEO:
+Premier League <-> Championship.
+
+Championship play-offs
+----------------------
+- 3rd to 6th qualify.
+- Semi-final A: 6th vs 3rd, then 3rd vs 6th.
+- Semi-final B: 5th vs 4th, then 4th vs 5th.
+- Semi-finals are two-legged and decided on aggregate; tied aggregates use extra time / penalties.
+- Winners meet in a neutral-venue Play-Off Final at Wembley Stadium.
+- For the 2025/26 calendar the generated dates are 8/9 May, 11/12 May and 23 May 2026.
+- User playoff matches use the normal detailed match engine, player usage/condition and stored lineup reports.
+- Dashboard and Fixtures UI show upcoming/played playoff fixtures after MW46.
+- Background Championship play-offs also execute while the user manages in the Premier League.
+
+Wembley revenue
+---------------
+Reaching Wembley provides a meaningful one-off revenue boost.
+The gate model does not assume a finalist keeps the whole Wembley gate. It models event costs,
+the EFL levy/pool structure and the finalist club's residual gate share, then adds a separate
+commercial/merchandising uplift linked to Commercial Reach.
+
+A typical Championship finalist in the automated test receives about £1.2m incremental club
+income from the final. Semi-finalists also receive their share of the pooled semi-final gate.
+Playoff income is recorded in the Finance system as matchday/commercial operating revenue and
+in the dedicated playoff revenue tracker.
+
+Promotion/relegation
+--------------------
+- Premier League bottom 3 -> Championship.
+- Championship top 2 -> Premier League automatically.
+- Championship Play-Off Final winner -> Premier League.
+- Movement occurs simultaneously at season rollover, preserving 20 PL and 24 Championship clubs.
+- The complete club identity/state remains intact: players, contracts, finances, facilities,
+  stadium, ownership, Commercial Reach, debts and transfer commitments stay with the club.
+- User leagueId and player leagueIds are migrated with the club.
+- Existing dynamic league-movement hooks fire for the user: sporting expectation context,
+  staff promotion/relegation wage clauses and Commercial Reach/exposure refresh.
+- Saved club-division overrides persist across save/load, while starting a new career restores
+  the original 2025/26 divisions before club selection.
+- Next-season fixtures switch correctly: promoted user = 38 PL matches; relegated user = 46 Championship matches.
+
+Season flow
+-----------
+Regular league ends -> Championship play-offs -> final outcome -> 1 June season review/rollover
+-> promotion/relegation movement -> new division table/fixtures -> new season budgets/expectations.
+
+Out of scope
+------------
+- Championship -> League One movement remains disabled until League One is playable.
+- League One and League Two play-offs remain disabled.
+- League Two remains the static bottom of the playable pyramid; there is no National League relegation.
+

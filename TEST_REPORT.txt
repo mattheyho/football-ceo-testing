@@ -1,32 +1,41 @@
-FOOTBALL CEO v0.24.30 — PIECE 9B.4 TEST REPORT
-Build: 0.24.30-piece-9b4-mobile-ui
+FOOTBALL CEO v0.24.34 — PARACHUTE PAYMENTS TEST REPORT
 
-RESULT: PASS
+Result: PASS
 
-Regression suites passed:
-- Piece 8A ownership profiles
-- Piece 8B dynamic sporting expectations / club profiles
-- Piece 9A English pyramid framework
-- Piece 9B playable Championship
-- Piece 9B.1 Championship regression / finance calibration
-- Piece 9B.2 commercial reach / infrastructure / staff movement architecture
-- Piece 9B.3 Finance UX
-- Piece 9B.4 Mobile UI / recruitment performance / club themes
-- Regression-fix preservation suite
+Scope tested
+- All existing Piece 8A / 8B ownership + dynamic-expectation tests.
+- Piece 9A English pyramid structure.
+- Piece 9B Championship playability.
+- Pieces 9B.1 / 9B.2 / 9B.3 / 9B.4 finance, commercial, infrastructure, Finance UX and mobile UI regressions.
+- Piece 9C/9D Championship playoffs and PL <-> Championship movement.
+- v0.24.33 20-season promotion/relegation hardening stress test, now also carrying parachute state.
+- Regression-fix preservation suite.
 
-Piece 9B.4 acceptance checks:
-- Mobile league table defaults to Position / Club / P / GD / Pts with tap-to-expand W/D/L/GF/GA detail and a Full stats toggle.
-- Player Database no longer recalculates all player market values or refreshes AI availability simply because the screen opens.
-- Database renders 50 results at a time, caches expected-cost calculations, debounces search, and only performs transfer-cost work when needed.
-- Mobile database uses recruitment cards rather than a forced desktop-width table.
-- Database filters include position, availability, OVR, potential, age, league, maximum expected cost and an affordable-only option.
-- Player profile is now a compact dashboard with hero information, form strip, Overview/Form/Contract/Development tabs and sticky CEO actions.
-- Transfer target/negotiation screen is a decision-first dark deal room with visible negotiation stages and collapsible secondary dossier information.
-- Transfer bid controls use deal-size-aware increments from £10k up to £1m, with a finer step near the seller target.
-- Contract, signing-wage, outgoing-bid and incoming-counter money inputs display comma separators while retaining numeric values internally.
-- Club-driven themes are defined for all 92 PL/EFL clubs. Watford resolves to yellow/black; white-primary clubs use a darker structural colour for readability.
-- Existing save format remains compatible.
-- All root JavaScript files pass node --check.
-- PWA cache/version marker bumped to v0.24.30-mobile-ui.
+New v0.24.34 checks
+1. Payment formula derives from PL equal central share (£88m current game base):
+   - Year 1 55% = £48.4m
+   - Year 2 45% = £39.6m
+   - Year 3 20% = £17.6m
+2. Established PL relegation creates three-year entitlement.
+3. One-season PL spell creates two-year entitlement only.
+4. Weekly staged payments sum exactly to annual entitlement; season true-up cannot double-pay.
+5. Year 1 -> Year 2 -> Year 3 -> expiry progression works.
+6. Promotion cancels all future entitlement immediately and idempotently.
+7. Yo-yo case creates a fresh entitlement from the newest PL spell; cancelled entitlement never resumes.
+8. Save/reload preserves entitlement and payment progress.
+9. v0.24.33 movement history migrates into v0.24.34 entitlement state without back-paying completed seasons.
+10. Movement transaction creates/cancels parachute rights alongside the six-club division swap.
+11. 20-season movement stress test retains valid parachute ownership; no active entitlement can remain on a Premier League club.
+12. AI financial revenue path includes current parachute support.
+13. User SCR revenue includes current parachute support.
+14. Finance UX reports parachute income separately from League & broadcast and shows future entitlement.
+15. Relegation revenue-transition calibration prevents unchanged PL revenue + parachute double counting.
+    - West Ham test: £290m PL starting profile -> ~£90.5m underlying Championship target; with Year-1 parachute ~£138.9m.
+    - Bristol City promoted revenue target test: £125m PL floor.
+16. All root JavaScript files pass node --check.
 
-No intended simulation/economy rules were changed by this UI piece beyond transfer fee rounding/increment presentation becoming scale-aware.
+Known deliberate scope limits
+- Championship -> League One / League One -> League Two transition payments not implemented yet.
+- Player contract promotion/relegation wage clauses remain out of scope.
+- League One and League Two are still non-playable.
+- No National League relegation will be added to League Two.

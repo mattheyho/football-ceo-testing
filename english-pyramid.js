@@ -1,14 +1,13 @@
-/* FOOTBALL CEO — ENGLISH LEAGUE PYRAMID FRAMEWORK v0.24.25
+/* FOOTBALL CEO — ENGLISH LEAGUE PYRAMID FRAMEWORK v0.24.32
    Piece 9A: one canonical competition structure for the 92 PL/EFL clubs.
 
-   Piece 9B makes the Championship playable while deliberately leaving promotion/relegation and playoff execution disabled. It defines the shape those later pieces must use, including a
-   static League Two floor with promotion upward but no National League relegation.
+   Piece 9C/9D activates Championship play-offs and the Premier League <-> Championship movement boundary. League One/League Two movement remains parked until those divisions become playable. League Two stays the static floor with no National League relegation.
 */
 (function(){
-  const VERSION=2;
+  const VERSION=3;
   const SYSTEM_ID='english-league-system';
-  const MOVEMENT_ENABLED=false;
-  const PLAYOFF_EXECUTION_ENABLED=false;
+  const MOVEMENT_ENABLED=true;
+  const PLAYOFF_EXECUTION_ENABLED=true;
 
   const TABLE_RULES={pointsWin:3,pointsDraw:1,pointsLoss:0,sort:['points','goalDifference','goalsFor']};
   const DIVISIONS=[
@@ -116,7 +115,7 @@
     if(total!==92) errors.push(`English pyramid: expected 92 clubs, found ${total}.`);
     const l2=BY_ID['league-two'];
     if(l2.relegation.count!==0||l2.relegation.to!==null||!l2.relegation.staticFloor) errors.push('League Two must remain the static bottom division with no relegation.');
-    if(MOVEMENT_ENABLED) warnings.push('Movement execution is enabled; Piece 9A expects it to remain disabled.');
+    if(!MOVEMENT_ENABLED) warnings.push('Premier League/Championship movement execution is disabled.');
     return {ok:errors.length===0,version:VERSION,systemId:SYSTEM_ID,totalClubs:total,counts,errors,warnings,movementEnabled:MOVEMENT_ENABLED,playoffExecutionEnabled:PLAYOFF_EXECUTION_ENABLED};
   }
 

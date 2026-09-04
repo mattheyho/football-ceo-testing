@@ -1,15 +1,18 @@
-/* FOOTBALL CEO — SAVE / STATE MODULE v0.24.25
+/* FOOTBALL CEO — SAVE / STATE MODULE v0.24.34
    Central migration hook for the stadium, ticketing and club-finance systems.
    The legacy state.budget field deliberately remains the football/transfer budget
    so the existing recruitment engine does not need to be rewritten. */
 (function(){
-  const FEATURE_VERSION=30;
+  const FEATURE_VERSION=34;
 
   function ensureFootballCEOFeatureState(){
     if(!window.state && typeof state==='undefined') return;
     const s=typeof state!=='undefined'?state:window.state;
     if(!s) return;
     s.schemaVersion=Math.max(Number(s.schemaVersion||0),FEATURE_VERSION);
+    if(typeof ensureEnglishMovementState==='function') ensureEnglishMovementState();
+    if(typeof ensureParachutePaymentState==='function') ensureParachutePaymentState();
+    if(typeof applySavedEnglishDivisionState==='function') applySavedEnglishDivisionState();
     if(typeof ensureUserEnglishCompetitionState==='function') ensureUserEnglishCompetitionState();
     if(typeof ensureOwnershipProfileState==='function') ensureOwnershipProfileState();
     if(typeof ensureClubFinanceState==='function') ensureClubFinanceState();

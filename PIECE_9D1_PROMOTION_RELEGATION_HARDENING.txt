@@ -1,0 +1,26 @@
+FOOTBALL CEO v0.24.33 — PIECE 9D.1 PROMOTION/RELEGATION HARDENING
+
+Scope
+-----
+Hardens the existing Premier League <-> Championship movement system. No parachute payments, League One movement, cup competitions or new finance calibration are included.
+
+Changes
+-------
+- Movement cannot execute until the user's active division is complete and the other PL/Championship competition has been completed.
+- Background competition completion is forced safely at rollover if required; user matches are never auto-completed.
+- The six-club swap is transactional: all assignments are validated before persistent division overrides are committed.
+- Post-movement invariants require exactly 20 Premier League clubs, 24 Championship clubs and 44 unique clubs. Failed transactions roll back to their pre-movement divisions.
+- Movement hooks are idempotent. Staff wage clauses and Commercial Reach effects have a stable movement ID and cannot reapply after reload/repeated execution.
+- Player league IDs are resynchronised with their club after movement.
+- Player Database expected-transfer-cost cache is invalidated on division movement so same-day recruitment assumptions cannot remain at the old league level.
+- Squad and world-strength caches are also invalidated after the six-club swap.
+- Wembley final revenue remains one-time only; repeat processing cannot duplicate the payment.
+- Reaching Wembley now adds a small +1.5 persistent Commercial Reach exposure boost, separate from the much larger promotion/league-exposure effect.
+- Existing season archive order is preserved: the old season is archived before movement, then the new division is used for next-season fixtures, ticketing, revenue and expectations.
+
+Explicitly deferred
+-------------------
+- Premier League parachute payments after relegation.
+- Championship -> League One relegation until League One is playable.
+- Player promotion/relegation wage clauses.
+- Domestic cups.

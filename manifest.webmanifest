@@ -2,7 +2,7 @@
   "id": "./",
   "name": "Football CEO 25/26",
   "short_name": "Football CEO",
-  "description": "Run a Premier League club from the boardroom as CEO.",
+  "description": "Run an English football club from the boardroom as CEO.",
   "start_url": "./",
   "scope": "./",
   "display": "standalone",
