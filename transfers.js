@@ -404,6 +404,186 @@ function managerTransferRoleView(player,context={},activeNegotiation=null){
   return "Squad depth";
 }
 
+/* --------------------------------------------------------------------------
+   CEO -> MANAGER YOUTH MINUTES REQUEST — v0.24.14
+   The CEO can ask the manager to invest competitive minutes in a young player.
+   This is a selection nudge, never a forced-lineup command.
+   -------------------------------------------------------------------------- */
+function ensureManagerDevelopmentRequestState(){
+  if(!state.managerDevelopmentRequests) state.managerDevelopmentRequests={};
+}
+
+function managerDevelopmentRequestFor(playerOrId){
+  ensureManagerDevelopmentRequestState();
+  const id=typeof playerOrId==="object"?playerOrId?.id:playerOrId;
+  if(id==null) return null;
+  return state.managerDevelopmentRequests[String(id)]||null;
+}
+
+function managerDevelopmentRequestActive(playerOrId){
+  const req=managerDevelopmentRequestFor(playerOrId);
+  if(!req || !["agreed","partial"].includes(req.status)) return null;
+  if(req.managerName && req.managerName!==(state.staff?.manager?.name||"Manager")) return null;
+  const day=typeof currentCareerDay==="function"?currentCareerDay():Number(state.calendar?.careerDay||0);
+  return day<Number(req.expiresDay||0)?req:null;
+}
+
+function managerDevelopmentRequestEligibility(player){
+  if(!player) return {eligible:false,reason:"Player unavailable."};
+  if(player.retired) return {eligible:false,reason:"Retired players cannot receive a development-minutes request."};
+  if(player.club!==state.club) return {eligible:false,reason:"You can only make this request for players currently at your club."};
+  const loan=typeof activeLoanForPlayer==="function"?activeLoanForPlayer(player):null;
+  if(loan && loan.parentClub===state.club && loan.loanClub!==state.club) return {eligible:false,reason:"The player is currently out on loan."};
+  if(player.age>22) return {eligible:false,reason:"This interaction is intended for young-player development (age 22 or under)."};
+  const gap=Math.max(0,(player.potential||player.overall||0)-(player.overall||0));
+  if(gap<3) return {eligible:false,reason:"The manager does not view this player as having enough remaining development upside for a specific youth-minutes request."};
+  const req=managerDevelopmentRequestFor(player);
+  const day=typeof currentCareerDay==="function"?currentCareerDay():Number(state.calendar?.careerDay||0);
+  if(managerDevelopmentRequestActive(player)) return {eligible:false,reason:"A development-minutes request is already active for this player."};
+  const sameManager=req && (!req.managerName || req.managerName===(state.staff?.manager?.name||"Manager"));
+  if(sameManager && day<Number(req.cooldownUntilDay||0)) return {eligible:false,reason:`The manager recently considered this request. Revisit it in ${Math.max(1,Number(req.cooldownUntilDay||0)-day)} day(s).`};
+  return {eligible:true,reason:""};
+}
+
+function managerDevelopmentReadiness(player){
+  const group=typeof primaryRecruitmentGroup==="function"?primaryRecruitmentGroup(player):null;
+  const standard=group&&typeof managerPositionStandard==="function"?managerPositionStandard(group):null;
+  const starter=Number(standard?.expectedStarter??standard?.starter??clubSquadQualityBenchmark(state.club)??68);
+  return {group,starter,gap:starter-Number(player.overall||0)};
+}
+
+function managerDevelopmentRequestDecision(player){
+  const profile=typeof managerProfileForClub==="function"?managerProfileForClub(state.club):DEFAULT_MANAGER_PROFILE;
+  const readiness=managerDevelopmentReadiness(player);
+  const upside=Math.max(0,Number(player.potential||player.overall||0)-Number(player.overall||0));
+  const youthTrust=Number(profile?.youthTrust||60);
+  const relation=Number(state.happiness?.manager??70);
+  const age=Number(player.age||20);
+  const role=typeof managerInternalSquadRole==="function"?managerInternalSquadRole(player,state.club):"Prospect";
+
+  let score=youthTrust;
+  score+=Math.min(18,upside*1.35);
+  score-=Math.max(0,readiness.gap-2)*4;
+  score-=Math.max(0,age-19)*2;
+  score+=(relation-70)*0.10;
+  if(role==="First-team competition") score+=5;
+  else if(role==="Prospect") score+=2;
+  if(state.injuries?.[player.id]) score-=7;
+
+  if(score>=68){
+    return {
+      status:"agreed",priority:2,targetMinutes:270,score,
+      message:`${state.staff?.manager?.name||"The manager"} agrees that ${player.name}'s upside justifies investing first-team minutes. He will receive a meaningful selection boost in suitable matches, but selection is not guaranteed.`
+    };
+  }
+  if(score>=49){
+    return {
+      status:"partial",priority:1,targetMinutes:120,score,
+      message:`${state.staff?.manager?.name||"The manager"} will look for selective opportunities for ${player.name}, especially from the bench and in lower-pressure matches, but does not believe regular starts are justified yet.`
+    };
+  }
+  return {
+    status:"refused",priority:0,targetMinutes:0,score,
+    message:`${state.staff?.manager?.name||"The manager"} does not believe ${player.name} is ready for first-team minutes at the required level and recommends academy development or a suitable loan instead.`
+  };
+}
+
+function requestManagerDevelopmentMinutes(playerId){
+  ensureManagerDevelopmentRequestState();
+  const player=DB.players.find(p=>String(p.id)===String(playerId));
+  const eligibility=managerDevelopmentRequestEligibility(player);
+  if(!eligibility.eligible) return {ok:false,message:eligibility.reason};
+
+  const decision=managerDevelopmentRequestDecision(player);
+  const day=typeof currentCareerDay==="function"?currentCareerDay():Number(state.calendar?.careerDay||0);
+  const stats=state.playerStats?.[player.id]||{};
+  const duration=56;
+  state.managerDevelopmentRequests[String(player.id)]={
+    playerId:player.id,
+    status:decision.status,
+    priority:decision.priority,
+    requestedDay:day,
+    expiresDay:decision.status==="refused"?day:day+duration,
+    cooldownUntilDay:day+(decision.status==="refused"?35:duration+14),
+    targetMinutes:decision.targetMinutes,
+    creditedMinutes:0,
+    lastSeenSeasonMinutes:Number(stats.minutes||0),
+    managerName:state.staff?.manager?.name||"Manager",
+    decisionScore:Math.round(decision.score),
+    response:decision.message,
+    reviewed:false
+  };
+  if(typeof addNews==="function") addNews(`MANAGER RESPONSE — YOUTH DEVELOPMENT: ${decision.message}`);
+  if(typeof saveGame==="function") saveGame(false);
+  return {ok:true,...decision};
+}
+
+function managerDevelopmentRequestSelectionBonus(player,club=state.club,context={}){
+  if(club!==state.club || !player) return 0;
+  const req=managerDevelopmentRequestActive(player);
+  if(!req) return 0;
+  const importance=Number(context.importance||60);
+  const readiness=managerDevelopmentReadiness(player);
+  // Requests can bridge a sensible development gap, not turn a clearly
+  // non-competitive player into an automatic starter.
+  if(readiness.gap>10) return 0;
+  let bonus=req.status==="agreed"?3.7:1.8;
+  if(context.substitution) bonus+=req.status==="agreed"?0.8:0.6;
+  if(importance>=85) bonus*=0.28;
+  else if(importance>=75) bonus*=0.52;
+  else if(importance<=50) bonus*=1.18;
+  return bonus;
+}
+
+function managerDevelopmentRequestStatus(player){
+  const req=managerDevelopmentRequestFor(player);
+  if(!req) return {label:"No active request",detail:"You can ask the manager to prioritise first-team opportunities for an eligible young player."};
+  const day=typeof currentCareerDay==="function"?currentCareerDay():Number(state.calendar?.careerDay||0);
+  if(req.managerName && req.managerName!==(state.staff?.manager?.name||"Manager")){
+    return {label:"Request ended",detail:`The request was made to ${req.managerName}. The new manager must be approached separately.`};
+  }
+  if(["agreed","partial"].includes(req.status) && day<Number(req.expiresDay||0)){
+    const days=Math.max(1,Number(req.expiresDay||0)-day);
+    const label=req.status==="agreed"?"Development minutes agreed":"Selective opportunities agreed";
+    return {label,detail:`${Number(req.creditedMinutes||0)} minutes credited since the request • review in ${days} day${days===1?"":"s"}.`};
+  }
+  if(req.status==="refused" && day<Number(req.cooldownUntilDay||0)){
+    return {label:"Manager declined",detail:`${req.response||"The player is not considered ready."} Revisit in ${Math.max(1,Number(req.cooldownUntilDay||0)-day)} day(s).`};
+  }
+  if(req.reviewed){
+    return {label:"Previous request reviewed",detail:req.reviewText||"The development-minutes period has ended."};
+  }
+  return {label:"No active request",detail:"The previous request period has ended."};
+}
+
+function processManagerDevelopmentRequests(){
+  ensureManagerDevelopmentRequestState();
+  const day=typeof currentCareerDay==="function"?currentCareerDay():Number(state.calendar?.careerDay||0);
+  Object.values(state.managerDevelopmentRequests).forEach(req=>{
+    if(!req || !["agreed","partial"].includes(req.status) || req.reviewed) return;
+    const player=DB.players.find(p=>String(p.id)===String(req.playerId));
+    if(!player){ req.reviewed=true; return; }
+    const stats=state.playerStats?.[player.id]||{};
+    const currentMinutes=Number(stats.minutes||0);
+    const previous=Number(req.lastSeenSeasonMinutes||0);
+    const delta=currentMinutes>=previous?currentMinutes-previous:currentMinutes;
+    if(delta>0) req.creditedMinutes=Number(req.creditedMinutes||0)+delta;
+    req.lastSeenSeasonMinutes=currentMinutes;
+
+    if(day<Number(req.expiresDay||0)) return;
+    req.reviewed=true;
+    const target=Number(req.targetMinutes||0);
+    const actual=Number(req.creditedMinutes||0);
+    const delivered=target?actual/target:0;
+    req.reviewText=delivered>=0.80
+      ?`${player.name} received ${actual} minutes during the development-priority period. The manager broadly delivered the pathway discussed.`
+      :delivered>=0.40
+        ?`${player.name} received ${actual} minutes. The manager found some opportunities, but fewer than discussed.`
+        :`${player.name} received only ${actual} minutes. The manager was unable to provide the first-team pathway discussed.`;
+    if(typeof addNews==="function") addNews(`DEVELOPMENT REQUEST REVIEW: ${req.reviewText}`);
+  });
+}
+
 function managerUsageSelectionAdjustment(player,club=state.club,context={}){
   if(club!==state.club || !player || !state.playerStats?.[player.id]) return 0;
   const week=Math.max(1,state.week||1);
@@ -438,7 +618,8 @@ function managerUsageSelectionAdjustment(player,club=state.club,context={}){
     if(recent>=405) bonus-=2.5;
     else if(recent>=330) bonus-=1.2;
   }
-  return clamp(bonus,-3,5.5);
+  bonus+=managerDevelopmentRequestSelectionBonus(player,club,context);
+  return clamp(bonus,-3,9);
 }
 
 function registerManagerSquadVacancy(p,oldClub,saleFee=0){
@@ -2016,11 +2197,19 @@ const FINANCIAL_REGULATION_PROFILES={
 
 function financialProfileForClub(club){
   const c=byClub(club);
-  return FINANCIAL_REGULATION_PROFILES[club]||{
-    revenue:Math.round((110_000_000+Math.max(0,(c?.reputation||70)-65)*7_000_000)/1_000_000)*1_000_000,
-    startingRatio:0.64,
-    sponsorBaseline:14_000_000
-  };
+  if(typeof englishFinancialProfileForClub==="function"){const gameplayProfile=englishFinancialProfileForClub(club);if(gameplayProfile)return gameplayProfile;}
+  if(FINANCIAL_REGULATION_PROFILES[club]) return FINANCIAL_REGULATION_PROFILES[club];
+  const leagueId=(typeof leagueForClub==="function"?leagueForClub(club)?.id:null)||c?.leagueId||"premier-league",rep=Number(c?.reputation||70);
+  // Provisional division-aware fallbacks only. Piece 7 replaces these with the
+  // sourced/modelled 92-club finance database. The important architecture fix
+  // here is that an EFL club no longer inherits a £100m+ Premier-League profile.
+  const models={
+    "championship":{base:30_000_000,repBase:70,repStep:1_500_000,sponsor:3_000_000,ratio:.64},
+    "league-one":{base:8_000_000,repBase:62,repStep:400_000,sponsor:650_000,ratio:.60},
+    "league-two":{base:5_000_000,repBase:59,repStep:250_000,sponsor:400_000,ratio:.58},
+    "premier-league":{base:110_000_000,repBase:65,repStep:7_000_000,sponsor:14_000_000,ratio:.64}
+  },m=models[leagueId]||models["premier-league"],revenue=Math.max(m.base*.65,m.base+(rep-m.repBase)*m.repStep);
+  return {revenue:Math.round(revenue/250_000)*250_000,startingRatio:m.ratio,sponsorBaseline:m.sponsor,provisional:true,leagueId};
 }
 
 function financialRegulationLimitForDivision(division="Premier League"){
@@ -2069,7 +2258,7 @@ function ensureFinancialRegulationState(){
     const maxInvestment=resources?.maxAllocation||Math.round(((c?.transferBudget||40_000_000)*1.25)/250000)*250000;
     state.financialRegulations={
       version:1,
-      division:"Premier League",
+      division:(typeof leagueForClub==="function"?leagueForClub(state.club)?.name:null)||"Premier League",
       baseRevenue:profile.revenue,
       sponsorBaseline:profile.sponsorBaseline,
       startingRatio:profile.startingRatio,
@@ -3127,7 +3316,9 @@ function managerSelectMatchdaySquad(club,context={}){
     .sort((a,b)=>{
       const ac=typeof playerCondition==="function"?playerCondition(a):100;
       const bc=typeof playerCondition==="function"?playerCondition(b):100;
-      return ((b.overall||0)*0.86+bc*0.14)-((a.overall||0)*0.86+ac*0.14);
+      const aUsage=typeof managerUsageSelectionAdjustment==="function"?managerUsageSelectionAdjustment(a,club,{importance:selection.importance||60,substitution:true}):0;
+      const bUsage=typeof managerUsageSelectionAdjustment==="function"?managerUsageSelectionAdjustment(b,club,{importance:selection.importance||60,substitution:true}):0;
+      return ((b.overall||0)*0.86+bc*0.14+bUsage)-((a.overall||0)*0.86+ac*0.14+aUsage);
     });
 
   const bench=[];
@@ -3917,7 +4108,7 @@ function refreshAIPlayerAvailabilityForClubs(clubNames){
 function scheduledWorldMarketBucket(dateISO){const d=Number(dateISO.slice(8,10));return d>=1&&d<=7?d:null;}
 function processScheduledWorldMarketUpdate(dateISO){
   const bucket=scheduledWorldMarketBucket(dateISO);if(!bucket)return;
-  const background=(DB.worldClubs||[]).filter(c=>c.leagueId!=='saudi-pro-league');
+  const background=(DB.worldClubs||[]).filter(c=>c.leagueId!=='saudi-pro-league'&&c.transferMarketEnabled!==false);
   const clubs=background.filter(c=>1+(Math.abs([...c.name].reduce((n,ch)=>n+ch.charCodeAt(0),0))%7)===bucket).map(c=>c.name);
   const set=new Set(clubs);recalculatePlayersMarketValues(DB.players.filter(p=>set.has(p.club)));refreshAIPlayerAvailabilityForClubs(clubs);
   if(bucket===7){const saudi=new Set((DB.worldClubs||[]).filter(c=>c.leagueId==='saudi-pro-league').map(c=>c.name));recalculatePlayersMarketValues(DB.players.filter(p=>saudi.has(p.club)));}
@@ -4074,7 +4265,7 @@ function findTransferTargets(club,position,limit=6){
       const score=50+abilityFit+upside+interest*0.18+affordability+clubRecruitmentStrategyFit(player,club)-(player.age>=34?4:0);
       return {player,score,asking,interest};
     })
-    .filter(x=>x.player.overall>=Math.max(68,currentStrength-5))
+    .filter(x=>x.player.overall>=Math.max(50,currentStrength-5))
     .sort((a,b)=>b.score-a.score)
     .slice(0,limit);
 }
@@ -4088,14 +4279,17 @@ function transferPlayerToClub(p,newClub,fee,fromClub=p.club,details={}){
   const oldClub=fromClub;
   const joined=currentGameMonthYear();
 
+  const destinationLeague=typeof byClub==='function'?byClub(newClub)?.leagueId:null;
   state.playerWorldOverrides[p.id]={
     ...(state.playerWorldOverrides[p.id]||{}),
     club:newClub,
-    joined
+    joined,
+    ...(destinationLeague?{leagueId:destinationLeague}:{})
   };
   state.playerClubOverrides[p.id]=newClub;
   p.club=newClub;
   p.joined=joined;
+  if(destinationLeague)p.leagueId=destinationLeague;
   invalidateClubSquadCache(oldClub,newClub);
   if(typeof invalidateWorldStrengthCache==='function'){invalidateWorldStrengthCache(oldClub);invalidateWorldStrengthCache(newClub);}
 
@@ -4549,10 +4743,10 @@ function incomingOfferFairValue(p){
 /* --------------------------------------------------------------------------
    External transfer market — v0.16.2
    --------------------------------------------------------------------------
-   These clubs exist only as transfer-market actors. They do NOT have generated
-   squads, fixtures or domestic-league simulation and are not browsable in the
-   player database. This expands the selling market without expanding the full
-   football-world database.
+   These are abstract fallback transfer-market actors. Any matching club that
+   exists in WORLD_CLUBS is automatically suppressed here and uses its real
+   squad, finances and league instead. This lets leagues graduate from the
+   abstract market into the simulated world without duplicate buyers.
    -------------------------------------------------------------------------- */
 
 const EXTERNAL_TRANSFER_CLUBS=[
@@ -4590,7 +4784,7 @@ const EXTERNAL_TRANSFER_CLUBS=[
   {name:"Luton Town",division:"League One",country:"England",reputation:69,budget:9_000_000,maxWage:28_000,standard:68},
   {name:"Plymouth Argyle",division:"League One",country:"England",reputation:66,budget:6_000_000,maxWage:20_000,standard:66},
   {name:"Reading",division:"League One",country:"England",reputation:65,budget:5_000_000,maxWage:18_000,standard:65},
-  {name:"Bradford City",division:"League Two",country:"England",reputation:61,budget:2_500_000,maxWage:10_000,standard:62},
+  {name:"Bradford City",division:"League One",country:"England",reputation:63,budget:3_500_000,maxWage:13_000,standard:64},
   {name:"Notts County",division:"League Two",country:"England",reputation:61,budget:2_500_000,maxWage:10_000,standard:62},
 
   // Major European / overseas buyers
@@ -4637,14 +4831,14 @@ const EXTERNAL_TRANSFER_CLUBS=[
 function isWorldTransferClub(name){
   if(typeof worldClubByName!=="function") return false;
   const c=worldClubByName(name);
-  return Boolean(c && c.leagueId && c.leagueId!=="premier-league");
+  return Boolean(c && c.leagueId && c.leagueId!=="premier-league" && c.transferMarketEnabled!==false);
 }
 
 function ensureWorldTransferFinanceState(){
   if(!state) return;
   if(!state.worldClubFinances) state.worldClubFinances={};
   const seasonKey=typeof currentSeasonStartYear==="function"?currentSeasonStartYear():2025;
-  (DB.worldClubs||[]).forEach(c=>{
+  (DB.worldClubs||[]).filter(c=>c.transferMarketEnabled!==false).forEach(c=>{
     const old=state.worldClubFinances[c.name];
     if(!old || old.seasonKey!==seasonKey){
       const variance=.92+stablePlayerTrait({id:c.name},"world-finance")*.16;
@@ -4843,7 +5037,7 @@ function externalMarketCandidatesForPlayer(p,{listed=false}={}){
     .map(x=>({...x.club,marketType:"External"}));
 
   const worldCandidates=(DB.worldClubs||[])
-    .filter(club=>club.leagueId!=="saudi-pro-league")
+    .filter(club=>club.leagueId!=="saudi-pro-league"&&club.transferMarketEnabled!==false)
     .map(club=>{
       const interest=playerInterestScore(p,club.name);
       const standard=club.standard||72;

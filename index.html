@@ -11,7 +11,7 @@
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="apple-touch-icon" sizes="180x180" href="icon-180.png">
 <link rel="icon" type="image/png" sizes="192x192" href="icon-192.png">
-<link rel="stylesheet" href="styles.css?v=0247-youth1">
+<link rel="stylesheet" href="styles.css?v=02422-wage-full-efl">
 </head>
 <body>
 <div class="shell">
@@ -364,7 +364,7 @@
 
 <input id="importSaveInput" type="file" accept=".json,application/json" class="hide">
 
-<div class="notice small muted" style="margin-top:14px"><b>Database:</b> 20 playable Premier League clubs • multi-league world registry • FC26-ready player market • 38 PL matchweeks • no web connection required.</div>
+<div class="notice small muted" style="margin-top:14px"><b>Database:</b> 20 playable Premier League clubs • Championship, League One & League Two simulated • expanded FC26 player market • 38 PL matchweeks • no web connection required.</div>
 </section>
 
 <section id="game" class="hide">
@@ -752,23 +752,26 @@
 
 </section>
 </div>
-<script src="database.js?v=0247-youth1"></script>
-<script src="world-leagues.js?v=0247-youth1"></script>
-<script src="world-players.js?v=0247-youth1"></script>
-<script src="championship-simulation.js?v=0247-youth1"></script>
-<script src="state.js?v=0247-youth1"></script>
-<script src="ageing.js?v=0247-youth1"></script>
-<script src="finance.js?v=0247-youth1"></script>
-<script src="stadiums.js?v=0247-youth1"></script>
-<script src="stakeholders.js?v=0247-youth1"></script>
-<script src="staff.js?v=0247-youth1"></script>
-<script src="commercial.js?v=0247-youth1"></script>
-<script src="transfers.js?v=0247-youth1"></script>
-<script src="loans.js?v=0247-youth1"></script>
-<script src="player-lifecycle.js?v=0247-youth1"></script>
-<script src="simulation.js?v=0247-youth1"></script>
-<script src="ui.js?v=0247-youth1"></script>
-<script src="game.js?v=0247-youth1"></script>
+<script src="database.js?v=02422-wage-full-efl"></script>
+<script src="world-leagues.js?v=02422-wage-full-efl"></script>
+<script src="non-league-clubs.js?v=02422-wage-full-efl"></script>
+<script src="world-players.js?v=02422-wage-full-efl"></script>
+<script src="financial-profiles.js?v=02422-wage-full-efl"></script>
+<script src="academy-profiles.js?v=02422-wage-full-efl"></script>
+<script src="championship-simulation.js?v=02422-wage-full-efl"></script>
+<script src="state.js?v=02422-wage-full-efl"></script>
+<script src="ageing.js?v=02422-wage-full-efl"></script>
+<script src="finance.js?v=02422-wage-full-efl"></script>
+<script src="stadiums.js?v=02422-wage-full-efl"></script>
+<script src="stakeholders.js?v=02422-wage-full-efl"></script>
+<script src="staff.js?v=02422-wage-full-efl"></script>
+<script src="commercial.js?v=02422-wage-full-efl"></script>
+<script src="transfers.js?v=02422-wage-full-efl"></script>
+<script src="loans.js?v=02422-wage-full-efl"></script>
+<script src="player-lifecycle.js?v=02422-wage-full-efl"></script>
+<script src="simulation.js?v=02422-wage-full-efl"></script>
+<script src="ui.js?v=02422-wage-full-efl"></script>
+<script src="game.js?v=02422-wage-full-efl"></script>
 
 
 <div id="tutorialModal" class="tutorial-overlay hide">
@@ -907,7 +910,7 @@
       </div>
 
       <div class="transfer-budget-slider-wrap">
-        <input id="transferBudgetPlanInput" type="range" step="5000000">
+        <input id="transferBudgetPlanInput" type="range" step="50000">
         <div class="muted small">The manager and Director of Football will plan recruitment around this budget rather than treating it as money for a single signing.</div>
       </div>
       <div id="setupBudgetAdvice" class="notice small muted" style="margin-top:10px"></div>
@@ -946,6 +949,7 @@
       <button id="negotiateContractBtn" class="btn secondary" type="button">Negotiate new contract</button>
       <button id="transferListBtn" class="btn secondary" type="button">Add to transfer list</button>
       <button id="loanListBtn" class="btn secondary" type="button">Add to loan list</button>
+      <button id="requestDevelopmentMinutesBtn" class="btn secondary hide" type="button">Request development minutes</button>
     </div>
 
     <div id="contractNegotiation" class="contract-box hide">
@@ -989,6 +993,8 @@
         <div class="notice"><b>Development</b><br><span id="profileDevelopment"></span></div>
         <div class="notice"><b>Wage</b><br><span id="profileWage"></span></div>
         <div class="notice"><b>Manager view</b><br><span id="profileManagerRole"></span><br><span class="muted small">Internal football role — not a contractual promise.</span></div>
+        <div class="notice hide" id="profileDevelopmentRequestBox"><b>Development request</b><br><span id="profileDevelopmentRequest"></span></div>
+        <div class="notice hide" id="profileLoanPathwayBox"><b>Loan pathway</b><br><span id="profileLoanPathway"></span></div>
         <div class="notice"><b>Availability</b><br><span id="profileAvailability"></span></div>
         <div class="notice"><b>Squad status</b><br><span id="profileListStatus"></span></div>
         <div class="notice"><b>Supporter status</b><br><span id="profileSupporterStatus"></span></div>
@@ -1187,7 +1193,7 @@
 <script>
 if ("serviceWorker" in navigator) {
   window.addEventListener("load", () => {
-    navigator.serviceWorker.register("./sw.js?v=0247-youth1").catch(err => {
+    navigator.serviceWorker.register("./sw.js?v=02422-wage-full-efl").catch(err => {
       console.warn("Football CEO service worker registration failed:", err);
     });
   });

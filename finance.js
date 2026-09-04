@@ -1,10 +1,32 @@
-/* FOOTBALL CEO — CLUB FINANCE MODULE v0.23
-   Unified cash, revenue, transfer-payment and infrastructure finance model.
-   state.budget remains the CEO-set football/transfer allocation for compatibility. */
+/* FOOTBALL CEO — CLUB FINANCE MODULE v0.24.18
+   Division-aware club cash + CEO allocation architecture.
+   state.budget / state.wageBudget remain compatibility mirrors for recruitment code.
+   EFL central distributions use the 2024/25 pooled-payment benchmark; EFL merit-by-place is zero.
+   Club-specific profiles are supplied by financial-profiles.js. Parachute payments remain a later roadmap job. */
 (function(){
   const ROUND=250000;
   const round250=n=>Math.round((Number(n)||0)/ROUND)*ROUND;
   const clampF=(v,a,b)=>Math.max(a,Math.min(b,v));
+
+  const LEAGUE_FINANCE_ARCHITECTURE={
+    'premier-league':{name:'Premier League',clubs:20,homeGames:19,budgetStep:5_000_000,cashSeedRate:.12,liquidityReserveRate:.06,operatingCostMultiplier:1.00,equalCentral:88_000_000,baseFacility:12_000_000,meritPerPlace:3_000_000,facilityPerPlace:550_000,provisional:false},
+    'championship':{name:'Championship',clubs:24,homeGames:23,budgetStep:500_000,cashSeedRate:.05,liquidityReserveRate:.045,operatingCostMultiplier:.22,equalCentral:10_750_000,baseFacility:0,meritPerPlace:0,facilityPerPlace:0,provisional:false},
+    'league-one':{name:'League One',clubs:24,homeGames:23,budgetStep:100_000,cashSeedRate:.04,liquidityReserveRate:.04,operatingCostMultiplier:.07,equalCentral:2_000_000,baseFacility:0,meritPerPlace:0,facilityPerPlace:0,provisional:false},
+    'league-two':{name:'League Two',clubs:24,homeGames:23,budgetStep:50_000,cashSeedRate:.035,liquidityReserveRate:.035,operatingCostMultiplier:.045,equalCentral:1_500_000,baseFacility:0,meritPerPlace:0,facilityPerPlace:0,provisional:false}
+  };
+  function clubLeagueId(){
+    if(state?.leagueId)return state.leagueId;
+    try{const l=typeof leagueForClub==='function'?leagueForClub(state?.club):null;if(l?.id)return l.id;}catch(e){}
+    try{const c=typeof byClub==='function'&&state?.club?byClub(state.club):null;if(c?.leagueId)return c.leagueId;}catch(e){}
+    return 'premier-league';
+  }
+  function leagueFinanceArchitecture(id=clubLeagueId()){return LEAGUE_FINANCE_ARCHITECTURE[id]||LEAGUE_FINANCE_ARCHITECTURE['premier-league'];}
+  function leagueRound(n,id=clubLeagueId()){const step=id==='premier-league'?250_000:id==='championship'?50_000:25_000;return Math.round((Number(n)||0)/step)*step;}
+  window.currentUserLeagueId=clubLeagueId;
+  window.leagueFinanceArchitecture=leagueFinanceArchitecture;
+  window.playingBudgetAllocationStep=function(){return leagueFinanceArchitecture().budgetStep;};
+  window.leagueOperatingCostMultiplier=function(){return leagueFinanceArchitecture().operatingCostMultiplier;};
+  window.leagueHomeMatchCount=function(){return leagueFinanceArchitecture().homeGames;};
 
   function profile(){
     if(typeof financialProfileForClub==='function' && state?.club) return financialProfileForClub(state.club);
@@ -12,30 +34,40 @@
     return {revenue:Math.round((150_000_000+Math.max(0,(c?.reputation||70)-70)*8_000_000)/1_000_000)*1_000_000,sponsorBaseline:14_000_000,startingRatio:.65};
   }
   function expectedLeagueFinish(){
-    if(typeof DB==='undefined'||!Array.isArray(DB.clubs)||!state?.club) return 10;
-    const ordered=[...DB.clubs].sort((a,b)=>(b.reputation||70)-(a.reputation||70));
-    const idx=ordered.findIndex(c=>c.name===state.club); return idx>=0?idx+1:10;
+    if(!state?.club)return 10;
+    const leagueId=clubLeagueId();
+    let clubs=[];try{clubs=typeof clubsInLeague==='function'?clubsInLeague(leagueId):[];}catch(e){}
+    if(!clubs.length&&typeof DB!=='undefined')clubs=DB.clubs||[];
+    const ordered=[...clubs].sort((a,b)=>(b.reputation||70)-(a.reputation||70)),idx=ordered.findIndex(c=>c.name===state.club);return idx>=0?idx+1:Math.ceil((leagueFinanceArchitecture().clubs||20)/2);
   }
   function seasonKey(){ return state?.season?.label||null; }
   function today(){ return typeof currentGameDateISO==='function'?currentGameDateISO():(state?.calendar?.date||'2025-08-01'); }
   function addYears(dateISO,years){ const d=new Date(`${dateISO}T12:00:00Z`);d.setUTCFullYear(d.getUTCFullYear()+years);return d.toISOString().slice(0,10); }
   function seedCash(){
-    const c=typeof byClub==='function'&&state?.club?byClub(state.club):null;
-    const transfer=Number(state?.budget??c?.transferBudget??40_000_000),p=profile();
-    return round250(Math.max(25_000_000,transfer*1.30,p.revenue*.16));
+    const c=typeof byClub==='function'&&state?.club?byClub(state.club):null,p=profile(),arch=leagueFinanceArchitecture();
+    if(Number.isFinite(Number(p?.startingCash)))return Math.round(Number(p.startingCash));
+    const transfer=Number(state?.budget??c?.transferBudget??0),revenueSeed=Math.max(0,Number(p?.revenue)||0)*arch.cashSeedRate;
+    const transferSeed=clubLeagueId()==='premier-league'?transfer*.80:0;
+    return Math.max(0,leagueRound(Math.max(revenueSeed,transferSeed)));
   }
 
   window.ensureClubFinanceState=function(){
     if(!state) return null;
     if(!state.clubFinances){
       const cash=seedCash();
-      state.clubFinances={version:2,cash,openingCash:cash,debts:[],ledger:[],transferPayables:[],transferReceivables:[],capitalSpentThisSeason:0,debtInterestThisSeason:0,debtPrincipalPaidThisSeason:0,seasonTicketCashThisSeason:0,ownerFundingThisSeason:0,ownerFootballFundingThisSeason:0,emergencyOwnerFundingThisSeason:0,acquisitionFeesThisSeason:0,workingCapitalDrawnThisSeason:0,lastDebtPaymentMonth:null,lastLiquidityWarningSeason:null,revenueModel:null,premierLeague:{},seasonRevenue:{},seasonCosts:{}};
+      state.clubFinances={version:3,cash,openingCash:cash,debts:[],ledger:[],transferPayables:[],transferReceivables:[],capitalSpentThisSeason:0,debtInterestThisSeason:0,debtPrincipalPaidThisSeason:0,seasonTicketCashThisSeason:0,ownerFundingThisSeason:0,ownerFootballFundingThisSeason:0,emergencyOwnerFundingThisSeason:0,acquisitionFeesThisSeason:0,workingCapitalDrawnThisSeason:0,lastDebtPaymentMonth:null,lastLiquidityWarningSeason:null,lastLiquidityWarningMonth:null,revenueModel:null,premierLeague:{},leagueDistributions:{},allocations:null,allocationHistory:[],seasonRevenue:{},seasonCosts:{}};
     }
-    const f=state.clubFinances; f.version=2;
+    const f=state.clubFinances; f.version=3;
     if(!Array.isArray(f.debts))f.debts=[];if(!Array.isArray(f.ledger))f.ledger=[];if(!Array.isArray(f.transferPayables))f.transferPayables=[];if(!Array.isArray(f.transferReceivables))f.transferReceivables=[];
-    if(!f.premierLeague)f.premierLeague={};if(!f.seasonRevenue)f.seasonRevenue={};if(!f.seasonCosts)f.seasonCosts={};
+    if(!f.premierLeague)f.premierLeague={};if(!f.leagueDistributions)f.leagueDistributions={};if(!Array.isArray(f.allocationHistory))f.allocationHistory=[];if(!f.seasonRevenue)f.seasonRevenue={};if(!f.seasonCosts)f.seasonCosts={};
     ['capitalSpentThisSeason','debtInterestThisSeason','debtPrincipalPaidThisSeason','seasonTicketCashThisSeason','ownerFundingThisSeason','ownerFootballFundingThisSeason','emergencyOwnerFundingThisSeason','acquisitionFeesThisSeason','workingCapitalDrawnThisSeason'].forEach(k=>{if(f[k]==null)f[k]=0;});
     if(f.cash==null)f.cash=seedCash();if(f.openingCash==null)f.openingCash=f.cash;
+    if(!f.allocations)f.allocations={transferRemaining:Math.max(0,Number(state.budget)||0),wageWeekly:Math.max(0,Number(state.wageBudget)||0),infrastructure:0,lastChangedDate:today()};
+    if(f.allocations.transferRemaining==null)f.allocations.transferRemaining=Math.max(0,Number(state.budget)||0);
+    if(f.allocations.wageWeekly==null)f.allocations.wageWeekly=Math.max(0,Number(state.wageBudget)||0);
+    if(f.allocations.infrastructure==null)f.allocations.infrastructure=0;
+    f.allocations.transferRemaining=Math.max(0,Number(state.budget??f.allocations.transferRemaining)||0);
+    f.allocations.wageWeekly=Math.max(0,Number(state.wageBudget??f.allocations.wageWeekly)||0);
     if(!f.revenueModel) window.calibrateClubRevenueModel?.();
     return f;
   };
@@ -48,48 +80,69 @@
   window.canClubAfford=function(amount){return clubCash()>=Math.max(0,Number(amount)||0);};
   window.spendClubCapital=function(amount,description,meta={}){amount=Math.max(0,Math.round(Number(amount)||0));if(!canClubAfford(amount))return false;const f=ensureClubFinanceState();recordClubCash(-amount,description,'capital',meta);f.capitalSpentThisSeason+=amount;return true;};
 
+  window.clubFinanceAllocationStatus=function(){
+    const f=ensureClubFinanceState(),a=f.allocations||{},transferRemaining=Math.max(0,Number(state.budget??a.transferRemaining)||0),infrastructure=Math.max(0,Number(a.infrastructure)||0),wageWeekly=Math.max(0,Number(state.wageBudget??a.wageWeekly)||0);
+    const payroll=typeof currentClubWeeklyPlayerWages==='function'?currentClubWeeklyPlayerWages(state.club):0,committed12=typeof futureTransferCommitments==='function'?futureTransferCommitments(370):0;
+    return {cash:clubCash(),transferRemaining,wageWeekly,currentWeeklyWages:payroll,wageHeadroom:Math.max(0,wageWeekly-payroll),infrastructure,committed12,unallocatedCash:clubCash()-transferRemaining-infrastructure-committed12};
+  };
+  window.setWageBudgetAllocation=function(weekly,{source='finance',notify=false}={}){
+    const f=ensureClubFinanceState(),from=Math.max(0,Number(state.wageBudget??f.allocations.wageWeekly)||0),to=Math.max(0,Math.round(Number(weekly)||0));
+    state.wageBudget=to;f.allocations.wageWeekly=to;f.allocations.lastChangedDate=today();f.allocationHistory.unshift({date:today(),season:seasonKey(),type:'wage',from,to,delta:to-from,source});f.allocationHistory=f.allocationHistory.slice(0,120);
+    if(notify&&typeof addNews==='function')addNews(`WAGE ALLOCATION: You changed the weekly wage allocation from ${fm(from)} to ${fm(to)}.`);return clubFinanceAllocationStatus();
+  };
+  window.setInfrastructureBudgetAllocation=function(amount,{source='finance',notify=false}={}){
+    const f=ensureClubFinanceState(),from=Math.max(0,Number(f.allocations.infrastructure)||0),to=Math.max(0,Math.round(Number(amount)||0));
+    f.allocations.infrastructure=to;f.allocations.lastChangedDate=today();f.allocationHistory.unshift({date:today(),season:seasonKey(),type:'infrastructure',from,to,delta:to-from,source});f.allocationHistory=f.allocationHistory.slice(0,120);
+    if(notify&&typeof addNews==='function')addNews(`INFRASTRUCTURE ALLOCATION: You changed the infrastructure allocation from ${fm(from)} to ${fm(to)}.`);return clubFinanceAllocationStatus();
+  };
+
   /* -------------------------- Revenue model -------------------------- */
-  window.premierLeagueRevenueForFinish=function(finish=10){
-    finish=clampF(Math.round(Number(finish)||10),1,20);const placeWeight=21-finish,equalCentral=88_000_000;
-    const merit=round250(placeWeight*3_000_000),broadcastFacility=round250(12_000_000+placeWeight*550_000);
-    return {finish,equalCentral,merit,broadcastFacility,total:equalCentral+merit+broadcastFacility};
+  window.leagueRevenueForFinish=function(finish=10,leagueId=clubLeagueId()){
+    const arch=leagueFinanceArchitecture(leagueId),clubs=arch.clubs||20;finish=clampF(Math.round(Number(finish)||Math.ceil(clubs/2)),1,clubs);const placeWeight=clubs+1-finish,equalCentral=arch.equalCentral||0;
+    const merit=leagueRound(placeWeight*(arch.meritPerPlace||0),leagueId),broadcastFacility=leagueRound((arch.baseFacility||0)+placeWeight*(arch.facilityPerPlace||0),leagueId);
+    return {leagueId,leagueName:arch.name,finish,equalCentral,merit,broadcastFacility,total:equalCentral+merit+broadcastFacility,provisional:!!arch.provisional};
   };
+  window.premierLeagueRevenueForFinish=function(finish=10){return leagueRevenueForFinish(finish,'premier-league');};
   window.calibrateClubRevenueModel=function(){
-    if(!state)return null;const f=state.clubFinances||{},p=profile(),expectedFinish=expectedLeagueFinish(),pl=premierLeagueRevenueForFinish(expectedFinish);let matchday=0;
-    try{if(typeof projectedMatchday==='function')matchday=(projectedMatchday().accountingRevenue??projectedMatchday().revenue??0)*19;}catch(e){}
-    const sponsor=p.sponsorBaseline||0,commercialRetail=Math.max(10_000_000,round250(p.revenue-pl.total-sponsor-matchday));
-    f.revenueModel={calibratedSeason:seasonKey(),baseFootballRevenue:p.revenue,expectedFinish,commercialRetailAnnual:commercialRetail,baselineSponsor:sponsor,baselineMatchday:matchday,europeanCompetitionAnnual:0};state.clubFinances=f;return f.revenueModel;
+    if(!state)return null;const f=state.clubFinances||{},p=profile(),leagueId=clubLeagueId(),arch=leagueFinanceArchitecture(leagueId),expectedFinish=expectedLeagueFinish(),dist=leagueRevenueForFinish(expectedFinish,leagueId);let matchday=0;
+    try{if(typeof projectedMatchday==='function')matchday=(projectedMatchday().accountingRevenue??projectedMatchday().revenue??0)*(arch.homeGames||19);}catch(e){}
+    const sponsor=p.sponsorBaseline||0,commercialRetail=Math.max(0,leagueRound(Math.max(0,(Number(p.revenue)||0)-dist.total-sponsor-matchday)));
+    f.revenueModel={calibratedSeason:seasonKey(),leagueId,baseFootballRevenue:p.revenue,expectedFinish,commercialRetailAnnual:commercialRetail,baselineSponsor:sponsor,baselineMatchday:matchday,europeanCompetitionAnnual:0,provisionalLeagueModel:!!arch.provisional};state.clubFinances=f;return f.revenueModel;
   };
-  window.clubRevenueModel=function(){const f=ensureClubFinanceState();if(!f.revenueModel)calibrateClubRevenueModel();return f.revenueModel;};
+  window.clubRevenueModel=function(){const f=ensureClubFinanceState();if(!f.revenueModel||f.revenueModel.leagueId!==clubLeagueId())calibrateClubRevenueModel();return f.revenueModel;};
   window.annualCommercialRetailRevenue=function(){
-    const m=clubRevenueModel(),base=m?.commercialRetailAnnual||25_000_000,c=typeof byClub==='function'?byClub(state.club):null,startingRep=Number(c?.reputation||72),currentRep=typeof savedClubReputation==='function'?savedClubReputation():startingRep;
+    const m=clubRevenueModel(),base=m?.commercialRetailAnnual||0,c=typeof byClub==='function'?byClub(state.club):null,startingRep=Number(c?.reputation||72),currentRep=typeof savedClubReputation==='function'?savedClubReputation():startingRep;
     const repFactor=clampF(1+(currentRep-startingRep)*.035,.72,1.60),supporterFactor=state.supporters?.demand&&typeof currentStadiumCapacity==='function'?clampF(.92+(state.supporters.demand/Math.max(1,currentStadiumCapacity()))*.055,.90,1.18):1;
-    return round250(base*repFactor*supporterFactor);
+    return leagueRound(base*repFactor*supporterFactor);
   };
-  window.premierLeagueSeasonState=function(){const f=ensureClubFinanceState(),key=seasonKey()||'season';if(!f.premierLeague[key]){const base=premierLeagueRevenueForFinish(20);f.premierLeague[key]={season:key,centralPaid:0,baseFacilityPaid:0,settled:false,settlement:null,equalCentralTarget:base.equalCentral,baseFacilityTarget:12_000_000};}return f.premierLeague[key];};
+  window.leagueDistributionSeasonState=function(){
+    const f=ensureClubFinanceState(),key=seasonKey()||'season',leagueId=clubLeagueId(),id=`${key}:${leagueId}`,arch=leagueFinanceArchitecture(leagueId);
+    if(!f.leagueDistributions[id])f.leagueDistributions[id]={season:key,leagueId,leagueName:arch.name,centralPaid:0,baseFacilityPaid:0,settled:false,settlement:null,equalCentralTarget:arch.equalCentral||0,baseFacilityTarget:arch.baseFacility||0,provisional:!!arch.provisional};
+    return f.leagueDistributions[id];
+  };
+  window.premierLeagueSeasonState=function(){return leagueDistributionSeasonState();};
   window.processWeeklyCoreRevenue=function(){
-    const f=ensureClubFinanceState(),pl=premierLeagueSeasonState(),commercial=annualCommercialRetailRevenue()/52,sponsor=state.sponsorship?Number(state.sponsorship.annualValue||0)/52:0,centralTarget=88_000_000,facilityBase=12_000_000;
-    const central=pl.settled?0:Math.max(0,Math.min(centralTarget-pl.centralPaid,centralTarget/52));
-    const baseFacility=pl.settled?0:Math.max(0,Math.min(facilityBase-pl.baseFacilityPaid,facilityBase/52));
-    pl.centralPaid+=central;pl.baseFacilityPaid+=baseFacility;const leagueIncome=central+baseFacility;
-    f.seasonRevenue.commercialRetail=(f.seasonRevenue.commercialRetail||0)+commercial;f.seasonRevenue.sponsorship=(f.seasonRevenue.sponsorship||0)+sponsor;f.seasonRevenue.premierLeagueCentral=(f.seasonRevenue.premierLeagueCentral||0)+central;f.seasonRevenue.premierLeagueFacility=(f.seasonRevenue.premierLeagueFacility||0)+baseFacility;
-    return {commercial,sponsor,leagueIncome,central,baseFacility};
+    const f=ensureClubFinanceState(),ls=leagueDistributionSeasonState(),arch=leagueFinanceArchitecture(),commercial=annualCommercialRetailRevenue()/52,sponsor=state.sponsorship?Number(state.sponsorship.annualValue||0)/52:0,centralTarget=arch.equalCentral||0,facilityBase=arch.baseFacility||0;
+    const central=ls.settled?0:Math.max(0,Math.min(centralTarget-ls.centralPaid,centralTarget/52)),baseFacility=ls.settled?0:Math.max(0,Math.min(facilityBase-ls.baseFacilityPaid,facilityBase/52));
+    ls.centralPaid+=central;ls.baseFacilityPaid+=baseFacility;const leagueIncome=central+baseFacility,prefix=clubLeagueId();
+    f.seasonRevenue.commercialRetail=(f.seasonRevenue.commercialRetail||0)+commercial;f.seasonRevenue.sponsorship=(f.seasonRevenue.sponsorship||0)+sponsor;f.seasonRevenue[`${prefix}Central`]=(f.seasonRevenue[`${prefix}Central`]||0)+central;f.seasonRevenue[`${prefix}Facility`]=(f.seasonRevenue[`${prefix}Facility`]||0)+baseFacility;
+    return {commercial,sponsor,leagueIncome,central,baseFacility,leagueId:prefix,leagueName:arch.name,provisional:!!arch.provisional};
   };
   function ordinal(n){n=Number(n)||0;const j=n%10,k=n%100;return n+(j===1&&k!==11?'st':j===2&&k!==12?'nd':j===3&&k!==13?'rd':'th');}
   function fm(n){n=Math.abs(Number(n)||0);if(n>=1e9)return `£${(n/1e9).toFixed(2)}bn`;if(n>=1e6)return `£${(n/1e6).toFixed(n>=100e6?0:1)}m`;if(n>=1e3)return `£${Math.round(n/1e3)}k`;return `£${Math.round(n)}`;}
-  window.settlePremierLeagueRevenue=function(finish=null){
-    const f=ensureClubFinanceState(),pl=premierLeagueSeasonState();if(pl.settled)return pl.settlement;if(finish==null&&typeof seasonTableFinish==='function')finish=seasonTableFinish(state.club);const dist=premierLeagueRevenueForFinish(finish||20);
-    const centralTrueUp=Math.max(0,dist.equalCentral-(pl.centralPaid||0)),facilityTrueUp=Math.max(0,dist.broadcastFacility-(pl.baseFacilityPaid||0)),cashSettlement=round250(centralTrueUp+facilityTrueUp+dist.merit);
-    if(cashSettlement){recordClubCash(cashSettlement,'Premier League season distribution settlement','competition',{competition:'Premier League',finish:dist.finish});if(state.monthlyFinance)state.monthlyFinance.leagueIncome=(state.monthlyFinance.leagueIncome||0)+cashSettlement;state.seasonPL=(state.seasonPL||0)+cashSettlement;}
-    f.seasonRevenue.premierLeagueCentral=(f.seasonRevenue.premierLeagueCentral||0)+centralTrueUp;f.seasonRevenue.premierLeagueFacility=(f.seasonRevenue.premierLeagueFacility||0)+facilityTrueUp;f.seasonRevenue.premierLeagueMerit=(f.seasonRevenue.premierLeagueMerit||0)+dist.merit;
-    const previous=(state.careerHistory?.seasons||[]).slice().reverse().find(s=>s.premierLeagueRevenue?.merit!=null),previousMerit=previous?.premierLeagueRevenue?.merit,previousFinish=previous?.leagueFinish;
-    pl.settled=true;pl.settlement={...dist,cashSettlement,settledDate:today(),previousMerit,previousFinish};
-    if(typeof addNews==='function'){let comparison='';if(previousMerit!=null&&previousFinish!=null){const delta=dist.merit-previousMerit;comparison=delta!==0?` Finishing ${ordinal(dist.finish)} generated ${fm(Math.abs(delta))} ${delta>0?'more':'less'} in merit payments than last season's ${ordinal(previousFinish)}-place finish.`:` Merit payments were unchanged from last season's ${ordinal(previousFinish)}-place finish.`;}addNews(`PREMIER LEAGUE REVENUE — Final position: ${ordinal(dist.finish)}. Equal central distribution: ${fm(dist.equalCentral)} • Merit payment: ${fm(dist.merit)} • Broadcast/facility payments: ${fm(dist.broadcastFacility)} • Total Premier League income: ${fm(dist.total)}.${comparison}`);}
-    return pl.settlement;
+  window.settleLeagueRevenue=function(finish=null){
+    const f=ensureClubFinanceState(),ls=leagueDistributionSeasonState(),leagueId=clubLeagueId(),arch=leagueFinanceArchitecture(leagueId);if(ls.settled)return ls.settlement;if(finish==null&&typeof seasonTableFinish==='function')finish=seasonTableFinish(state.club);const dist=leagueRevenueForFinish(finish||arch.clubs,leagueId);
+    const centralTrueUp=Math.max(0,dist.equalCentral-(ls.centralPaid||0)),facilityTrueUp=Math.max(0,dist.broadcastFacility-(ls.baseFacilityPaid||0)),cashSettlement=leagueRound(centralTrueUp+facilityTrueUp+dist.merit);
+    if(cashSettlement){recordClubCash(cashSettlement,`${arch.name} season distribution settlement`,'competition',{competition:arch.name,finish:dist.finish});if(state.monthlyFinance)state.monthlyFinance.leagueIncome=(state.monthlyFinance.leagueIncome||0)+cashSettlement;state.seasonPL=(state.seasonPL||0)+cashSettlement;}
+    const prefix=leagueId;f.seasonRevenue[`${prefix}Central`]=(f.seasonRevenue[`${prefix}Central`]||0)+centralTrueUp;f.seasonRevenue[`${prefix}Facility`]=(f.seasonRevenue[`${prefix}Facility`]||0)+facilityTrueUp;f.seasonRevenue[`${prefix}Merit`]=(f.seasonRevenue[`${prefix}Merit`]||0)+dist.merit;
+    ls.settled=true;ls.settlement={...dist,cashSettlement,settledDate:today()};
+    if(typeof addNews==='function'){const meritText=dist.merit?` • Merit payment: ${fm(dist.merit)}`:'';addNews(`${arch.name.toUpperCase()} REVENUE — Final position: ${ordinal(dist.finish)}. Central distribution: ${fm(dist.equalCentral)}${meritText}${dist.broadcastFacility?` • Broadcast/facility: ${fm(dist.broadcastFacility)}`:''} • Total competition income: ${fm(dist.total)}.${arch.provisional?' (Interim model pending the club-finance audit.)':''}`);}
+    return ls.settlement;
   };
+  window.settlePremierLeagueRevenue=function(finish=null){return settleLeagueRevenue(finish);};
   window.coreFootballRevenueForSCR=function(){
-    const commercial=annualCommercialRetailRevenue(),sponsor=Number(state.sponsorship?.annualValue??clubRevenueModel()?.baselineSponsor??0);let matchday=clubRevenueModel()?.baselineMatchday||0;try{if(typeof projectedMatchday==='function')matchday=(projectedMatchday().accountingRevenue??projectedMatchday().revenue??0)*19;}catch(e){}
-    let finish=expectedLeagueFinish();try{if(typeof seasonTableFinish==='function'&&state?.week>0)finish=seasonTableFinish(state.club)||finish;}catch(e){}const settled=premierLeagueSeasonState()?.settlement,league=settled?.total||premierLeagueRevenueForFinish(finish).total,europe=0;return Math.max(20_000_000,Math.round(commercial+sponsor+matchday+league+europe));
+    const commercial=annualCommercialRetailRevenue(),sponsor=Number(state.sponsorship?.annualValue??clubRevenueModel()?.baselineSponsor??0),arch=leagueFinanceArchitecture();let matchday=clubRevenueModel()?.baselineMatchday||0;try{if(typeof projectedMatchday==='function')matchday=(projectedMatchday().accountingRevenue??projectedMatchday().revenue??0)*(arch.homeGames||19);}catch(e){}
+    let finish=expectedLeagueFinish();try{if(typeof seasonTableFinish==='function'&&state?.week>0)finish=seasonTableFinish(state.club)||finish;}catch(e){}const settled=leagueDistributionSeasonState()?.settlement,league=settled?.total||leagueRevenueForFinish(finish,clubLeagueId()).total,europe=0;return Math.max(0,Math.round(commercial+sponsor+matchday+league+europe));
   };
 
   /* ---------------------- Transfer payment terms --------------------- */
@@ -133,21 +186,16 @@
 
   /* -------------------- CEO resource / liquidity model -------------------- */
   window.clubFinancialDistressStatus=function(){
-    const f=ensureClubFinanceState(),p=profile(),cash=clubCash(),reserve=round250(Math.max(12_000_000,p.revenue*.06));
-    const liquidityDebt=(f.debts||[]).filter(d=>d.status==='active'&&(d.kind==='working_capital'||d.kind==='emergency_refinance')).reduce((sum,d)=>sum+(d.outstanding||0),0);
-    const distressed=cash<reserve*.75||liquidityDebt>p.revenue*.05;
-    const severe=cash<0||liquidityDebt>p.revenue*.18;
+    const f=ensureClubFinanceState(),p=profile(),cash=clubCash(),arch=leagueFinanceArchitecture(),reserve=leagueRound(Math.max(0,(Number(p.revenue)||0)*arch.liquidityReserveRate));
+    const liquidityDebt=(f.debts||[]).filter(d=>d.status==='active'&&(d.kind==='working_capital'||d.kind==='emergency_refinance')).reduce((sum,d)=>sum+(d.outstanding||0),0),distressed=cash<reserve*.75||liquidityDebt>(Number(p.revenue)||0)*.05,severe=cash<0||liquidityDebt>(Number(p.revenue)||0)*.18;
     return {distressed,severe,cash,reserve,liquidityDebt};
   };
   window.ceoPlayingBudgetResources=function(){
-    const f=ensureClubFinanceState(),cash=Math.max(0,clubCash()),p=profile(),reserve=round250(Math.max(12_000_000,p.revenue*.06)),payable12=futureTransferCommitments(370),receivable12=futureTransferReceivables(370),selfFunded=Math.max(0,round250(cash-reserve-payable12+receivable12*.65));
-    const distress=clubFinancialDistressStatus();
-    /* Emergency liquidity support is not a transfer kitty. Once the club is under
-       liquidity pressure, new owner football funding is suspended until cash/debt recover. */
-    const normalOwnerFunding=round250(Math.max(0,Math.min(p.revenue*.10,(state.happiness?.owners??70)>=60?p.revenue*.075:p.revenue*.035)));
-    const ownerFundingUsed=Math.max(0,Number(f.ownerFootballFundingThisSeason)||0);
-    const ownerFunding=distress.distressed?0:Math.max(0,normalOwnerFunding-ownerFundingUsed);
-    const maxAllocation=Math.max(0,round250(selfFunded+ownerFunding));
+    const f=ensureClubFinanceState(),cash=Math.max(0,clubCash()),p=profile(),arch=leagueFinanceArchitecture(),reserve=leagueRound(Math.max(0,(Number(p.revenue)||0)*arch.liquidityReserveRate)),payable12=futureTransferCommitments(370),receivable12=futureTransferReceivables(370);
+    // Reserve is now a warning benchmark, not a hard CEO spending floor. The player
+    // can allocate the club into a dangerous liquidity position if they choose.
+    const selfFunded=Math.max(0,leagueRound(cash-payable12+receivable12*.65)),distress=clubFinancialDistressStatus();
+    const normalOwnerFunding=leagueRound(Math.max(0,Math.min((Number(p.revenue)||0)*.10,(state.happiness?.owners??70)>=60?(Number(p.revenue)||0)*.075:(Number(p.revenue)||0)*.035))),ownerFundingUsed=Math.max(0,Number(f.ownerFootballFundingThisSeason)||0),ownerFunding=distress.distressed?0:Math.max(0,normalOwnerFunding-ownerFundingUsed),maxAllocation=Math.max(0,leagueRound(selfFunded+ownerFunding));
     return {cash,reserve,payable12,receivable12,selfFunded,ownerFunding,ownerFundingLimit:normalOwnerFunding,ownerFundingUsed,maxAllocation,distressed:distress.distressed,severeDistress:distress.severe,liquidityDebt:distress.liquidityDebt};
   };
   window.commitOwnerFootballFunding=function(amount){const f=ensureClubFinanceState(),r=ceoPlayingBudgetResources(),allowed=Math.max(0,Math.min(round250(amount),r.ownerFunding));if(!allowed)return 0;recordClubCash(allowed,'Owner equity injection following CEO playing-budget allocation','owner_equity');f.ownerFundingThisSeason+=allowed;f.ownerFootballFundingThisSeason=(f.ownerFootballFundingThisSeason||0)+allowed;return allowed;};
@@ -169,15 +217,15 @@
     const pb=ensurePlayingBudgetState(),spent=Math.max(0,Number(state.transferFinance?.spent)||0),remaining=Math.max(0,Number(state.budget)||0),resources=ceoPlayingBudgetResources();
     const currentTotal=Math.max(spent,round250(spent+remaining));
     if(pb&&Math.abs((pb.allocated||0)-currentTotal)>125000)pb.allocated=currentTotal;
-    const sustainableTotal=Math.max(spent,round250(spent+(resources.maxAllocation||0)));
+    const sustainableTotal=Math.max(spent,leagueRound(spent+(resources.maxAllocation||0)));
     return {season:seasonKey(),allocated:currentTotal,spent,remaining,minAllocation:spent,sustainableTotal,sliderMax:Math.max(currentTotal,sustainableTotal),resources,distressed:resources.distressed};
   };
   window.setInitialPlayingBudgetAllocation=function(amount){
-    amount=Math.max(0,round250(amount));const pb=ensurePlayingBudgetState();if(!pb)return null;pb.season=seasonKey()||pb.season;pb.allocated=amount;pb.initialAllocated=amount;pb.lastChangedDate=today();pb.changes=[];state.budget=amount;return playingBudgetStatus();
+    amount=Math.max(0,leagueRound(amount));const pb=ensurePlayingBudgetState();if(!pb)return null;pb.season=seasonKey()||pb.season;pb.allocated=amount;pb.initialAllocated=amount;pb.lastChangedDate=today();pb.changes=[];state.budget=amount;const finance=ensureClubFinanceState();finance.allocations.transferRemaining=state.budget;finance.allocations.lastChangedDate=today();return playingBudgetStatus();
   };
   window.applyPlayingBudgetAllocation=function(amount,{notify=true,source='in-season'}={}){
     let st=playingBudgetStatus();if(!st)return {ok:false,reason:'No active career'};
-    const step=5_000_000,spent=st.spent,current=st.allocated;
+    const step=playingBudgetAllocationStep(),spent=st.spent,current=st.allocated;
     let selected=Math.max(spent,spent+Math.round(((Number(amount)||spent)-spent)/step)*step);
     // If completed spend is between £5m steps, preserve it as the absolute floor.
     if(selected<spent)selected=spent;
@@ -187,13 +235,14 @@
       if(needed>0)commitOwnerFootballFunding(needed);
       resources=ceoPlayingBudgetResources();
     }
-    const liveMax=Math.max(spent,round250(spent+(resources.maxAllocation||0)));
+    const liveMax=Math.max(spent,leagueRound(spent+(resources.maxAllocation||0)));
     // A previously sanctioned allocation may sit above today's safe ceiling; it can be maintained or reduced, never increased further.
     const hardMax=Math.max(current,liveMax);
     selected=Math.min(selected,hardMax);
     if(selected>current&&selected>liveMax)selected=current;
     const delta=selected-current;
     state.budget=Math.max(0,selected-spent);
+    const finance=ensureClubFinanceState();finance.allocations.transferRemaining=state.budget;finance.allocations.lastChangedDate=today();
     const pb=ensurePlayingBudgetState();pb.allocated=selected;pb.lastChangedDate=today();pb.changes.unshift({date:today(),season:seasonKey(),from:current,to:selected,delta,source});pb.changes=pb.changes.slice(0,80);
     const material=Math.abs(delta)>=Math.max(10_000_000,current*.15);
     if(notify&&material&&typeof addNews==='function'){
@@ -210,47 +259,9 @@
     return {ok:true,from:current,to:selected,delta,...playingBudgetStatus()};
   };
   window.protectClubLiquidity=function(reason='operating requirements'){
-    const f=ensureClubFinanceState();
-    if(f.cash>=0)return {ok:true,drawn:0,ownerEquity:0,cash:f.cash};
-    const p=profile(),target=5_000_000;
-    let need=round250(Math.abs(f.cash)+target),drawn=0,ownerEquity=0;
-
-    // Tier 1: short-term working-capital facility, capped at 8% of annual revenue.
-    const wcLimit=Math.max(10_000_000,round250(p.revenue*.08));
-    const wcExisting=(f.debts||[]).filter(d=>d.status==='active'&&d.kind==='working_capital').reduce((s,d)=>s+(d.outstanding||0),0);
-    const wcDraw=Math.min(need,Math.max(0,wcLimit-wcExisting));
-    if(wcDraw>0){
-      addInfrastructureLoan({principal:wcDraw,annualRate:.085,termMonths:24,label:'Working-capital facility',projectId:null,kind:'working_capital'});
-      f.workingCapitalDrawnThisSeason+=wcDraw;drawn+=wcDraw;need=Math.max(0,round250(target-f.cash));
-      if(typeof addNews==='function')addNews(`LIQUIDITY: The club drew ${fm(wcDraw)} from a short-term working-capital facility after ${reason}.`);
-    }
-
-    // Tier 2: emergency refinancing. This is explicit debt, not hidden negative cash.
-    if(need>0){
-      const refiLimit=Math.max(15_000_000,round250(p.revenue*.22));
-      const refiExisting=(f.debts||[]).filter(d=>d.status==='active'&&d.kind==='emergency_refinance').reduce((s,d)=>s+(d.outstanding||0),0);
-      const refiDraw=Math.min(need,Math.max(0,refiLimit-refiExisting));
-      if(refiDraw>0){
-        addInfrastructureLoan({principal:refiDraw,annualRate:.105,termMonths:60,label:'Emergency refinancing facility',projectId:null,kind:'emergency_refinance'});
-        drawn+=refiDraw;need=Math.max(0,round250(target-f.cash));
-        if(typeof addNews==='function')addNews(`FINANCIAL DISTRESS: The club arranged ${fm(refiDraw)} of emergency refinancing after its working-capital headroom was exhausted.`);
-        if(typeof stakeholderDecision==='function')stakeholderDecision({owners:-3},'Emergency refinancing required',{notify:false});
-      }
-    }
-
-    // Tier 3: owner rescue equity. The club cannot continue with impossible negative cash.
-    // This is deliberately separate from owner football investment and hurts owner confidence.
-    if(need>0){
-      ownerEquity=need;
-      recordClubCash(ownerEquity,'Emergency owner equity injection to restore liquidity','owner_rescue');
-      f.ownerFundingThisSeason=(f.ownerFundingThisSeason||0)+ownerEquity;
-      f.emergencyOwnerFundingThisSeason=(f.emergencyOwnerFundingThisSeason||0)+ownerEquity;
-      if(typeof addNews==='function')addNews(`OWNER RESCUE: Ownership injected ${fm(ownerEquity)} of emergency equity to keep the club solvent. Playing-budget flexibility will remain restricted until finances recover.`);
-      if(typeof stakeholderDecision==='function')stakeholderDecision({owners:-6},'Emergency owner rescue required',{notify:false});
-    }
-
-    f.lastLiquidityWarningSeason=seasonKey();
-    return {ok:f.cash>=0,drawn,ownerEquity,cash:f.cash,distress:clubFinancialDistressStatus()};
+    const f=ensureClubFinanceState();if(f.cash>=0)return {ok:true,drawn:0,ownerEquity:0,cash:f.cash,distress:clubFinancialDistressStatus()};const month=String(today()).slice(0,7);
+    if(f.lastLiquidityWarningMonth!==month){f.lastLiquidityWarningMonth=month;f.lastLiquidityWarningSeason=seasonKey();if(typeof addNews==='function')addNews(`FINANCIAL DISTRESS: Club cash has fallen below £0 after ${reason}. Payments and investment options may now be blocked. No automatic owner rescue has been applied.`);if(typeof stakeholderDecision==='function')stakeholderDecision({owners:-3},'Club cash fell below zero',{notify:false});}
+    return {ok:false,drawn:0,ownerEquity:0,cash:f.cash,distress:clubFinancialDistressStatus()};
   };
 
   /* ---------------------------- Debt ---------------------------- */
@@ -258,6 +269,6 @@
   window.addInfrastructureLoan=function({principal,annualRate,termMonths,label='Infrastructure loan',projectId=null,kind='infrastructure'}){const f=ensureClubFinanceState();principal=Math.max(0,Math.round(Number(principal)||0));if(!principal)return null;const debt={id:`debt-${Date.now()}-${Math.floor(Math.random()*10000)}`,label,projectId,kind,originalPrincipal:principal,outstanding:principal,annualRate:Number(annualRate)||0,termMonths:Math.max(1,Math.round(termMonths||120)),monthsPaid:0,monthlyPayment:Math.round(amortisingMonthlyPayment(principal,annualRate,termMonths)),started:today(),status:'active'};f.debts.push(debt);recordClubCash(principal,`${label} proceeds received`,'financing',{debtId:debt.id,projectId});return debt;};
   window.processMonthlyDebtPayments=function(dateISO){const f=ensureClubFinanceState();if(!f||!dateISO)return[];const monthKey=String(dateISO).slice(0,7);if(f.lastDebtPaymentMonth===monthKey)return[];f.lastDebtPaymentMonth=monthKey;const paid=[];(f.debts||[]).filter(d=>d.status==='active'&&d.outstanding>0).forEach(d=>{const monthlyRate=(Number(d.annualRate)||0)/12,interest=Math.round(d.outstanding*monthlyRate),scheduled=Math.min(Math.round(d.monthlyPayment||0),Math.round(d.outstanding+interest)),principal=Math.max(0,Math.min(d.outstanding,scheduled-interest)),total=Math.max(0,interest+principal);if(total<=0)return;recordClubCash(-total,`${d.label} monthly repayment`,'debt_service',{debtId:d.id,interest,principal});d.outstanding=Math.max(0,d.outstanding-principal);d.monthsPaid=(d.monthsPaid||0)+1;f.debtInterestThisSeason+=interest;f.debtPrincipalPaidThisSeason+=principal;f.seasonCosts.financeInterest=(f.seasonCosts.financeInterest||0)+interest;if(typeof state.seasonPL==='number')state.seasonPL-=interest;if(state.monthlyFinance){state.monthlyFinance.debtInterest=(state.monthlyFinance.debtInterest||0)+interest;state.monthlyFinance.debtPrincipal=(state.monthlyFinance.debtPrincipal||0)+principal;}if(d.outstanding<=1||d.monthsPaid>=d.termMonths){d.outstanding=0;d.status='paid';}paid.push({debt:d,total,interest,principal});});return paid;};
 
-  window.clubFinanceSeasonSnapshot=function(){const f=ensureClubFinanceState();return {openingCash:f.openingCash,closingCash:f.cash,revenue:{...f.seasonRevenue},costs:{...f.seasonCosts},ownerFunding:f.ownerFundingThisSeason||0,emergencyOwnerFunding:f.emergencyOwnerFundingThisSeason||0,workingCapitalDrawn:f.workingCapitalDrawnThisSeason||0,futureTransferCommitments:futureTransferCommitments(),futureTransferReceivables:futureTransferReceivables(),outstandingDebt:totalClubDebt()};};
+  window.clubFinanceSeasonSnapshot=function(){const f=ensureClubFinanceState();return {openingCash:f.openingCash,closingCash:f.cash,leagueId:clubLeagueId(),allocations:{...(f.allocations||{})},revenue:{...f.seasonRevenue},costs:{...f.seasonCosts},ownerFunding:f.ownerFundingThisSeason||0,emergencyOwnerFunding:f.emergencyOwnerFundingThisSeason||0,workingCapitalDrawn:f.workingCapitalDrawnThisSeason||0,futureTransferCommitments:futureTransferCommitments(),futureTransferReceivables:futureTransferReceivables(),outstandingDebt:totalClubDebt()};};
   window.resetClubFinanceForNewSeason=function(){const f=ensureClubFinanceState();if(!f)return;f.openingCash=f.cash;f.capitalSpentThisSeason=0;f.debtInterestThisSeason=0;f.debtPrincipalPaidThisSeason=0;f.seasonTicketCashThisSeason=0;f.ownerFundingThisSeason=0;f.ownerFootballFundingThisSeason=0;f.emergencyOwnerFundingThisSeason=0;f.acquisitionFeesThisSeason=0;f.workingCapitalDrawnThisSeason=0;f.seasonRevenue={};f.seasonCosts={};calibrateClubRevenueModel();};
 })();

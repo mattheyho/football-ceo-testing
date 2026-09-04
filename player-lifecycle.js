@@ -1,4 +1,4 @@
-/* Football CEO v0.24.7 — Long-term player lifecycle + league-linked youth ecosystem
+/* Football CEO v0.24.11 — Long-term player lifecycle + rebalanced youth ecosystem
    - Persistent generated-player intake
    - Retirement planning and retirement processing
    - Save rehydration for generated/retired players
@@ -202,7 +202,7 @@
   }
   function activeGenerationClubs(){
     return (typeof allWorldClubs==="function"?allWorldClubs():[...(DB.clubs||[]),...(DB.worldClubs||[])])
-      .filter(c=>c&&c.name&&c.name!==state.club&&c.leagueId!=="saudi-pro-league"&&c.simulationLevel!=="market-feature");
+      .filter(c=>c&&c.name&&c.name!==state.club&&c.leagueId!=="saudi-pro-league"&&c.simulationLevel!=="market-feature"&&c.generatesYouth!==false);
   }
   function clubSquadQualityForYouth(club){
     const c=worldClubObject(club);if(!c)return 68;
@@ -234,53 +234,92 @@
     const out={};ids.forEach(id=>{out[id]=leagueYouthQuality(id,{update:true});});return out;
   }
   function academyQualityForClub(club){
-    if(club===state.club&&typeof facilityRating==="function")return clampLocal(Number(facilityRating("academy")||70),40,95);
+    if(club===state.club&&typeof facilityRating==="function")return clampLocal(Number(facilityRating("academy")||70),40,100);
     const c=worldClubObject(club);if(!c)return 65;
-    if(Number.isFinite(Number(c.academyRating)))return clampLocal(Number(c.academyRating),40,95);
+    if(Number.isFinite(Number(c.academyRating)))return clampLocal(Number(c.academyRating),40,100);
     const rep=Number(c.reputation||c.standard||70);
     const variance=(stableUnit(`academy|${c.id||c.name}`)-.5)*6;
     return clampLocal(52+(rep-60)*1.05+variance,42,94);
   }
   function nationalityTalentScore(nationality){return Number(NATIONAL_TALENT[nationality]||75);}
-  function basePotentialRoll(rng){
-    const r=rng();
-    if(r<.008)return 93+Math.floor(rng()*3);
-    if(r<.050)return 88+Math.floor(rng()*5);
-    if(r<.190)return 83+Math.floor(rng()*5);
-    if(r<.470)return 78+Math.floor(rng()*5);
-    if(r<.750)return 72+Math.floor(rng()*6);
-    return 64+Math.floor(rng()*8);
+  // v0.24.10: academy quality changes the odds of better prospect types rather
+  // than simply adding points to every generated player's POT/OVR. Strong
+  // academies can still have poor intakes and limited-ceiling graduates.
+  function prospectPotentialProfile(rng,{academyRating=70,leagueQuality=70,nationality="England"}={}){
+    const academy=clampLocal((Number(academyRating)-50)/45,0,1);
+    const bands=[
+      {key:"limited",min:56,max:67,weight:.36-.18*academy},
+      {key:"steady",min:63,max:73,weight:.34-.08*academy},
+      {key:"development",min:70,max:81,weight:.22+.08*academy},
+      {key:"high-upside",min:80,max:88,weight:.06+.12*academy},
+      {key:"elite",min:89,max:95,weight:.02+.06*academy}
+    ];
+    const total=bands.reduce((sum,b)=>sum+b.weight,0);
+    let roll=rng()*total,selected=bands[bands.length-1];
+    for(const band of bands){roll-=band.weight;if(roll<=0){selected=band;break;}}
+    let potential=selected.min+Math.floor(rng()*(selected.max-selected.min+1));
+    // National/league context is only a light nudge. Academy quality has already
+    // acted through the probability bands above, so it does not raise the floor.
+    const nation=(nationalityTalentScore(nationality)-75)/18;
+    const league=(Number(leagueQuality)-70)/24;
+    const modifier=clampLocal(Math.round(nation+league+(rng()-.5)*1.2),-2,2);
+    potential=clampLocal(potential+modifier,55,95);
+    return {potential,band:selected.key};
   }
-  function playerPotentialForEnvironment(rng,{academyRating=70,leagueQuality=70,nationality="England"}={}){
-    const base=basePotentialRoll(rng);
-    const academy=(Number(academyRating)-70)/20;
-    const nation=(nationalityTalentScore(nationality)-75)/15;
-    const league=(Number(leagueQuality)-72)/18;
-    const noise=(rng()-.5)*1.8;
-    const modifier=clampLocal(Math.round(academy*2.4+nation*1.4+league*.7+noise),-5,5);
-    return clampLocal(base+modifier,62,95);
+  function playerPotentialForEnvironment(rng,context={}){
+    return prospectPotentialProfile(rng,context).potential;
+  }
+  function prospectAgeRoll(rng){
+    const r=rng();
+    if(r<.45)return 16;
+    if(r<.80)return 17;
+    if(r<.96)return 18;
+    return 19;
   }
   function initialOverallForProspect(age,potential,rng,context={}){
     const academy=Number(context.academyRating??70),leagueQ=Number(context.leagueQuality??70);
-    const ageBonus=Math.max(0,Number(age||16)-16)*2;
-    const noise=(rng()-.5)*6;
-    let ovr=52+(leagueQ-60)*.32+(academy-55)*.22+ageBonus+(Number(potential)-72)*.25+noise;
-    if(potential>=93)ovr+=12;
-    else if(potential>=90)ovr+=8;
-    else if(potential>=88)ovr+=6;
-    else if(potential>=85)ovr+=3;
-    const ceiling=potential>=93?82:potential>=90?80:78;
-    return clampLocal(Math.round(ovr),48,ceiling);
+    // Readiness is deliberately generated largely independently from potential.
+    // A player can therefore be 58/65 (already decent, limited growth) or 52/76
+    // (rawer, higher upside) without every high-POT player arriving first-team ready.
+    const r=rng();
+    let readiness,readinessBonus;
+    // The annual intake represents the small group promoted into the senior-game
+    // database, not every scholar in the academy. Very low current ability can
+    // still occur, but most selected graduates should already be credible
+    // development players for their club level.
+    if(r<.08){readiness="near-ready";readinessBonus=7+Math.floor(rng()*5);}
+    else if(r<.40){readiness="balanced";readinessBonus=3+Math.floor(rng()*5);}
+    else if(r<.93){readiness="raw";readinessBonus=-1+Math.floor(rng()*5);}
+    else{readiness="very-raw";readinessBonus=-4+Math.floor(rng()*4);}
+    const ageN=Math.max(0,Number(age||16)-16);
+    const leagueBase=50.5+(leagueQ-60)*.18;
+    const academyNudge=clampLocal((academy-70)*.03,-.6,.9);
+    let ovr=leagueBase+ageN*2+academyNudge+readinessBonus+(rng()-.5)*2;
+    // A genuinely exceptional elite-academy prospect can be unusually advanced,
+    // but this combination is rare because both elite POT and near-ready profile
+    // must already have been rolled.
+    if(Number(potential)>=92&&academy>=90&&readiness==="near-ready")ovr+=2;
+    const ageFloor=48+ageN*2;
+    let ageCap=Number(age||16)<=16?65:Number(age||16)===17?68:Number(age||16)===18?71:74;
+    if(leagueQ>=75)ageCap+=2;else if(leagueQ>=70)ageCap+=1;else if(leagueQ<60)ageCap-=1;
+    ovr=clampLocal(Math.round(ovr),ageFloor,Math.min(Number(potential),ageCap));
+    return ovr;
   }
   function generatedWage(overall,clubStandard){
     const base=Math.max(1200,Math.pow(Math.max(1,overall-48),1.72)*145);
     return Math.round((base*(.75+Math.max(55,clubStandard||70)/180))/500)*500;
   }
-  function basicGeneratedValue(overall,potential,age){
-    const base=Math.max(250000,Math.pow(Math.max(1,overall-48),2.45)*6500);
-    const potPremium=1+Math.max(0,potential-overall)*.07;
-    const youth=age<=17?1.18:age===18?1.10:1;
-    return Math.max(250000,Math.round(base*potPremium*youth/250000)*250000);
+  function basicGeneratedValue(overall,potential,age,context={}){
+    // Initial youth valuations are deliberately conservative, especially below
+    // the Championship. The previous curve could value a League One academy
+    // graduate at £50m+ before he had played a senior match.
+    const leagueQ=Number(context.leagueQuality??70);
+    const base=Math.max(40000,40000*Math.pow(1.32,Math.max(0,Number(overall)-50)));
+    const potPremium=1+Math.max(0,Number(potential)-Number(overall))*.045;
+    const youth=age<=17?1.10:age===18?1.05:1;
+    const marketScale=clampLocal(.38+(leagueQ-60)*.031,.38,1);
+    const value=base*potPremium*youth*marketScale;
+    return Math.max(50000,Math.round(value/50000)*50000);
   }
   function generatedHeight(positions,rng){
     if(positions.includes("GK"))return 185+Math.floor(rng()*16);
@@ -324,10 +363,11 @@
     const firstPool=FIRST_NAMES[nationality]||FIRST_NAMES.England,lastPool=LAST_NAMES[nationality]||LAST_NAMES.England;
     const first=firstPool[Math.floor(rng()*firstPool.length)],last=lastPool[Math.floor(rng()*lastPool.length)];
     const fullName=`${first} ${last}`;
-    const age=16+Math.floor(rng()*4);
+    const age=prospectAgeRoll(rng);
     const academyRating=club==="Free Agent"?65:academyQualityForClub(club);
     const leagueQuality=leagueId?leagueYouthQuality(leagueId):68;
-    const potential=playerPotentialForEnvironment(rng,{academyRating,leagueQuality,nationality});
+    const talent=prospectPotentialProfile(rng,{academyRating,leagueQuality,nationality});
+    const potential=talent.potential;
     const overall=initialOverallForProspect(age,potential,rng,{academyRating,leagueQuality});
     const positions=weightedChoice(POSITION_PROFILES,rng);
     const standard=clubStandardForName(club);
@@ -335,10 +375,10 @@
     const id=nextGeneratedId(year,index);
     return {
       id,name:fullName,fullName,club,leagueId,positions,overall,potential,age,nationality,
-      value:basicGeneratedValue(overall,potential,age),wage:generatedWage(overall,standard),contract:year+3+Math.floor(rng()*3),
+      value:basicGeneratedValue(overall,potential,age,{leagueQuality}),wage:generatedWage(overall,standard),contract:year+3+Math.floor(rng()*3),
       number:null,foot,preferredFoot:foot,weakFoot:2+Math.floor(rng()*3),skills:positions.includes("GK")?1:2+Math.floor(rng()*3),height:generatedHeight(positions,rng),
       joined:`Jul ${year}`,joinedSource:"club youth intake",generatedPlayer:true,dataSource:GENERATED_MARKER,potentialSource:"Football CEO club/league-linked career potential",
-      youthOriginClub:club,youthLeagueQuality:Math.round(leagueQuality*10)/10,youthAcademyQuality:Math.round(academyRating),
+      youthOriginClub:club,youthLeagueQuality:Math.round(leagueQuality*10)/10,youthAcademyQuality:Math.round(academyRating),youthPotentialBand:talent.band,
       birthdate:`${year-age}-${String(1+Math.floor(rng()*12)).padStart(2,"0")}-${String(1+Math.floor(rng()*27)).padStart(2,"0")}`
     };
   }
@@ -394,11 +434,11 @@
     const nationality=userAcademyNationality(rng);
     const fullName=uniqueAcademyName(nationality,rng,usedNames);
     usedNames.add(fullName.toLowerCase());
-    const age=16+Math.floor(rng()*4);
+    const age=prospectAgeRoll(rng);
     const leagueQuality=leagueYouthQuality(leagueIdForClubName(state.club));
-    const potential=userAcademyPotential(rng,academyRating,nationality);
-    let overall=initialOverallForProspect(age,potential,rng,{academyRating,leagueQuality});
-    overall=clampLocal(overall,48,potential>=93?82:potential>=90?80:78);
+    const talent=prospectPotentialProfile(rng,{academyRating,leagueQuality,nationality});
+    const potential=talent.potential;
+    const overall=initialOverallForProspect(age,potential,rng,{academyRating,leagueQuality});
     const positions=weightedChoice(POSITION_PROFILES,rng);
     const club=state.club;
     const leagueId=leagueIdForClubName(club);
@@ -407,11 +447,11 @@
     const youthWage=Math.max(500,Math.round((650+Math.max(0,overall-50)*145)/250)*250);
     return {
       id,name:fullName,fullName,club,leagueId,positions,overall,potential,age,nationality,
-      value:basicGeneratedValue(overall,potential,age),wage:youthWage,contract:year+3+Math.floor(rng()*2),
+      value:basicGeneratedValue(overall,potential,age,{leagueQuality}),wage:youthWage,contract:year+3+Math.floor(rng()*2),
       number:null,foot,preferredFoot:foot,weakFoot:2+Math.floor(rng()*3),skills:positions.includes("GK")?1:2+Math.floor(rng()*3),height:generatedHeight(positions,rng),
       joined:`Jul ${year}`,joinedSource:"academy intake",generatedPlayer:true,userAcademyGraduate:true,dataSource:GENERATED_MARKER,
       potentialSource:"Football CEO club/league-linked academy potential",
-      youthOriginClub:club,youthLeagueQuality:Math.round(leagueQuality*10)/10,youthAcademyQuality:Math.round(Number(academyRating||70)),
+      youthOriginClub:club,youthLeagueQuality:Math.round(leagueQuality*10)/10,youthAcademyQuality:Math.round(Number(academyRating||70)),youthPotentialBand:talent.band,
       birthdate:`${year-age}-${String(1+Math.floor(rng()*12)).padStart(2,"0")}-${String(1+Math.floor(rng()*27)).padStart(2,"0")}`
     };
   }

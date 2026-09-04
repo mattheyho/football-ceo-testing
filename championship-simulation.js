@@ -1,9 +1,11 @@
-/* Football CEO v0.19.1 — lightweight background league simulation.
-   Championship, La Liga, Bundesliga, Serie A and Ligue 1 are simulated.
+/* Football CEO v0.24.8 — lightweight background league simulation.
+   Championship, League One, League Two, La Liga, Bundesliga, Serie A and Ligue 1 are simulated.
    Saudi Pro League is deliberately transfer-market only. */
 
 const BACKGROUND_LEAGUE_CONFIG={
   'championship':{start:'08-09',end:'05-02'},
+  'league-one':{start:'08-02',end:'05-02'},
+  'league-two':{start:'08-02',end:'05-02'},
   'la-liga':{start:'08-16',end:'05-24'},
   'bundesliga':{start:'08-22',end:'05-16'},
   'serie-a':{start:'08-23',end:'05-24'},
@@ -73,7 +75,16 @@ function processBackgroundLeaguesDay(dateISO){
 }
 function processChampionshipDay(dateISO){return processBackgroundLeaguesDay(dateISO);}
 function championshipStandings(){return worldLeagueStandings('championship');}
-function championshipPromotionPlaces(){const s=championshipStandings();return{automatic:s.slice(0,2),playoffs:s.slice(2,6)};}
+function leagueOneStandings(){return worldLeagueStandings('league-one');}
+function leagueTwoStandings(){return worldLeagueStandings('league-two');}
+function worldPromotionPlaces(id){
+  const s=worldLeagueStandings(id),rules=leagueById(id)?.promotionRules;
+  if(!rules)return{automatic:[],playoffs:[]};
+  return{automatic:s.slice(0,rules.automatic||0),playoffs:s.slice(Math.max(0,(rules.playoffFrom||1)-1),rules.playoffTo||0)};
+}
+function championshipPromotionPlaces(){return worldPromotionPlaces('championship');}
+function leagueOnePromotionPlaces(){return worldPromotionPlaces('league-one');}
+function leagueTwoPromotionPlaces(){return worldPromotionPlaces('league-two');}
 function resetChampionshipCompetitionForSeason(){
   state.worldCompetitions={};Object.keys(BACKGROUND_LEAGUE_CONFIG).forEach(id=>ensureWorldCompetitionState(id));invalidateWorldStrengthCache();
 }
