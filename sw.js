@@ -1,4 +1,4 @@
-const CACHE_NAME = "football-ceo-v0.24.23-regression-fixes";
+const CACHE_NAME = "football-ceo-v0.24.25-english-pyramid";
 
 // Everything required to boot the current Football CEO build offline.
 // These paths are relative so they work correctly from the GitHub Pages
@@ -12,10 +12,13 @@ const APP_SHELL = [
   // Core game runtime
   "./database.js",
   "./world-leagues.js",
+  "./english-pyramid.js",
   "./non-league-clubs.js",
   "./world-players.js",
   "./financial-profiles.js",
   "./academy-profiles.js",
+  "./ownership-profiles.js",
+  "./sporting-expectations.js",
   "./championship-simulation.js",
   "./state.js",
   "./ageing.js",

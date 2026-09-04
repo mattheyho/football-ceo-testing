@@ -1,0 +1,54 @@
+Football CEO v0.24.25 — Piece 9A: English Pyramid Framework
+=============================================================
+
+BASE / MERGE
+------------
+Built from the user's v0.24.23-regression-fixes source-of-truth build, with the already-agreed Piece 8A Ownership Profiles and Piece 8B Dynamic Expectations / Club Profile work merged forward so those features are not lost.
+
+IMPLEMENTED
+-----------
+- Canonical English league-system definition covering all 92 PL/EFL clubs.
+- Premier League: 20 clubs, 38 matches per club, 19 home matches.
+- Championship: 24 clubs, 46 matches per club, 23 home matches.
+- League One: 24 clubs, 46 matches per club, 23 home matches.
+- League Two: 24 clubs, 46 matches per club, 23 home matches.
+- Club metadata now carries a synchronized divisionId alongside the existing leagueId compatibility field.
+- Promotion/relegation/play-off blueprints are defined centrally for later pieces.
+- League Two is explicitly the static bottom playable division: four promotion places upward, zero relegation places, no National League link.
+- Finance home-match / club-count architecture reads the shared competition definition where available.
+- Dynamic sporting expectations read the shared English division rules, including the League Two static-floor rule.
+- Existing saves gain leagueId / competition-system metadata through the state migration hook.
+- PWA app shell/cache updated for the new framework module.
+
+RULE BLUEPRINT
+--------------
+Premier League:
+- Bottom 3 -> Championship (future movement piece; NOT active yet)
+
+Championship:
+- Top 2 automatic promotion
+- 3rd-6th play-offs for 1 further promotion place
+- Bottom 3 -> League One (future movement piece; NOT active yet)
+
+League One:
+- Top 2 automatic promotion
+- 3rd-6th play-offs for 1 further promotion place
+- Bottom 4 -> League Two (future movement piece; NOT active yet)
+
+League Two:
+- Top 3 automatic promotion
+- 4th-7th play-offs for 1 further promotion place
+- NO relegation below League Two
+
+INTENTIONALLY NOT IMPLEMENTED
+-----------------------------
+- No actual club movement between divisions yet.
+- No playable Championship / League One / League Two yet.
+- No EFL play-off match execution yet.
+- No National League relegation.
+- No annual Club Vision UI.
+- No sell-on clauses / future-buy clauses.
+
+NEXT PIECE
+----------
+Piece 9B can make the Championship fully playable using this competition framework, while keeping promotion/relegation execution for the following contained piece.

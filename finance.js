@@ -1,4 +1,4 @@
-/* FOOTBALL CEO — CLUB FINANCE MODULE v0.24.18
+/* FOOTBALL CEO — CLUB FINANCE MODULE v0.24.24
    Division-aware club cash + CEO allocation architecture.
    state.budget / state.wageBudget remain compatibility mirrors for recruitment code.
    EFL central distributions use the 2024/25 pooled-payment benchmark; EFL merit-by-place is zero.
@@ -20,7 +20,13 @@
     try{const c=typeof byClub==='function'&&state?.club?byClub(state.club):null;if(c?.leagueId)return c.leagueId;}catch(e){}
     return 'premier-league';
   }
-  function leagueFinanceArchitecture(id=clubLeagueId()){return LEAGUE_FINANCE_ARCHITECTURE[id]||LEAGUE_FINANCE_ARCHITECTURE['premier-league'];}
+  function leagueFinanceArchitecture(id=clubLeagueId()){
+    const base=LEAGUE_FINANCE_ARCHITECTURE[id]||LEAGUE_FINANCE_ARCHITECTURE['premier-league'];
+    // Piece 9A owns competition shape; finance owns only monetary calibration.
+    // Pull club/home-game counts from the shared division framework when present.
+    const d=typeof englishCompetitionDefinition==='function'?englishCompetitionDefinition(id):null;
+    return d?{...base,clubs:d.clubCount,homeGames:d.homeMatchesPerClub}:base;
+  }
   function leagueRound(n,id=clubLeagueId()){const step=id==='premier-league'?250_000:id==='championship'?50_000:25_000;return Math.round((Number(n)||0)/step)*step;}
   window.currentUserLeagueId=clubLeagueId;
   window.leagueFinanceArchitecture=leagueFinanceArchitecture;
@@ -202,8 +208,11 @@
     // Reserve is now a warning benchmark, not a hard CEO spending floor. The player
     // can allocate the club into a dangerous liquidity position if they choose.
     const selfFunded=Math.max(0,leagueRound(cash-payable12+receivable12*.65)),distress=clubFinancialDistressStatus();
-    const normalOwnerFunding=leagueRound(Math.max(0,Math.min((Number(p.revenue)||0)*.10,(state.happiness?.owners??70)>=60?(Number(p.revenue)||0)*.075:(Number(p.revenue)||0)*.035))),ownerFundingUsed=Math.max(0,Number(f.ownerFootballFundingThisSeason)||0),ownerFunding=distress.distressed?0:Math.max(0,normalOwnerFunding-ownerFundingUsed),maxAllocation=Math.max(0,leagueRound(selfFunded+ownerFunding));
-    return {cash,reserve,payable12,receivable12,selfFunded,ownerFunding,ownerFundingLimit:normalOwnerFunding,ownerFundingUsed,maxAllocation,distressed:distress.distressed,severeDistress:distress.severe,liquidityDebt:distress.liquidityDebt};
+    const revenue=Math.max(0,Number(p.revenue)||0),profileFundingRate=typeof ownerFundingRate==='function'?ownerFundingRate(state.club):.075,ownerConfidence=Number(state.happiness?.owners??70),confidenceMultiplier=ownerConfidence>=60?1:ownerConfidence>=40?.65:.35;
+    // Ownership determines willingness/capacity to add NEW equity only. It never
+    // ring-fences existing club cash or vetoes CEO spending decisions.
+    const normalOwnerFunding=leagueRound(Math.max(0,revenue*profileFundingRate*confidenceMultiplier)),ownerFundingUsed=Math.max(0,Number(f.ownerFootballFundingThisSeason)||0),ownerFunding=distress.distressed?0:Math.max(0,normalOwnerFunding-ownerFundingUsed),maxAllocation=Math.max(0,leagueRound(selfFunded+ownerFunding));
+    return {cash,reserve,payable12,receivable12,selfFunded,ownerFunding,ownerFundingLimit:normalOwnerFunding,ownerFundingUsed,ownerFundingRate:profileFundingRate,maxAllocation,distressed:distress.distressed,severeDistress:distress.severe,liquidityDebt:distress.liquidityDebt};
   };
   window.commitOwnerFootballFunding=function(amount){const f=ensureClubFinanceState(),r=ceoPlayingBudgetResources(),allowed=Math.max(0,Math.min(round250(amount),r.ownerFunding));if(!allowed)return 0;recordClubCash(allowed,'Owner equity injection following CEO playing-budget allocation','owner_equity');f.ownerFundingThisSeason+=allowed;f.ownerFootballFundingThisSeason=(f.ownerFootballFundingThisSeason||0)+allowed;return allowed;};
 

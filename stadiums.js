@@ -129,7 +129,12 @@
     const happiness=Number(state.happiness?.owners||70);
     const cash=typeof clubCash==='function'?clubCash():0;
     const debt=typeof totalClubDebt==='function'?totalClubDebt():0;
-    const ownerShare=clamp2(.12+(happiness-50)*.0025,0.08,.24);
+    const funding=(typeof ownerPriority==='function'?ownerPriority(state.club,'fundingStrength',50):50)/100;
+    const infrastructure=(typeof ownerPriority==='function'?ownerPriority(state.club,'infrastructurePriority',70):70)/100;
+    // Owner cash support for infrastructure reflects both capacity to fund and
+    // whether infrastructure is actually a strategic priority. High priority
+    // cannot manufacture money that a low-funding owner simply does not have.
+    const ownerShare=clamp2(.03+.16*funding+.06*funding*infrastructure+(happiness-50)*.0015,0.03,.30);
     const ownerContribution=Math.round(option.cost*ownerShare/250000)*250000;
     const maxDebt=Math.max(0,Math.round(Math.min(option.cost*.72,Math.max(25_000_000,(byClub(state.club)?.reputation||70)*1_250_000-debt*.3))/250000)*250000);
     const clubContribution=Math.max(0,option.cost-ownerContribution-maxDebt);
@@ -153,6 +158,10 @@
     const support=p.consultation?.results?.[option.id]??50;
     const delta=support>=75?3:support>=60?1:support<30?-8:support<45?-4:0;
     if(delta&&typeof stakeholderChange==='function') stakeholderChange('fans',delta,`${support}% supporter backing for stadium plan`,{notify:true});
+    if(typeof ownerActionReaction==='function'&&typeof stakeholderChange==='function'){
+      const ownerDelta=ownerActionReaction('infrastructure-investment',{type:'stadium',cost:option.cost},state.club);
+      if(ownerDelta) stakeholderChange('owners',ownerDelta,'CEO stadium plan aligns with ownership infrastructure priorities',{notify:true});
+    }
     if(option.type==='new'&&support<50) s.fanSentiment={label:'Opposition to stadium relocation',value:support<30?-6:-3,started:currentGameDateISO(),support};
     if(typeof addNews==='function') addNews(`The board has approved the ${option.label.toLowerCase()} plan for ${option.capacity.toLocaleString('en-GB')} seats at an estimated cost of ${typeof money==='function'?money(option.cost):option.cost}. The CEO can submit it for planning now or park the plan.`);
     return true;

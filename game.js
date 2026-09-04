@@ -1040,20 +1040,25 @@ globalThis.FootballCEOStakeholders={
 };
 
 function ownerFootballExpectationTarget(club=state?.club){
-  const c=typeof byClub==="function"?byClub(club):null;
+  const exp=typeof currentSportingExpectation==='function'&&club===state?.club?currentSportingExpectation():null;
+  if(exp?.targetPosition) return exp.targetPosition;
+  const c=typeof byClub==='function'?byClub(club):null;
   return clamp(Number(c?.target||10),1,20);
 }
 
 function ownerFootballPerformanceDriver(position,target=ownerFootballExpectationTarget()){
+  if(typeof sportingExpectationWeeklyDriver==='function'){
+    const d=sportingExpectationWeeklyDriver(position);
+    if(d) return d;
+  }
   if(!Number.isFinite(position)) return null;
   const gap=position-target;
-  // Persistent weekly factors use the normal -3..+3 relationship scale.
-  // Exceptional season-end achievements are handled separately below.
+  const pressure=clamp(Number(state?.ownerProfile?.performancePressure??70),0,100);
   if(gap<=-4) return {label:"Football performance well above expectations",value:3};
   if(gap<=-2) return {label:"Football performance above expectations",value:2};
   if(gap<=0) return {label:"Meeting league expectations",value:1};
-  if(gap===1) return {label:"Slightly below league expectations",value:-1};
-  if(gap<=3) return {label:"Below league expectations",value:-2};
+  if(gap===1) return {label:"Slightly below league expectations",value:pressure>=85?-2:pressure<=50?0:-1};
+  if(gap<=3) return {label:"Below league expectations",value:pressure>=85?-3:pressure<=50?-1:-2};
   return {label:"Severe football underperformance",value:-3};
 }
 
@@ -1062,40 +1067,33 @@ function processOwnerSeasonFootballAssessment(finish){
   state.ownerSeasonAssessments=state.ownerSeasonAssessments||{};
   const key=String(currentSeasonStartYear());
   if(state.ownerSeasonAssessments[key]) return state.ownerSeasonAssessments[key];
-  const target=ownerFootballExpectationTarget();
-  const gap=Number(finish)-target;
 
-  // Routine season outcomes stay close to the normal -3..+3 scale. Genuine
-  // major success/failure can move a relationship by 5–8 points at once.
-  let delta=0;
-  if(finish===1) delta=8;
-  else if(gap<=-4) delta=5;
-  else if(gap<=-2) delta=3;
-  else if(gap===-1) delta=2;
-  else if(gap===0) delta=1;
-  else if(gap===1) delta=-1;
-  else if(gap<=3) delta=-3;
-  else if(gap<=5) delta=-5;
-  else delta=-8;
-  if((target<=4 && finish>=8) || (target<=6 && finish>=10)) delta=Math.min(delta,-8);
+  const expectation=typeof currentSportingExpectation==='function'?currentSportingExpectation():null;
+  const performanceRecord=typeof clubSeasonRecord==='function'?clubSeasonRecord(state.club):null;
+  const result=typeof sportingExpectationOutcome==='function'?sportingExpectationOutcome(finish,expectation,performanceRecord||{}):null;
+  const target=expectation?.targetPosition||ownerFootballExpectationTarget();
+  let delta=result?.delta;
 
-  const reason=finish===1
-    ? "Premier League title won"
-    : delta>=0
-      ? `League finish of ${ordinal(finish)} met or exceeded the board's ${ordinal(target)}-place expectation`
-      : `League finish of ${ordinal(finish)} fell short of the board's ${ordinal(target)}-place expectation`;
-  stakeholderChange("owners",delta,reason,{notify:true});
-
-  // A league title is the clearest current example of an exceptional sporting
-  // event: supporters and commercial partners should feel it immediately.
-  if(finish===1){
-    stakeholderChange("fans",8,"Premier League title won",{notify:true});
-    stakeholderChange("sponsors",5,"Premier League title won",{notify:true});
+  if(delta==null){
+    const gap=Number(finish)-target;
+    delta=finish===1?8:gap<=-4?5:gap<=-2?3:gap===-1?2:gap===0?1:gap===1?-1:gap<=3?-3:gap<=5?-5:-8;
   }
 
-  const assessment={season:currentSeasonLabel(),finish,target,delta,ownerHappiness:stakeholderValue("owners")};
+  const leagueName=expectation?.leagueName||'Premier League';
+  const expectationLabel=expectation?.label||`${ordinal(target)} place`;
+  const reason=delta>=0
+    ? `${leagueName} finish of ${ordinal(finish)} met or exceeded the sporting expectation: ${expectationLabel}`
+    : `${leagueName} finish of ${ordinal(finish)} fell short of the sporting expectation: ${expectationLabel}`;
+  if(delta) stakeholderChange("owners",delta,reason,{notify:true});
+
+  if(finish===1){
+    stakeholderChange("fans",8,`${leagueName} title won`,{notify:true});
+    stakeholderChange("sponsors",5,`${leagueName} title won`,{notify:true});
+  }
+
+  const assessment={season:currentSeasonLabel(),leagueId:expectation?.leagueId||state.leagueId||'premier-league',leagueName,finish,target,expectationLabel,outcome:result?.key||null,outcomeLabel:result?.label||null,delta,ownerHappiness:stakeholderValue("owners")};
   state.ownerSeasonAssessments[key]=assessment;
-  if(typeof addNews==="function") addNews(`BOARD FOOTBALL REVIEW: ${ordinal(finish)} in the Premier League against a ${ordinal(target)}-place expectation. Owner confidence ${delta>0?`rose by ${delta}`:delta<0?`fell by ${Math.abs(delta)}`:"was unchanged"} point${Math.abs(delta)===1?"":"s"}.`);
+  if(typeof addNews==="function") addNews(`BOARD FOOTBALL REVIEW: ${ordinal(finish)} in the ${leagueName}. Pre-season expectation: ${expectationLabel}. ${result?.label?`${result.label}. `:''}Owner confidence ${delta>0?`rose by ${delta}`:delta<0?`fell by ${Math.abs(delta)}`:"was unchanged"} point${Math.abs(delta)===1?"":"s"}.`);
   return assessment;
 }
 
@@ -1104,7 +1102,7 @@ function updateStakeholderDrivers(){
   ensureStakeholderState();
 
   const pos=clubLeaguePosition(state.club);
-  const target=byClub(state.club).target||10;
+  const target=typeof ownerFootballExpectationTarget==="function"?ownerFootballExpectationTarget(state.club):(byClub(state.club).target||10);
   const ppg=recentPointsPerGame();
   const priceP=pricingPressure();
 
@@ -1134,11 +1132,12 @@ function updateStakeholderDrivers(){
   const owners=[];
   const seasonPL=state.seasonPL||0;
   const expectedTolerance=state.ownerProfile?.lossTolerance??15_000_000;
+  const sustainabilityPriority=clamp(Number(state.ownerProfile?.sustainabilityPriority??70),0,100);
   if(seasonPL>5_000_000) owners.push({label:"Healthy season profit",value:3});
   else if(seasonPL>0) owners.push({label:"Club in profit",value:2});
-  else if(seasonPL<-expectedTolerance*1.5) owners.push({label:"Losses exceed owner tolerance",value:-3});
-  else if(seasonPL<-expectedTolerance) owners.push({label:"Financial losses",value:-3});
-  else if(seasonPL<0) owners.push({label:"Manageable operating loss",value:-1});
+  else if(seasonPL<-expectedTolerance*1.5) owners.push({label:"Losses far exceed owner tolerance",value:-3});
+  else if(seasonPL<-expectedTolerance) owners.push({label:"Losses exceed owner tolerance",value:sustainabilityPriority>=85?-3:sustainabilityPriority<=55?-1:-2});
+  else if(seasonPL<0) owners.push({label:"Manageable operating loss",value:sustainabilityPriority>=90?-2:sustainabilityPriority<=55?0:-1});
   if((state.staffSpend||0)>10_000_000) owners.push({label:"High staff compensation costs",value:-2});
   if(state.week>=4){
     const footballDriver=ownerFootballPerformanceDriver(pos,target);
@@ -1761,6 +1760,111 @@ function blankTable(){
   return table;
 }
 
+let selectedClubProfileName=null;
+
+function clubProfilePriorityLabel(value){
+  if(typeof ownerPriorityLabel==='function') return ownerPriorityLabel(value);
+  const v=Number(value)||0;
+  return v>=92?'Very high':v>=80?'High':v>=65?'Above average':v>=45?'Moderate':v>=25?'Low':'Very low';
+}
+
+function clubProfileBackingLabel(value){
+  if(typeof ownerFundingLabel==='function') return ownerFundingLabel(value);
+  const v=Number(value)||0;
+  return v>=95?'Exceptional':v>=85?'Very strong':v>=70?'Strong':v>=50?'Moderate':v>=30?'Limited':'Minimal';
+}
+
+function clubProfileOwnerCopy(profile){
+  if(!profile) return 'Ownership information is not available.';
+  const parts=[];
+  if(profile.fundingStrength>=85) parts.push('Ownership has substantial capacity to provide fresh equity when the club can justify investment.');
+  else if(profile.fundingStrength<=30) parts.push('There is very little expectation of owner-funded rescue or repeated cash injections; the club must largely live within the resources it generates.');
+  else if(profile.fundingStrength<=55) parts.push('Owner funding is limited, so sustainable growth and internally generated cash matter.');
+  else parts.push('Ownership can provide measured backing, but the club is still expected to use its own resources intelligently.');
+  if(profile.sustainabilityPriority>=90) parts.push('Recurring structural losses will quickly concern the board.');
+  else if(profile.sustainabilityPriority<=55) parts.push('Short-term investment-led losses are relatively acceptable when they support the club’s sporting ambitions.');
+  else parts.push('The board accepts sensible investment but expects the financial position to remain manageable.');
+  if(profile.playerTradingPreference>=90) parts.push('Recruiting for value, developing assets and selling well are central to the ownership model.');
+  return parts.join(' ');
+}
+
+function clubProfileChallengeCopy(name,profile,expectation){
+  const clauses=[];
+  if(profile?.performancePressure>=90) clauses.push('Results carry heavy scrutiny');
+  else if(profile?.performancePressure<=55) clauses.push('ownership is relatively patient with reasonable sporting setbacks');
+  if(profile?.sustainabilityPriority>=90) clauses.push('financial sustainability is non-negotiable');
+  else if(profile?.fundingStrength>=90) clauses.push('significant backing is available, but it raises the standard expected of the CEO');
+  if(profile?.playerTradingPreference>=90) clauses.push('player trading should be treated as a core source of competitive advantage');
+  if(profile?.academyPriority>=92) clauses.push('the academy is a major strategic asset');
+  if(profile?.infrastructurePriority>=92) clauses.push('long-term infrastructure investment is strongly supported');
+  const lead=expectation?.label?`The immediate football benchmark is to ${expectation.label.charAt(0).toLowerCase()+expectation.label.slice(1)}.`:'';
+  return `${lead}${lead&&clauses.length?' ':''}${clauses.length?clauses.join('; ')+'.':'Build the club intelligently while balancing sporting progress and financial health.'}`;
+}
+
+function openClubProfile(club,{inCareer=false}={}){
+  const c=typeof worldClubByName==='function'?worldClubByName(club):byClub(club);
+  if(!c) return;
+  selectedClubProfileName=club;
+  const profile=(inCareer&&state?.club===club&&state?.ownerProfile)?state.ownerProfile:(typeof ownershipProfileForClub==='function'?ownershipProfileForClub(club):c.ownershipProfile);
+  const expectation=(inCareer&&state?.club===club&&typeof currentSportingExpectation==='function')
+    ? currentSportingExpectation()
+    : (typeof sportingExpectationForClub==='function'?sportingExpectationForClub(club):null);
+  const league=expectation?.leagueName||(typeof leagueForClub==='function'?leagueForClub(club)?.name:null)||'Premier League';
+  const manager=inCareer&&state?.club===club?state.staff?.manager?.name:c.manager;
+  const stadium=inCareer&&state?.club===club&&typeof currentStadiumName==='function'
+    ? {name:currentStadiumName(),capacity:typeof currentStadiumCapacity==='function'?currentStadiumCapacity():null}
+    : STADIUMS?.[club]||null;
+  const ownerBacking=clubProfileBackingLabel(profile?.fundingStrength);
+  const pressure=clubProfilePriorityLabel(profile?.performancePressure);
+  const squadStandard=Number(c.strength??c.standard??0);
+  const wageAllocation=Number(c.wageBudget||0);
+
+  q('clubProfileName').textContent=club;
+  q('clubProfileLeague').textContent=`${league.toUpperCase()} • CLUB PROFILE`;
+  q('clubProfileManager').textContent=manager?`Manager: ${manager}`:'Manager information unavailable';
+  q('clubProfileOwnershipModel').textContent=profile?.model||'Private ownership';
+  q('clubProfileBacking').textContent=`${ownerBacking} backing`;
+  q('clubProfileOwnershipCopy').textContent=clubProfileOwnerCopy(profile);
+  q('clubProfilePressure').textContent=`${pressure} owner pressure`;
+  q('clubProfileExpectation').textContent=expectation?.label||'Compete to expectations';
+  q('clubProfileExpectationCopy').textContent=expectation?.description||'The sporting benchmark is calculated from the club’s current circumstances.';
+
+  const context=[];
+  if(expectation?.context?.newlyPromoted) context.push('Newly promoted: ownership recognises survival as a successful first season at this level.');
+  else if(expectation?.context?.promotionGraceSeason===2) context.push('Promotion goodwill remains: expectations are still slightly softened in the second season at this level.');
+  if(expectation?.context?.newlyRelegated) context.push('Recently relegated: ownership expects a credible promotion challenge.');
+  if(!context.length) context.push('This expectation is set from squad strength, club resources, recent performance and league context. Owner pressure controls how severely missed expectations affect confidence.');
+  q('clubProfileExpectationContext').textContent=context.join(' ');
+
+  q('clubProfileSummary').textContent=`${profile?.model||'Ownership'} • ${ownerBacking} financial backing • ${pressure} performance pressure. ${expectation?.shortLabel?`Current sporting benchmark: ${expectation.shortLabel}.`:''}`;
+  q('clubProfileMetrics').innerHTML=`
+    <div class="metric"><div class="k">Squad standard</div><div class="v">${squadStandard?squadStandard.toFixed(1):'—'}</div></div>
+    <div class="metric"><div class="k">Transfer resources</div><div class="v">${c.transferBudget!=null?money(c.transferBudget):'—'}</div></div>
+    <div class="metric"><div class="k">Stadium</div><div class="v summary-small-v">${stadium?.name||'—'}</div><div class="muted tiny">${stadium?.capacity?stadium.capacity.toLocaleString('en-GB')+' capacity':''}</div></div>
+    <div class="metric"><div class="k">Wage allocation</div><div class="v summary-small-v">${wageAllocation?money(wageAllocation)+'/wk':'—'}</div></div>`;
+
+  const priorities=[
+    ['Financial sustainability',profile?.sustainabilityPriority],
+    ['Academy development',profile?.academyPriority],
+    ['Infrastructure',profile?.infrastructurePriority],
+    ['Player trading',profile?.playerTradingPreference]
+  ];
+  q('clubProfilePriorities').innerHTML=priorities.map(([label,value])=>`<div class="club-profile-priority"><span>${label}</span><b>${clubProfilePriorityLabel(value)}</b></div>`).join('');
+  q('clubProfileChallenge').textContent=clubProfileChallengeCopy(club,profile,expectation);
+
+  const card=q('clubProfileModal')?.querySelector('.club-profile-card');
+  card?.classList.toggle('in-career',Boolean(inCareer));
+  const startBtn=q('startClubProfileCareerBtn');
+  if(startBtn) startBtn.textContent=`Start ${club} career`;
+  q('clubProfileModal')?.classList.remove('hide');
+  if(typeof setModalScrollLock==='function') setModalScrollLock(true);
+}
+
+function closeClubProfile(){
+  q('clubProfileModal')?.classList.add('hide');
+  if(typeof setModalScrollLock==='function') setModalScrollLock(false);
+}
+
 function createCareer(club){
   if(getSaveManifest().length>=MAX_LOCAL_SAVES){
     alert(`You already have ${MAX_LOCAL_SAVES} local careers. Delete a save before starting another.`);
@@ -1793,7 +1897,8 @@ function createCareer(club){
     managerDevelopmentRequests:{},
     managerRequests:[],
     staffSpend:0,
-    ownerProfile:{lossTolerance:15_000_000},
+    ownerProfile:(typeof ownershipProfileForClub==="function"?ownershipProfileForClub(club):null)||{lossTolerance:15_000_000},
+    ownerProfileVersion:(typeof OWNERSHIP_PROFILE_VERSION!=="undefined"?OWNERSHIP_PROFILE_VERSION:1),
     managerBacking:70,
     managerChangesThisSeason:0,
     recentlyDismissedManagers:{},
@@ -1831,6 +1936,7 @@ function createCareer(club){
     news:[{week:0,date:"2025-08-01",text:`You have been appointed CEO of ${club}. ${c.manager} remains in charge of first-team football.`}]
   };
   if(typeof ensureFootballCEOFeatureState==="function") ensureFootballCEOFeatureState();
+  if(typeof ensureSportingExpectationState==="function") ensureSportingExpectationState();
   if(typeof ensurePlayerLifecycleState==="function") ensurePlayerLifecycleState();
   if(typeof ensureFinancialRegulationState==="function") ensureFinancialRegulationState();
   // The manager begins every career with a full-squad review rather than waiting
@@ -1850,7 +1956,9 @@ function enterGame(){
   ensureStaffState();
   ensurePlayerState();
   updateIndividualMorale();
-  if(!state.ownerProfile) state.ownerProfile={lossTolerance:15_000_000};
+  if(typeof ensureOwnershipProfileState==="function") ensureOwnershipProfileState();
+  else if(!state.ownerProfile) state.ownerProfile={lossTolerance:15_000_000};
+  if(typeof ensureSportingExpectationState==="function") ensureSportingExpectationState();
   if(state.managerBacking==null) state.managerBacking=70;
   if(state.managerChangesThisSeason==null) state.managerChangesThisSeason=0;
   if(!state.recentlyDismissedManagers) state.recentlyDismissedManagers={};
@@ -3645,12 +3753,17 @@ function approveFacilityUpgrade(type,points=5){
   const cost=facilityUpgradeCost(type,actualPoints);
 
   if(typeof canClubAfford==="function" && !canClubAfford(cost)){
-    addNews(`The board could not approve the ${FACILITY_TYPES[type].label.toLowerCase()} upgrade because club cash is insufficient.`);
+    addNews(`The ${FACILITY_TYPES[type].label.toLowerCase()} upgrade cannot proceed because club cash is insufficient.`);
     return;
   }
 
   if(typeof spendClubCapital==="function") spendClubCapital(cost,`${FACILITY_TYPES[type].label} upgrade`);
   state.facilities[type]=clamp(current+actualPoints,0,100);
+  if(typeof ownerActionReaction==='function'&&typeof stakeholderChange==='function'){
+    const action=type==='academy'?'academy-investment':'infrastructure-investment';
+    const ownerDelta=ownerActionReaction(action,{type,cost,points:actualPoints},state.club);
+    if(ownerDelta) stakeholderChange('owners',ownerDelta,`${FACILITY_TYPES[type].label} investment aligned with ownership priorities`,{notify:true});
+  }
   addNews(`${FACILITY_TYPES[type].label} upgraded from ${current} to ${state.facilities[type]} for ${money(cost)}.`);
   saveGame(false);
   renderFacilities();
@@ -3908,7 +4021,7 @@ function seasonTableFinish(club){
 }
 function clubSeasonRecord(club){
   const t=state.table?.[club];
-  return t?{w:t.w||0,d:t.d||0,l:t.l||0}:{w:0,d:0,l:0};
+  return t?{p:t.p||0,w:t.w||0,d:t.d||0,l:t.l||0,pts:t.pts??((t.w||0)*3+(t.d||0))}:{p:0,w:0,d:0,l:0,pts:0};
 }
 function seasonTopScorer(){
   const sq=squad(state.club);
@@ -3934,7 +4047,7 @@ function buildSeasonArchive(){
       overall:p.overall
     };
   });
-  return {season:currentSeasonLabel(),year:currentSeasonStartYear(),seasonNumber:seasonDisplayNumber(),club:state.club,leagueFinish:finish,record,seasonProfitLoss:state.seasonPL||0,transferPL,transferSpent:state.transferFinance?.spent||0,transferReceived:state.transferFinance?.received||0,scr:scr?{ratio:scr.ratio,status:scr.status,revenue:scr.revenue,squadCost:scr.squadCost}:null,stakeholders:{...state.happiness},topScorer:top?{id:top.id,name:top.name,goals:state.playerStats?.[top.id]?.goals||0}:null,stadium:typeof buildStadiumHistorySnapshot==="function"?buildStadiumHistorySnapshot():null,clubCash:typeof clubCash==="function"?clubCash():null,totalDebt:typeof totalClubDebt==="function"?totalClubDebt():null,premierLeagueRevenue:typeof premierLeagueSeasonState==="function"?(premierLeagueSeasonState()?.settlement||null):null,finance:typeof clubFinanceSeasonSnapshot==="function"?clubFinanceSeasonSnapshot():null,playerStats};
+  return {season:currentSeasonLabel(),year:currentSeasonStartYear(),seasonNumber:seasonDisplayNumber(),club:state.club,leagueId:(typeof currentUserLeagueId==="function"?currentUserLeagueId():(state.leagueId||byClub(state.club)?.leagueId||"premier-league")),sportingExpectation:(typeof currentSportingExpectation==="function"?{...currentSportingExpectation()}:null),leagueFinish:finish,record,seasonProfitLoss:state.seasonPL||0,transferPL,transferSpent:state.transferFinance?.spent||0,transferReceived:state.transferFinance?.received||0,scr:scr?{ratio:scr.ratio,status:scr.status,revenue:scr.revenue,squadCost:scr.squadCost}:null,stakeholders:{...state.happiness},topScorer:top?{id:top.id,name:top.name,goals:state.playerStats?.[top.id]?.goals||0}:null,stadium:typeof buildStadiumHistorySnapshot==="function"?buildStadiumHistorySnapshot():null,clubCash:typeof clubCash==="function"?clubCash():null,totalDebt:typeof totalClubDebt==="function"?totalClubDebt():null,premierLeagueRevenue:typeof premierLeagueSeasonState==="function"?(premierLeagueSeasonState()?.settlement||null):null,finance:typeof clubFinanceSeasonSnapshot==="function"?clubFinanceSeasonSnapshot():null,playerStats};
 }
 function archiveCurrentSeason(){
   if(!state.careerHistory)state.careerHistory={seasons:[]};
@@ -4515,7 +4628,7 @@ async function performSeasonRollover(){
   await seasonPrepStage(52,'Processing retirements, contracts and club infrastructure',()=>{if(typeof processPlayerLifecycleSeasonRollover==='function'){const lifecycle=processPlayerLifecycleSeasonRollover();if(lifecycle?.userIntake?.length&&typeof addNews==='function'){const rows=lifecycle.userIntake.map(p=>`${p.name} — ${p.age}, ${p.positions}, ${p.overall} OVR / ${p.potential} POT`).join('<br>');addNews(`<strong>ACADEMY INTAKE:</strong> ${lifecycle.userIntake.length} new prospects have joined the club for ${currentSeasonStartYear()+1}/${String((currentSeasonStartYear()+2)%100).padStart(2,'0')}.<br>${rows}`);}if(lifecycle?.generated?.length&&typeof addNews==='function'){const elite=lifecycle.generated.filter(p=>(p.potential||0)>=88).length;addNews(`PLAYER MARKET: ${lifecycle.generated.length} new young players have entered the global player database for ${currentSeasonStartYear()+1}/${String((currentSeasonStartYear()+2)%100).padStart(2,'0')}${elite?`, including ${elite} elite-potential prospect${elite===1?'':'s'}`:''}.`);}}if(typeof processFacilityYearEnd==='function')processFacilityYearEnd();if(typeof rollStadiumSeason==='function')rollStadiumSeason();expireContractsAndHandleFreeAgents();if(typeof processLightweightNonLeagueSeasonRollover==='function')processLightweightNonLeagueSeasonRollover();updateReputationFromSeason(archive.leagueFinish);});
   await seasonPrepStage(60,'Rebuilding club squads',()=>{if(typeof invalidateClubSquadCache==='function')invalidateClubSquadCache();if(typeof invalidateWorldStrengthCache==='function')invalidateWorldStrengthCache();});
   await seasonPrepStage(70,'Calculating background squad strengths',()=>{if(typeof worldMatchStrength==='function')(DB.worldClubs||[]).filter(c=>c.leagueId!=='saudi-pro-league').forEach(c=>worldMatchStrength(c.name));});
-  state.season.year+=1;state.season.number+=1;state.season.label=`${state.season.year}/${String((state.season.year+1)%100).padStart(2,'0')}`;state.season.phase='preseason';state.week=0;state.seasonComplete=false;state.leagueSeasonFinished=false;state.seasonSummaryViewed=false;
+  state.season.year+=1;state.season.number+=1;state.season.label=`${state.season.year}/${String((state.season.year+1)%100).padStart(2,'0')}`;state.season.phase='preseason';state.week=0;state.seasonComplete=false;state.leagueSeasonFinished=false;state.seasonSummaryViewed=false;state.sportingExpectation=null;if(typeof ensureSportingExpectationState==='function')ensureSportingExpectationState();
   await seasonPrepStage(80,'Preparing league competitions',()=>{state.fixtures=generateFixtures(DB.clubs.map(x=>x.name),state.season.year);state.table=blankTable();if(typeof resetChampionshipCompetitionForSeason==='function')resetChampionshipCompetitionForSeason();state.results={};state.form=[];state.matchdayStats={revenue:0,attendance:0,homeGames:0};});
   await seasonPrepStage(86,'Resetting season records',()=>{state.seasonPL=offSeasonCarryPL;state.transferFinance={spent:0,received:0};if(typeof resetClubFinanceForNewSeason==='function')resetClubFinanceForNewSeason();if(typeof prepareTicketingForNewSeason==='function')prepareTicketingForNewSeason();state.managerChangesThisSeason=0;state.managerPressureNotified=false;state.managerRequests=[];state.managerRequestCooldowns={};state.managerRequestsByWeek={};state.managerRoleFulfilledUntil={};state.managerSquadVacancies=[];state.transferReviewsRun={};state.incomingTransferOffers=[];state.incomingLoanOffers=[];state.transferNegotiations={};state.aiTransferPlans={};state.developmentWindows={};state.saudiPremiumWindows={};resetSeasonPlayerStats();resetMonthlyTracker();state.calendar.monthlyMonthKey=currentGameDateISO().slice(0,7);Object.keys(state.happiness).forEach(k=>state.happiness[k]=stakeholderSummerReset(state.happiness[k]));});
   await seasonPrepStage(90,'Updating the transfer market',()=>{resetAIClubFinancesForNewSeason();if(typeof reviewAIClubs==='function')reviewAIClubs(DB.clubs.filter(c=>c.name!==state.club));});
@@ -5548,7 +5661,7 @@ function skipTutorial(){
 
 function init(){
   document.querySelectorAll(".club-card").forEach(card=>{
-    card.addEventListener("click",()=>createCareer(card.dataset.club));
+    card.addEventListener("click",()=>openClubProfile(card.dataset.club,{inCareer:false}));
   });
   document.querySelectorAll("#tabs button").forEach(btn=>{
     btn.addEventListener("click",()=>showTab(btn.dataset.tab));
@@ -5564,6 +5677,10 @@ function init(){
   q("mobileSaveBtn")?.addEventListener("click",()=>saveGame(true));
   q("mobileSaveManagerBtn")?.addEventListener("click",openSaveManager);
   q("mobileCareerBtn")?.addEventListener("click",newCareer);
+  q("currentClubProfileBtn")?.addEventListener("click",()=>{if(state?.club)openClubProfile(state.club,{inCareer:true});});
+  q("closeClubProfileBtn")?.addEventListener("click",closeClubProfile);
+  q("clubProfileModal")?.addEventListener("click",e=>{if(e.target===q("clubProfileModal"))closeClubProfile();});
+  q("startClubProfileCareerBtn")?.addEventListener("click",()=>{const club=selectedClubProfileName;closeClubProfile();if(club)createCareer(club);});
   q("closeStakeholderDetailBtn")?.addEventListener("click",closeStakeholderDetail);
   q("stakeholderDetailModal")?.addEventListener("click",e=>{if(e.target===q("stakeholderDetailModal")) closeStakeholderDetail();});
   q("tutorialNextBtn")?.addEventListener("click",tutorialNext);

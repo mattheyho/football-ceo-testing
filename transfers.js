@@ -1740,15 +1740,29 @@ function recordStarSale(player,fee,fairValue,yearsAtClub=1,context={}){
 
     if(forcedByRegulation){
       stakeholderChange("manager",-1,`Key player ${player.name} sold to improve SCR compliance`,{notify:true});
-      stakeholderChange("owners",+3,`Sale of ${player.name} improves financial compliance`,{notify:true});
       addNews(`FINANCIAL CONTEXT: Supporters and the manager are disappointed to lose ${player.name}, but recognise that the sale materially improves the club's SCR position.`);
-    }else{
-      if(fee>=fairValue*1.15) stakeholderChange("owners",1,`Strong fee received for ${player.name}`,{notify:true});
-      else if(fee<fairValue*0.9) stakeholderChange("owners",-2,`Poor value received for ${player.name}`,{notify:true});
     }
   }else{
     if(!state.transferSentiment) state.transferSentiment={fans:[],owners:[],players:[],manager:[]};
     state.transferSentiment.fans.push({label:`Sale of star player ${player.name}`,value:fanHit});
+  }
+}
+
+function recordOwnerSaleReaction(player,fee,fairValue,context={}){
+  if(typeof stakeholderChange!=="function") return;
+  const ratio=Math.max(.01,Number(fee||0)/Math.max(1,Number(fairValue||fee||1)));
+  let delta=typeof ownerActionReaction==="function"
+    ? ownerActionReaction("player-sale",{feeRatio:ratio,isStar:Boolean(context.wasStar),replaced:Boolean(context.replaced)},state.club)
+    : (ratio>=1.15?1:ratio<.90?-2:0);
+  if(context.forcedByRegulation){
+    const sustainability=Number(state.ownerProfile?.sustainabilityPriority??70);
+    delta=Math.max(delta,sustainability>=85?3:sustainability>=65?2:1);
+  }
+  if(delta){
+    const reason=context.forcedByRegulation
+      ? `Sale of ${player.name} improves financial compliance`
+      : delta>0?`Sale of ${player.name} aligns with ownership's player-trading strategy`:`Sale of ${player.name} concerned ownership on value or squad-asset grounds`;
+    stakeholderChange("owners",delta,reason,{notify:true});
   }
 }
 
@@ -4751,7 +4765,11 @@ function submitNewSigningTerms(id){
   n.status="completed";
   clearContractNegotiation(p,"signing");
   if(p.overall>=82 || n.agreedFee>=40_000_000) recordMarqueeSigning(p);
-  state.transferSentiment.owners.push({label:`Transfer spending on ${p.name}`,value:n.agreedFee>(p.value||0)*1.25?-3:1});
+  {
+    const feeRatio=n.agreedFee/Math.max(1,(p.value||n.agreedFee));
+    const ownerSpendDelta=typeof ownerActionReaction==="function"?ownerActionReaction("transfer-spend",{feeRatio,age:p.age,fee:n.agreedFee},state.club):(feeRatio>1.25?-3:1);
+    if(ownerSpendDelta) state.transferSentiment.owners.push({label:`Transfer spending on ${p.name}`,value:ownerSpendDelta});
+  }
   addNews(`${state.club} have signed ${p.name} from ${oldClub} for ${money(n.agreedFee)} (${typeof transferTermsLabel==="function"?transferTermsLabel(paymentTerms):"paid upfront"}). ${p.name} has agreed a ${years}-year contract worth ${money(wage)}/week.`);
   saveGame(false);
   closeTransferPlayerFile({returnToManagerShortlist:false});
@@ -5368,13 +5386,14 @@ function resolveIncomingTransferOffer(id,action,counter=0,counterUpfront=100,cou
   if(action==="accept"){
     const oldValue=p.value||fair,oldClub=state.club,buyer=offer.buyingClub,yearsAtClub=(()=>{const joined=parseInt(String(p.joined||"").match(/20\d{2}/)?.[0]||"2025",10);return Math.max(0,currentSeasonStartYear()-joined);})();
     const saleStakeholderContext={wasStar:isClubStarPlayer(p,oldClub),currentSCR:typeof userSCRSnapshot==="function"?userSCRSnapshot():null,projectedSCR:typeof projectSCRAfterSale==="function"?projectSCRAfterSale(p,offer.fee):null};
+    saleStakeholderContext.forcedByRegulation=Boolean(saleStakeholderContext.currentSCR&&saleStakeholderContext.projectedSCR&&saleStakeholderContext.currentSCR.ratio>saleStakeholderContext.currentSCR.limit&&saleStakeholderContext.projectedSCR.ratio<saleStakeholderContext.currentSCR.ratio-0.005);
     const buyerWage=offer.expectedWage||transferBuyerExpectedWage(p,buyer),affordability=offer.saudiPremium?saudiPremiumCanComplete(buyer,p,offer.fee,buyerWage):transferBuyerCanAfford(buyer,p,offer.fee,buyerWage);
     if(!affordability.ok){offer.status="rejected";addNews(`${buyer} withdrew their offer for ${p.name} because they could no longer complete the deal within their financial limits.`);closeTransferPlayerFile();saveGame(false);renderAll();return;}
     registerManagerSquadVacancy(p,oldClub,offer.fee);if(typeof registerRegulatedSale==="function")registerRegulatedSale(p,offer.fee);
     const saleTerms=offer.paymentTerms||(typeof normaliseTransferPaymentTerms==="function"?normaliseTransferPaymentTerms(offer.fee,100,0):{fee:offer.fee,upfront:offer.fee});
     if(typeof postUserTransferSale==="function")postUserTransferSale(p,buyer,saleTerms);else if(typeof recordClubCash==="function")recordClubCash(offer.fee,`Transfer fee received: ${p.name}`,"transfer",{playerId:p.id});
     if(state.transferFinance)state.transferFinance.received=(state.transferFinance.received||0)+offer.fee;if(state.monthlyFinance)state.monthlyFinance.transferReceived=(state.monthlyFinance.transferReceived||0)+(saleTerms.upfront||offer.fee);
-    applyTransferBuyerPurchase(buyer,offer.fee,buyerWage);p.wage=buyerWage;transferPlayerToClub(p,buyer,offer.fee,oldClub);offer.status="accepted";recordStarSale(p,offer.fee,oldValue,yearsAtClub,saleStakeholderContext);
+    applyTransferBuyerPurchase(buyer,offer.fee,buyerWage);p.wage=buyerWage;transferPlayerToClub(p,buyer,offer.fee,oldClub);offer.status="accepted";recordStarSale(p,offer.fee,oldValue,yearsAtClub,saleStakeholderContext);recordOwnerSaleReaction(p,offer.fee,oldValue,saleStakeholderContext);
     delete state.playerContracts[p.id];delete state.playerStats[p.id];delete state.playerMorale[p.id];delete state.playerListStatus[p.id];addNews(`${p.name} has joined ${buyer} from ${oldClub} for ${money(offer.fee)} (${typeof transferTermsLabel==="function"?transferTermsLabel(saleTerms):"paid upfront"}).`);closeTransferPlayerFile();
   }
   saveGame(false);renderAll();

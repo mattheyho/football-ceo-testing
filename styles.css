@@ -1495,6 +1495,34 @@ html.modal-open .mobile-bottom-nav,html.modal-open .mobile-continue-dock{visibil
 .manager-feedback-note{margin-top:10px;padding:10px 12px;border-left:3px solid currentColor;background:rgba(255,255,255,.035);border-radius:6px;font-size:.92em}
 @media(max-width:520px){.manager-shortlist-feedback-actions{display:grid;grid-template-columns:1fr}.manager-shortlist-feedback-actions .btn{width:100%}}
 
+/* v0.24.24 — club profile / ownership & expectation presentation */
+.club-profile-overlay{position:fixed;inset:0;z-index:1200;background:rgba(3,8,14,.86);display:flex;align-items:center;justify-content:center;padding:18px}
+.club-profile-overlay.hide{display:none}
+.club-profile-card{width:min(760px,100%);max-height:92vh;background:#081421;border:1px solid var(--line);border-radius:18px;box-shadow:0 24px 80px rgba(0,0,0,.5);display:flex;flex-direction:column;overflow:hidden}
+.club-profile-hero{display:flex;justify-content:space-between;gap:18px;align-items:flex-start;padding:20px 20px 14px;border-bottom:1px solid var(--line);background:linear-gradient(180deg,#102336 0%,#0a1726 100%)}
+.club-profile-hero h2{font-size:28px;line-height:1.05;margin:4px 0 6px}
+.club-profile-scroll{overflow:auto;padding:16px 18px 4px}
+.club-profile-summary{font-size:14px;line-height:1.5;margin-bottom:14px}
+.club-profile-metrics{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:9px;margin-bottom:14px}
+.club-profile-metrics .metric{background:#0d1d2e;border:1px solid #1b3046;border-radius:10px;padding:10px}
+.club-profile-section{margin-bottom:12px}
+.club-profile-priorities{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;margin-top:12px}
+.club-profile-priority{display:flex;justify-content:space-between;gap:10px;align-items:center;background:#0d1d2e;border:1px solid #1b3046;border-radius:9px;padding:9px 10px}
+.club-profile-priority span{font-size:11px;color:var(--muted)}
+.club-profile-priority b{font-size:12px;text-align:right}
+.sporting-expectation-panel{border-color:rgba(90,210,155,.32)}
+.club-profile-start{margin:12px 18px 18px;width:calc(100% - 36px);flex:0 0 auto}
+.club-profile-card.in-career .club-profile-start{display:none}
+@media(max-width:680px){
+  .club-profile-overlay{padding:0;align-items:flex-end}
+  .club-profile-card{max-height:96vh;border-radius:18px 18px 0 0;width:100%}
+  .club-profile-hero{padding:18px 16px 13px}
+  .club-profile-hero h2{font-size:24px}
+  .club-profile-scroll{padding:14px 14px 2px}
+  .club-profile-metrics{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .club-profile-priorities{grid-template-columns:1fr}
+  .club-profile-start{margin:10px 14px calc(14px + env(safe-area-inset-bottom));width:calc(100% - 28px)}
+}
 
 /* v0.24.23 finance drill-down */
 .finance-drilldown{appearance:none;width:100%;text-align:left;color:inherit;font:inherit;cursor:pointer}
