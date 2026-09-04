@@ -64,6 +64,10 @@
   function playingStrength(c){
     if(!c) return 60;
     if(Number.isFinite(Number(c.strength))) return Number(c.strength);
+    // Loaded EFL/world squads are now detailed enough to use the best 18 players
+    // rather than relying on the older coarse seed standard.
+    const players=((typeof DB!=='undefined'?DB.players:globalThis.DB?.players)||[]).filter(p=>p.club===c.name&&!p.retired).sort((a,b)=>(b.overall||0)-(a.overall||0)).slice(0,18);
+    if(players.length>=11) return players.reduce((sum,p)=>sum+Number(p.overall||0),0)/players.length;
     if(Number.isFinite(Number(c.standard))) return Number(c.standard);
     return Number(c.reputation)||60;
   }
@@ -181,6 +185,19 @@
     };
   }
 
+  function targetPosition(name=null){
+    const club=name||(typeof state!=='undefined'?state?.club:null);
+    if(!club) return 10;
+    if(typeof state!=='undefined'&&state?.club===club){
+      const existing=state.sportingExpectation;
+      const leagueId=currentLeagueId(club);
+      const seasonKey=String(state.season?.year||state.season?.label||'2025');
+      if(existing&&existing.seasonKey===seasonKey&&existing.leagueId===leagueId&&Number.isFinite(Number(existing.targetPosition))) return Number(existing.targetPosition);
+    }
+    const result=calculate(club);
+    return Number.isFinite(Number(result?.targetPosition))?Number(result.targetPosition):10;
+  }
+
   function ensureState(){
     if(typeof state==='undefined'||!state?.club) return null;
     state.sportingContext=state.sportingContext||{};
@@ -201,6 +218,10 @@
     const movement={type,fromLeagueId,toLeagueId,seasonNumber:defaultSeasonNumber,date:state.calendar?.date||null,...extra};
     state.sportingContext.lastMovement=movement;
     state.sportingExpectation=null;
+    // Finance/staff systems subscribe to the same movement record so the future
+    // promotion/relegation executor only needs one canonical hook.
+    if(state.club&&typeof applyStaffDivisionMovement==='function') applyStaffDivisionMovement(fromLeagueId,toLeagueId);
+    if(state.club&&typeof refreshCommercialReach==='function') refreshCommercialReach({seasonRollover:false});
     return movement;
   }
 
@@ -254,11 +275,12 @@
     return {label:'Severe sporting underperformance',value:-3};
   }
 
-  globalThis.FootballCEOSportingExpectations={VERSION,leagueRule,calculate,ensureState,recordLeagueMovement,outcome,weeklyDriver,powerRank};
+  globalThis.FootballCEOSportingExpectations={VERSION,leagueRule,calculate,targetPosition,ensureState,recordLeagueMovement,outcome,weeklyDriver,powerRank};
   if(typeof window!=='undefined'){
     window.sportingExpectationForClub=calculate;
     window.ensureSportingExpectationState=ensureState;
     window.currentSportingExpectation=ensureState;
+    window.currentSportingTargetPosition=targetPosition;
     window.recordLeagueMovement=recordLeagueMovement;
     window.sportingExpectationOutcome=outcome;
     window.sportingExpectationWeeklyDriver=weeklyDriver;

@@ -1,0 +1,36 @@
+FOOTBALL CEO — PIECE 9B: CHAMPIONSHIP PLAYABLE
+Version: v0.24.26-piece-9b-championship-playable
+
+SCOPE
+- Makes all 24 2025/26 Championship clubs selectable and fully playable.
+- Retains the 20 playable Premier League clubs: 44 playable clubs total.
+- Championship careers use the existing full CEO simulation systems rather than the background-only club path.
+- Promotion/relegation movement and playoff match execution remain disabled until their dedicated pieces.
+
+CHAMPIONSHIP CAREER SHAPE
+- 24 clubs.
+- 46 league matches per club (23 home, 23 away).
+- 46 rounds, 12 matches per round, 552 league matches total.
+- Generated 2025/26 league calendar runs from 9 August 2025 to 2 May 2026.
+- Calendar is a Football CEO schedule model rather than an attempt to reproduce the exact real-life fixture list.
+- Premier League moves to background simulation when the user manages in the Championship; the user's active division is never double-simulated.
+
+PLAYABLE METADATA
+- Added 2025/26 starting manager metadata for all 24 Championship clubs, aligned to the game's 1 August 2025 start date.
+- Added stadium names and capacities for all 24 Championship clubs.
+- Existing embedded Championship player database is reused: 650 players total at this build's data snapshot.
+- Existing financial profiles, ownership profiles, academy profiles and sporting-expectation logic are reused.
+
+ENGINE CHANGES
+- Career fixtures, tables, squad/manager pools, AI review pools and domestic transfer logic now resolve from the user's active league.
+- Championship clubs in a Championship save use full domestic AI finance/recruitment rather than background-world transfer logic.
+- World/background competition simulation skips the user's active league and can simulate the Premier League in a Championship career.
+- New-save and imported-save club validation recognises all 44 playable clubs.
+- Table styling supports Championship automatic-promotion and playoff bands.
+- Dynamic sporting expectations use detailed embedded player quality for EFL clubs when available.
+
+NOT IN PIECE 9B
+- No promotion/relegation movement yet.
+- No Championship playoff matches yet.
+- League One and League Two remain background/non-playable.
+- No National League relegation will be added; League Two remains the static bottom playable division.

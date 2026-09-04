@@ -720,14 +720,15 @@ function managerStarterTargetAgeCap(club=state.club){
   // Clubs with European/top-eight expectations should not present mid-30s players
   // as the ideal answer to a first-team upgrade request. They remain available in
   // the wider database for CEOs who deliberately want a short-term veteran.
-  if((c.target||10)<=8 || (c.reputation||70)>=82) return 30;
-  if((c.target||10)<=14) return 32;
+  const target=typeof currentSportingTargetPosition==='function'?currentSportingTargetPosition(club):(c.target||10);
+  if(target<=8 || (c.reputation||70)>=82) return 30;
+  if(target<=14) return 32;
   return 34;
 }
 
 function clubRecruitmentStrategyFit(player,club=state.club){
   const c=byClub(club)||{};
-  const target=c.target||10;
+  const target=typeof currentSportingTargetPosition==='function'?currentSportingTargetPosition(club):(c.target||10);
   const rep=c.reputation||70;
   const age=player.age||25;
   const potential=player.potential||player.overall||0;
@@ -1353,7 +1354,7 @@ function managerShortlistForRequest(req){
 function managerPerformanceRecruitmentPressure(){
   if(state.week<8) return 0;
   const pos=typeof clubLeaguePosition==="function"?clubLeaguePosition(state.club):10;
-  const target=byClub(state.club)?.target||10;
+  const target=typeof currentSportingTargetPosition==='function'?currentSportingTargetPosition(state.club):(byClub(state.club)?.target||10);
   const gap=pos-target;
 
   let pressure=0;
@@ -2049,7 +2050,7 @@ function ensureAIClubFinances(){
   if(!state) return;
   if(!state.aiClubFinances) state.aiClubFinances={};
 
-  DB.clubs.forEach(c=>{
+  fullSimulationClubs().forEach(c=>{
     if(c.name===state.club) return;
 
     if(!state.aiClubFinances[c.name]){
@@ -4170,7 +4171,7 @@ function processScheduledWorldMarketUpdate(dateISO){
   if(bucket===7){const saudi=new Set((DB.worldClubs||[]).filter(c=>c.leagueId==='saudi-pro-league').map(c=>c.name));recalculatePlayersMarketValues(DB.players.filter(p=>saudi.has(p.club)));}
 }
 function aiReviewClubsForDate(dateISO){
-  const clubs=DB.clubs.filter(c=>c.name!==state.club);const dow=new Date(`${dateISO}T12:00:00Z`).getUTCDay();
+  const clubs=fullSimulationClubs().filter(c=>c.name!==state.club);const dow=new Date(`${dateISO}T12:00:00Z`).getUTCDay();
   return clubs.filter((c,i)=>i%7===dow);
 }
 function reviewAIClubs(clubs,dateISO=currentGameDateISO()){
@@ -4189,7 +4190,7 @@ function recalculateAllPlayerMarketValues({recordHistory=false}={}){recalculateP
 function refreshAIPlayerAvailability(){
   ensurePlayerMarketState();
   if(!isTransferWindowOpen()) return;
-  DB.clubs.filter(c=>c.name!==state.club).forEach(c=>{
+  fullSimulationClubs().filter(c=>c.name!==state.club).forEach(c=>{
     const players=clubSquadPlayers(c.name);
     const byGroup={};
     players.forEach(p=>{
@@ -4891,7 +4892,10 @@ const EXTERNAL_TRANSFER_CLUBS=[
 function isWorldTransferClub(name){
   if(typeof worldClubByName!=="function") return false;
   const c=worldClubByName(name);
-  return Boolean(c && c.leagueId && c.leagueId!=="premier-league" && c.transferMarketEnabled!==false);
+  const activeLeague=typeof careerLeagueId==='function'?careerLeagueId():'premier-league';
+  // Clubs in the user's current division use the full AI finance/recruitment model.
+  // Other loaded leagues remain standard world-market clubs.
+  return Boolean(c && c.leagueId && c.leagueId!==activeLeague && c.transferMarketEnabled!==false);
 }
 
 function ensureWorldTransferFinanceState(){
@@ -5096,7 +5100,9 @@ function externalMarketCandidatesForPlayer(p,{listed=false}={}){
     })
     .map(x=>({...x.club,marketType:"External"}));
 
+  const activeLeague=typeof careerLeagueId==='function'?careerLeagueId():'premier-league';
   const worldCandidates=(DB.worldClubs||[])
+    .filter(club=>club.leagueId!==activeLeague)
     .filter(club=>club.leagueId!=="saudi-pro-league"&&club.transferMarketEnabled!==false)
     .map(club=>{
       const interest=playerInterestScore(p,club.name);
@@ -5172,7 +5178,7 @@ function interestedBuyersForPlayer(p,{listed=false}={}){
   const needDepth=listed?7:3;
   const fair=incomingOfferFairValue(p);
 
-  const premierLeague=DB.clubs
+  const premierLeague=fullSimulationClubs()
     .filter(c=>c.name!==state.club)
     .filter(c=>{
       // Reuse the club's weekly recruitment plan. Re-evaluating all 19 PL
@@ -5187,7 +5193,7 @@ function interestedBuyersForPlayer(p,{listed=false}={}){
       const testFee=fair*(listed?0.72:0.85);
       return transferBuyerCanAfford(c.name,p,testFee,wage).ok;
     })
-    .map(c=>({...c,marketType:"Premier League"}));
+    .map(c=>({...c,marketType:(typeof leagueById==='function'?leagueById(careerLeagueId())?.name:null)||"Domestic"}));
 
   const external=externalMarketCandidatesForPlayer(p,{listed})
     .map(c=>({...c,marketType:"External"}));
@@ -5454,7 +5460,7 @@ function simulateOneAITransfer(){
   ensureAIClubFinances();
   if(!isTransferWindowOpen()) return false;
 
-  const clubs=DB.clubs.filter(c=>c.name!==state.club);
+  const clubs=fullSimulationClubs().filter(c=>c.name!==state.club);
   const buyerPool=clubs.filter(c=>{
     const pressure=aiFinancialPressure(c.name);
     const investment=recruitmentInvestmentContext(c.name);
@@ -5593,7 +5599,7 @@ document.addEventListener("DOMContentLoaded",attachTransferDatabaseDelegation);
 
 function allAIClubFinanceSnapshots(){
   ensureAIClubFinances();
-  return DB.clubs
+  return fullSimulationClubs()
     .filter(c=>c.name!==state.club)
     .map(c=>aiFinanceSnapshot(c.name))
     .filter(Boolean)

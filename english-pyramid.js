@@ -1,12 +1,11 @@
 /* FOOTBALL CEO — ENGLISH LEAGUE PYRAMID FRAMEWORK v0.24.25
    Piece 9A: one canonical competition structure for the 92 PL/EFL clubs.
 
-   This module deliberately does NOT execute promotion/relegation or make the EFL
-   playable yet. It defines the shape those later pieces must use, including a
+   Piece 9B makes the Championship playable while deliberately leaving promotion/relegation and playoff execution disabled. It defines the shape those later pieces must use, including a
    static League Two floor with promotion upward but no National League relegation.
 */
 (function(){
-  const VERSION=1;
+  const VERSION=2;
   const SYSTEM_ID='english-league-system';
   const MOVEMENT_ENABLED=false;
   const PLAYOFF_EXECUTION_ENABLED=false;
@@ -22,7 +21,7 @@
     },
     {
       id:'championship',name:'Championship',tier:2,clubCount:24,rounds:2,matchesPerClub:46,totalLeagueFixtures:552,homeMatchesPerClub:23,
-      playable:false,futurePlayable:true,isEFL:true,
+      playable:true,futurePlayable:true,isEFL:true,
       promotion:{total:3,to:'premier-league',automatic:2,playoff:{from:3,to:6,winners:1}},
       relegation:{count:3,to:'league-one',staticFloor:false},
       tableRules:TABLE_RULES

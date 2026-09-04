@@ -1,4 +1,4 @@
-const CACHE_NAME = "football-ceo-v0.24.25-english-pyramid";
+const CACHE_NAME = "football-ceo-v0.24.28-commercial-reach-infrastructure";
 
 // Everything required to boot the current Football CEO build offline.
 // These paths are relative so they work correctly from the GitHub Pages

@@ -11,7 +11,7 @@
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="apple-touch-icon" sizes="180x180" href="icon-180.png">
 <link rel="icon" type="image/png" sizes="192x192" href="icon-192.png">
-<link rel="stylesheet" href="styles.css?v=02425-english-pyramid">
+<link rel="stylesheet" href="styles.css?v=02428-commercial-reach-infrastructure">
 </head>
 <body>
 <div class="shell">
@@ -35,6 +35,11 @@
 <div class="start-new-career-heading">
   <h2>New career</h2>
   <p class="muted small">Choose a club to create a separate save slot.</p>
+</div>
+
+<div class="club-league-filters" aria-label="Choose division">
+  <button class="club-league-filter active" type="button" data-club-league="premier-league">Premier League</button>
+  <button class="club-league-filter" type="button" data-club-league="championship">Championship</button>
 </div>
 
 <div class="club-grid" id="clubGrid">
@@ -753,29 +758,29 @@
 
 </section>
 </div>
-<script src="database.js?v=02425-english-pyramid"></script>
-<script src="world-leagues.js?v=02425-english-pyramid"></script>
-<script src="english-pyramid.js?v=02425-english-pyramid"></script>
-<script src="non-league-clubs.js?v=02425-english-pyramid"></script>
-<script src="world-players.js?v=02425-english-pyramid"></script>
-<script src="financial-profiles.js?v=02425-english-pyramid"></script>
-<script src="academy-profiles.js?v=02425-english-pyramid"></script>
-<script src="ownership-profiles.js?v=02425-english-pyramid"></script>
-<script src="sporting-expectations.js?v=02425-english-pyramid"></script>
-<script src="championship-simulation.js?v=02425-english-pyramid"></script>
-<script src="state.js?v=02425-english-pyramid"></script>
-<script src="ageing.js?v=02425-english-pyramid"></script>
-<script src="finance.js?v=02425-english-pyramid"></script>
-<script src="stadiums.js?v=02425-english-pyramid"></script>
-<script src="stakeholders.js?v=02425-english-pyramid"></script>
-<script src="staff.js?v=02425-english-pyramid"></script>
-<script src="commercial.js?v=02425-english-pyramid"></script>
-<script src="transfers.js?v=02425-english-pyramid"></script>
-<script src="loans.js?v=02425-english-pyramid"></script>
-<script src="player-lifecycle.js?v=02425-english-pyramid"></script>
-<script src="simulation.js?v=02425-english-pyramid"></script>
-<script src="ui.js?v=02425-english-pyramid"></script>
-<script src="game.js?v=02425-english-pyramid"></script>
+<script src="database.js?v=02428-commercial-reach-infrastructure"></script>
+<script src="world-leagues.js?v=02428-commercial-reach-infrastructure"></script>
+<script src="english-pyramid.js?v=02428-commercial-reach-infrastructure"></script>
+<script src="non-league-clubs.js?v=02428-commercial-reach-infrastructure"></script>
+<script src="world-players.js?v=02428-commercial-reach-infrastructure"></script>
+<script src="financial-profiles.js?v=02428-commercial-reach-infrastructure"></script>
+<script src="academy-profiles.js?v=02428-commercial-reach-infrastructure"></script>
+<script src="ownership-profiles.js?v=02428-commercial-reach-infrastructure"></script>
+<script src="sporting-expectations.js?v=02428-commercial-reach-infrastructure"></script>
+<script src="championship-simulation.js?v=02428-commercial-reach-infrastructure"></script>
+<script src="state.js?v=02428-commercial-reach-infrastructure"></script>
+<script src="ageing.js?v=02428-commercial-reach-infrastructure"></script>
+<script src="finance.js?v=02428-commercial-reach-infrastructure"></script>
+<script src="stadiums.js?v=02428-commercial-reach-infrastructure"></script>
+<script src="stakeholders.js?v=02428-commercial-reach-infrastructure"></script>
+<script src="staff.js?v=02428-commercial-reach-infrastructure"></script>
+<script src="commercial.js?v=02428-commercial-reach-infrastructure"></script>
+<script src="transfers.js?v=02428-commercial-reach-infrastructure"></script>
+<script src="loans.js?v=02428-commercial-reach-infrastructure"></script>
+<script src="player-lifecycle.js?v=02428-commercial-reach-infrastructure"></script>
+<script src="simulation.js?v=02428-commercial-reach-infrastructure"></script>
+<script src="ui.js?v=02428-commercial-reach-infrastructure"></script>
+<script src="game.js?v=02428-commercial-reach-infrastructure"></script>
 
 
 <div id="tutorialModal" class="tutorial-overlay hide">
@@ -1241,7 +1246,7 @@
 <script>
 if ("serviceWorker" in navigator) {
   window.addEventListener("load", () => {
-    navigator.serviceWorker.register("./sw.js?v=02425-english-pyramid").catch(err => {
+    navigator.serviceWorker.register("./sw.js?v=02428-commercial-reach-infrastructure").catch(err => {
       console.warn("Football CEO service worker registration failed:", err);
     });
   });

@@ -1,109 +1,65 @@
-Football CEO v0.24.7 — Test Report
-==================================
+FOOTBALL CEO v0.24.28 — PIECE 9B.2 TEST REPORT
+Build: 0.24.28-piece-9b2-commercial-reach-infrastructure-costs
 
-Build focus
+AUTOMATED SUITES
+----------------
+PASS Piece 8A ownership profiles
+PASS Piece 8B dynamic sporting expectations
+PASS Piece 9A English pyramid framework
+PASS Piece 9B Championship playability
+PASS Piece 9B.1 Championship regression/finance fixes
+PASS Piece 9B.2 commercial/facility/stadium/staff architecture
+PASS regression-fix preservation suite
+
+PIECE 9B.2 ACCEPTANCE CHECKS
+----------------------------
+PASS Commercial Reach persists in save state and updates gradually.
+PASS Sponsor benchmark is not a flat division value.
+PASS Neutral Championship benchmark examples:
+     Bristol City ~£3.30m
+     Sheffield Wednesday ~£3.50m
+     Watford ~£4.25m
+     Leicester City ~£6.40m
+PASS Promotion exposure materially changes sponsor value without erasing brand identity:
+     Bristol City Championship ~£3.30m -> PL ~£6.75m
+     Leicester City Championship ~£6.40m -> PL ~£11.75m
+PASS Existing staff contracts: promotion +20%, relegation -15%.
+PASS New staff hires continue to use divisional market salary scales.
+PASS Facility costs no longer use extreme PL/EFL repricing.
+PASS Same Bristol facility set changes by <12% when league is switched Championship -> PL in the architecture test.
+PASS Stadium fixed operations rise materially with capacity.
+PASS Matchday staffing rises materially with expected attendance/capacity.
+PASS Commercial Reach + sponsor benchmark visible in Finance UI.
+
+THREE-SEASON HANDS-OFF REGRESSIONS
+----------------------------------
+Same seeded football/finance harness as the prior Championship regression. User transfer decisions remain disabled, so later squad shrinkage from contract expiry is expected.
+
+Bristol City:
+  2025/26 19th, P/L -£3.20m, closing cash £2.80m
+  2026/27 11th, P/L +£0.48m, closing cash £3.28m
+  2027/28 12th, P/L +£5.06m, closing cash £8.34m
+  Sponsor revenue starts ~£3.3m.
+
+Leicester City:
+  2025/26 24th, P/L -£6.49m, closing cash £23.51m
+  2026/27 7th, P/L +£10.29m, closing cash £33.80m
+  2027/28 4th, P/L +£22.57m, closing cash £56.36m
+  Sponsor revenue starts ~£6.4m.
+
+Sheffield Wednesday:
+  2025/26 20th, P/L -£3.84m, closing cash -£0.84m
+  2026/27 11th, P/L -£3.82m, closing cash -£4.66m
+  2027/28 21st, P/L approximately break-even, closing cash -£4.64m
+  Sponsor revenue starts ~£3.5m.
+
+KNOWN LIMITATION
+----------------
+The hands-off test deliberately does not renew/replace user players. Later-season wage bills therefore fall as contracts expire. Proper contract-renewal and long-term squad-maintenance logic remains a separate roadmap system.
+
+SCOPE CHECK
 -----------
-League-linked youth quality, sustainable future-player distribution and scalable world intake.
-
-League-linked youth regression
-------------------------------
-PASS — Current Premier League youth environment is materially stronger than the Championship.
-Measured starting league environments:
-- Premier League: 79.12
-- Championship: 70.76
-- La Liga: 77.60
-- Bundesliga: 76.67
-- Serie A: 76.91
-- Ligue 1: 75.03
-
-Synthetic environment test (12,000 players per context):
-- Elite academy / top league: 71.51 avg starting OVR, 79.31 avg POT
-- Championship-level environment: 62.37 avg starting OVR, 76.20 avg POT
-- Lower-league environment: 57.38 avg starting OVR, 74.79 avg POT
-
-PASS — Starting current ability forms a strong pyramid.
-PASS — Potential differences are much smaller than starting-OVR differences.
-PASS — Lower-level environments still produce rare 85+ and 90+ potential prospects.
-PASS — AI academy estimates distinguish elite and mid-level clubs.
-PASS — Generated players store youth origin / league environment / academy environment.
-PASS — League environment uses 20% annual smoothing.
-
-Production intake distribution
-------------------------------
-5,000-player production intake sample:
-- Championship: 62.20 average starting OVR / 76.17 POT
-- Premier League: 67.16 / 77.51
-- La Liga: 67.95 / 78.38
-- Bundesliga: 67.44 / 78.03
-- Serie A: 66.63 / 77.33
-- Ligue 1: 65.76 / 77.33
-
-PASS — Top-flight generated players enter materially closer to senior football than Championship players.
-PASS — Potential remains less tightly tied to league standard than current ability.
-
-10-year generated-player pathway sanity
-----------------------------------------
-Production generator + production ageing/development/loan bonus, 1,200 players:
-- Prime-age average OVR: 74.31
-- 75+: 48.0%
-- 80+: 20.1%
-- 85+: 5.0%
-- 90+: 0.25%
-- Championship-origin prime average: 71.78
-- Top-flight-origin prime average: 74.98
-
-PASS — 80+ pool is large enough to sustain top-flight recruitment.
-PASS — 85+ players remain a minority.
-PASS — 90+ players exist but remain exceptional.
-PASS — Development preserves a meaningful league-quality gradient.
-
-10,000-player stress run
-------------------------
-- Prime-age average OVR: 74.56
-- 75+: 50.9%
-- 80+: 20.0%
-- 85+: 5.4%
-- 90+: 0.37%
-
-Current loaded-league ages 26–29 benchmark:
-- Average OVR: 74.97
-- 75+: 51.17%
-- 80+: 17.25%
-- 85+: 4.31%
-- 90+: 0.35%
-
-PASS — Future generated talent broadly reproduces the current loaded-league quality curve rather than creating the previous elite-player shortage.
-
-Future pyramid / scalability regression
----------------------------------------
-Current annual world-intake target: 151 players (+ user academy intake).
-Synthetic addition of League One + League Two (48 clubs): target rises to 168 before adding those leagues' player databases.
-Synthetic league standards: League One 65.5, League Two 60.5.
-PASS — Intake volume scales with future league expansion.
-PASS — Lower divisions naturally receive lower starting-OVR youth.
-PASS — Future lower-league additions do not require a separate youth-generator implementation.
-
-Retained regressions
---------------------
-PASS — Loans & Player Pathways core regression.
-PASS — Four-season loan development cohort advantage.
-PASS — Ageing/longevity distribution and scalability.
-PASS — Aston Villa veteran decline projection.
-PASS — Summer squad planning / Bournemouth internal replacement.
-PASS — Retired-player recruitment exclusion.
-PASS — Controlled Saudi premium pricing.
-PASS — Recruitment-plan continuity / contract priority.
-PASS — Manager return cooldown.
-
-Packaging
----------
-PASS — All JavaScript and packaged tests pass Node syntax validation.
-PASS — All packaged regression tests pass.
-PASS — Cache-busting asset versions advanced to 0247-youth1.
-PASS — Service worker cache advanced to football-ceo-v0.24.7-pwa-1.
-
-Limitations
------------
-- This build models League One/League Two readiness generically; it does not add those leagues themselves.
-- Full AI academy facility investment is not yet simulated. AI academy strength currently uses stable club-specific estimates.
-- The 10-year cohort is a world/pathway regression, not a full user-controlled Aston Villa CEO save.
+Promotion/relegation movement: DISABLED
+Play-off execution: DISABLED
+League One/League Two playability: DISABLED
+League Two National League relegation: NONE (intentional static floor)

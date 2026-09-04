@@ -1,0 +1,49 @@
+FOOTBALL CEO — PIECE 9B.2: COMMERCIAL REACH + MOVEMENT-SAFE COSTS
+Version: v0.24.28
+
+Purpose
+-------
+Prepare finance architecture for future promotion/relegation without making promotion/relegation executable yet.
+
+Implemented
+-----------
+1. Persistent Commercial Reach
+- Commercial reach is seeded from reputation, supporter demand, attendance, stadium scale and current league exposure.
+- The score changes gradually across seasons instead of resetting with division.
+- Sponsor benchmark uses club reputation, fan exposure, stadium scale, financial scale, league exposure, commercial growth and sponsor relationship.
+- Bigger clubs within the same division can therefore command materially different deals.
+- Finance UI now shows a qualitative Commercial Reach label and current main-sponsor benchmark.
+
+2. Sponsor examples at neutral 2025/26 state
+- Bristol City: ~£3.3m benchmark
+- Sheffield Wednesday: ~£3.5m
+- Watford: ~£4.25m
+- Leicester City: ~£6.4m
+- If promoted immediately, the same benchmark rises to roughly £6.75m for Bristol and £11.75m for Leicester before longer-term brand growth.
+- Individual offers still vary by term, supporter controversy and sporting performance.
+
+3. Staff movement clauses
+- New staff hires remain priced at divisional market rates.
+- Existing manager/DoF/Head Physio contracts are not rewritten to full market rates on movement.
+- Promotion applies a +20% contractual wage adjustment.
+- Relegation applies a -15% contractual wage adjustment.
+- The canonical recordLeagueMovement hook triggers the staff adjustment automatically for future movement code.
+
+4. Facility running costs
+- Training, medical and recruitment costs now depend primarily on facility quality and the club's scale/reputation.
+- Division is only a modest standards modifier (PL 1.08, Championship 1.00, League One 0.92, League Two 0.86).
+- Academy running costs remain primarily programme/category based, with a modest club-scale factor.
+- The same Bristol example facilities rise only ~7.5% when switched from Championship to PL, rather than ~4.5x.
+
+5. Stadium operating costs
+- Fixed stadium cost is capacity-driven.
+- Matchday staffing cost is driven by expected attendance plus a smaller capacity/readiness overhead.
+- A large underused ground therefore remains more expensive than a small ground, while a full large ground requires more matchday staffing.
+- Promotion does not reprice the physical stadium.
+
+Scope deliberately unchanged
+-----------------------------
+- Promotion/relegation execution remains disabled.
+- Championship play-offs remain disabled.
+- League One and League Two remain non-playable.
+- League Two remains the static bottom division with no National League relegation.

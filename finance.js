@@ -10,9 +10,9 @@
 
   const LEAGUE_FINANCE_ARCHITECTURE={
     'premier-league':{name:'Premier League',clubs:20,homeGames:19,budgetStep:5_000_000,cashSeedRate:.12,liquidityReserveRate:.06,operatingCostMultiplier:1.00,equalCentral:88_000_000,baseFacility:12_000_000,meritPerPlace:3_000_000,facilityPerPlace:550_000,provisional:false},
-    'championship':{name:'Championship',clubs:24,homeGames:23,budgetStep:500_000,cashSeedRate:.05,liquidityReserveRate:.045,operatingCostMultiplier:.22,equalCentral:10_750_000,baseFacility:0,meritPerPlace:0,facilityPerPlace:0,provisional:false},
-    'league-one':{name:'League One',clubs:24,homeGames:23,budgetStep:100_000,cashSeedRate:.04,liquidityReserveRate:.04,operatingCostMultiplier:.07,equalCentral:2_000_000,baseFacility:0,meritPerPlace:0,facilityPerPlace:0,provisional:false},
-    'league-two':{name:'League Two',clubs:24,homeGames:23,budgetStep:50_000,cashSeedRate:.035,liquidityReserveRate:.035,operatingCostMultiplier:.045,equalCentral:1_500_000,baseFacility:0,meritPerPlace:0,facilityPerPlace:0,provisional:false}
+    'championship':{name:'Championship',clubs:24,homeGames:23,budgetStep:500_000,cashSeedRate:.05,liquidityReserveRate:.045,operatingCostMultiplier:.09,equalCentral:10_750_000,baseFacility:0,meritPerPlace:0,facilityPerPlace:0,provisional:false},
+    'league-one':{name:'League One',clubs:24,homeGames:23,budgetStep:100_000,cashSeedRate:.04,liquidityReserveRate:.04,operatingCostMultiplier:.03,equalCentral:2_000_000,baseFacility:0,meritPerPlace:0,facilityPerPlace:0,provisional:false},
+    'league-two':{name:'League Two',clubs:24,homeGames:23,budgetStep:50_000,cashSeedRate:.035,liquidityReserveRate:.035,operatingCostMultiplier:.02,equalCentral:1_500_000,baseFacility:0,meritPerPlace:0,facilityPerPlace:0,provisional:false}
   };
   function clubLeagueId(){
     if(state?.leagueId)return state.leagueId;
@@ -32,7 +32,25 @@
   window.leagueFinanceArchitecture=leagueFinanceArchitecture;
   window.playingBudgetAllocationStep=function(){return leagueFinanceArchitecture().budgetStep;};
   window.leagueOperatingCostMultiplier=function(){return leagueFinanceArchitecture().operatingCostMultiplier;};
+  // Buildings do not become several times more expensive simply because the club
+  // changes division. Facility quality + club scale now do the heavy lifting.
+  // This helper remains for compatibility and represents only a modest standards uplift.
+  window.leagueFacilityCostMultiplier=function(id=clubLeagueId()){return id==='premier-league'?1.08:id==='championship'?1:id==='league-one'?.92:.86;};
+  // New appointments are priced at the market for the current level. Existing staff
+  // are handled separately by applyStaffDivisionMovement so promotion does not instantly
+  // rewrite an agreed contract to the full divisional market rate.
+  window.leagueStaffSalaryMultiplier=function(id=clubLeagueId()){return id==='championship'?.55:id==='league-one'?.32:id==='league-two'?.24:1;};
   window.leagueHomeMatchCount=function(){return leagueFinanceArchitecture().homeGames;};
+  const LEAGUE_RANK={'premier-league':1,'championship':2,'league-one':3,'league-two':4};
+  window.applyStaffDivisionMovement=function(fromLeagueId,toLeagueId){
+    if(!state?.staff||!fromLeagueId||!toLeagueId||fromLeagueId===toLeagueId)return {changed:false,multiplier:1};
+    const from=LEAGUE_RANK[fromLeagueId]||2,to=LEAGUE_RANK[toLeagueId]||2;
+    const promoted=to<from,relegated=to>from;
+    const multiplier=promoted?1.20:relegated?.85:1;
+    ['manager','dof','physio'].forEach(role=>{const person=state.staff?.[role];if(person?.wage)person.wage=Math.max(500,Math.round((person.wage*multiplier)/500)*500);});
+    state.staffDivisionAdjustment={season:state.season?.label||null,fromLeagueId,toLeagueId,type:promoted?'promotion':relegated?'relegation':'movement',multiplier};
+    return {changed:true,promoted,relegated,multiplier};
+  };
 
   function profile(){
     if(typeof financialProfileForClub==='function' && state?.club) return financialProfileForClub(state.club);
@@ -110,11 +128,22 @@
   };
   window.premierLeagueRevenueForFinish=function(finish=10){return leagueRevenueForFinish(finish,'premier-league');};
   window.calibrateClubRevenueModel=function(){
-    if(!state)return null;const f=state.clubFinances||{},p=profile(),leagueId=clubLeagueId(),arch=leagueFinanceArchitecture(leagueId),expectedFinish=expectedLeagueFinish(),dist=leagueRevenueForFinish(expectedFinish,leagueId);let matchday=0;
-    try{if(typeof projectedMatchday==='function')matchday=(projectedMatchday().accountingRevenue??projectedMatchday().revenue??0)*(arch.homeGames||19);}catch(e){}
-    const sponsor=p.sponsorBaseline||0,commercialRetail=Math.max(0,leagueRound(Math.max(0,(Number(p.revenue)||0)-dist.total-sponsor-matchday)));
-    f.revenueModel={calibratedSeason:seasonKey(),leagueId,baseFootballRevenue:p.revenue,expectedFinish,commercialRetailAnnual:commercialRetail,baselineSponsor:sponsor,baselineMatchday:matchday,europeanCompetitionAnnual:0,provisionalLeagueModel:!!arch.provisional};state.clubFinances=f;return f.revenueModel;
+    if(!state)return null;
+    const f=state.clubFinances||{},p=profile(),leagueId=clubLeagueId(),arch=leagueFinanceArchitecture(leagueId),expectedFinish=expectedLeagueFinish(),dist=leagueRevenueForFinish(expectedFinish,leagueId);
+    let rawMatchday=0;
+    state._calibratingRevenueModel=true;
+    try{if(typeof projectedMatchday==='function'){const md=projectedMatchday();rawMatchday=(md.unscaledAccountingRevenue??md.accountingRevenue??md.revenue??0)*(arch.homeGames||19);}}catch(e){}finally{state._calibratingRevenueModel=false;}
+    const totalRevenue=Math.max(0,Number(p.revenue)||0),sponsor=Math.max(0,Number(typeof commercialSponsorBenchmark==='function'?commercialSponsorBenchmark(state.club):p.sponsorBaseline)||0),availableAfterCentral=Math.max(0,totalRevenue-dist.total-sponsor);
+    // Keep a meaningful commercial/retail stream even for clubs with large grounds.
+    // Matchday income can still outperform/underperform this baseline through pricing,
+    // attendances and stadium growth; it simply no longer swamps the club profile at day one.
+    const commercialFloor=Math.max(leagueId==='premier-league'?8_000_000:leagueId==='championship'?1_500_000:leagueId==='league-one'?350_000:200_000,totalRevenue*(leagueId==='premier-league'?.22:.20));
+    const targetMatchday=Math.max(0,Math.min(rawMatchday,Math.max(0,availableAfterCentral-commercialFloor)));
+    const commercialRetail=Math.max(0,leagueRound(availableAfterCentral-targetMatchday,leagueId));
+    const matchdayScale=rawMatchday>0?clampF(targetMatchday/rawMatchday,.08,1):1;
+    f.revenueModel={calibratedSeason:seasonKey(),leagueId,baseFootballRevenue:totalRevenue,expectedFinish,commercialRetailAnnual:commercialRetail,baselineSponsor:sponsor,baselineMatchday:targetMatchday,rawBaselineMatchday:rawMatchday,matchdayScale,europeanCompetitionAnnual:0,provisionalLeagueModel:!!arch.provisional};state.clubFinances=f;return f.revenueModel;
   };
+  window.currentMatchdayRevenueScale=function(){if(state?._calibratingRevenueModel)return 1;const m=state?.clubFinances?.revenueModel;return clampF(Number(m?.matchdayScale??1),.08,1);};
   window.clubRevenueModel=function(){const f=ensureClubFinanceState();if(!f.revenueModel||f.revenueModel.leagueId!==clubLeagueId())calibrateClubRevenueModel();return f.revenueModel;};
   window.annualCommercialRetailRevenue=function(){
     const m=clubRevenueModel(),base=m?.commercialRetailAnnual||0,c=typeof byClub==='function'?byClub(state.club):null,startingRep=Number(c?.reputation||72),currentRep=typeof savedClubReputation==='function'?savedClubReputation():startingRep;

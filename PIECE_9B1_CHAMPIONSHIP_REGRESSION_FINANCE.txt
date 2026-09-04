@@ -1,0 +1,42 @@
+FOOTBALL CEO — PIECE 9B.1 CHAMPIONSHIP REGRESSION & FINANCE FIXES
+Version: v0.24.27-piece-9b1-championship-regression-finance
+
+Purpose
+-------
+Stabilise playable Championship careers before promotion/relegation work begins.
+
+Changes
+-------
+1. Fixed EFL user players being processed twice at season rollover. Continuing players now age exactly +1 per summer and receive only one year-end development/lifecycle pass.
+2. Rebuilt sponsorship offer calibration around each club's financial profile sponsor baseline, current reputation and sporting performance. Missing legacy PL target data can no longer create NaN offers.
+3. Added a shared currentSportingTargetPosition() helper and routed key supporter, morale, manager-pressure, recruitment and reputation logic through Dynamic Sporting Expectations.
+4. Championship season-ticket pricing and per-match revenue recognition now use the league's 23 home matches instead of a hard-coded 19.
+5. Recalibrated EFL cost architecture:
+   - Championship core overhead multiplier: 0.09
+   - Championship non-academy facility running multiplier: 0.22
+   - Championship senior staff salary multiplier: 0.45
+   League One/League Two equivalents are also pre-scaled for future playability.
+6. Added one-time EFL staff-salary migration for saves created in the prior playable-Championship build.
+7. Added club-profile matchday revenue calibration. Large stadiums still generate more revenue and pricing/attendance still matter, but day-one matchday/commercial income now fits inside the club-specific modelled revenue profile instead of swamping it.
+
+Regression findings
+-------------------
+Seeded three-season hands-off tests were rerun for Bristol City, Leicester City and Sheffield Wednesday. Promotion/relegation remains disabled, so league finishes do not move clubs between divisions.
+
+First-season P/L with no transfer spending:
+- Bristol City: approx -£1.4m
+- Leicester City: approx -£2.2m
+- Sheffield Wednesday: approx -£0.9m
+
+Bristol sponsor offers: approx £2.50m / £2.75m / £3.25m / £3.10m against a £2.75m profile baseline.
+Bristol continuing-player summer age delta: +1 exactly.
+
+A 24-club Championship finance audit keeps modelled starting football revenue close to each club's club-specific financial profile. Some clubs remain structurally loss-making by design, particularly where payroll is high relative to revenue; player trading/owner support is intended to matter.
+
+Out of scope
+------------
+- Promotion/relegation execution
+- Playoff match execution
+- League One/League Two playability
+- AI/user contract renewal automation
+- Parachute payments

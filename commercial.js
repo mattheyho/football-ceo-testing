@@ -6,6 +6,80 @@
   function opCap(){ return typeof currentOperationalCapacity==='function'?currentOperationalCapacity():cap(); }
   function cclamp(v,a,b){return Math.max(a,Math.min(b,v));}
 
+  const COMMERCIAL_LEAGUE_EXPOSURE={'premier-league':1,'championship':.58,'league-one':.32,'league-two':.22};
+  function commercialLeagueId(club){
+    if(typeof state!=='undefined'&&state?.club===club&&state?.leagueId)return state.leagueId;
+    try{return (typeof leagueForClub==='function'?leagueForClub(club)?.id:null)||'premier-league';}catch(e){return 'premier-league';}
+  }
+  function commercialCapacity(club){
+    if(typeof state!=='undefined'&&state?.club===club){
+      try{if(typeof currentStadiumCapacity==='function')return Math.max(1000,n(currentStadiumCapacity(),1000));}catch(e){}
+    }
+    try{return Math.max(1000,n(typeof STADIUMS!=='undefined'?STADIUMS?.[club]?.capacity:0,12000));}catch(e){return 12000;}
+  }
+  function commercialStartingDemand(club,rep,capacity){
+    if(typeof state!=='undefined'&&state?.club===club&&state?.supporters?.demand!=null)return Math.max(1000,n(state.supporters.demand));
+    const mult=cclamp(.82+(rep-70)*.011,.72,1.28);
+    return Math.max(1000,Math.round(capacity*mult));
+  }
+  function commercialSignal(club){
+    const c=typeof byClub==='function'?byClub(club):null;
+    const rep=n((typeof state!=='undefined'&&state?.club===club&&typeof savedClubReputation==='function')?savedClubReputation():c?.reputation,70);
+    const capacity=commercialCapacity(club),demand=commercialStartingDemand(club,rep,capacity);
+    let attendance=Math.min(capacity,demand*.90);
+    if(typeof state!=='undefined'&&state?.club===club&&state?.matchdayStats?.homeGames>0)attendance=n(state.matchdayStats.attendance)/Math.max(1,n(state.matchdayStats.homeGames));
+    const leagueId=commercialLeagueId(club),leagueExposure=COMMERCIAL_LEAGUE_EXPOSURE[leagueId]||.2;
+    const fanScore=cclamp((demand/60000)*100,12,100),attendanceScore=cclamp((attendance/55000)*100,10,100),stadiumScore=cclamp((capacity/60000)*100,10,100);
+    const score=cclamp(rep*.52+fanScore*.17+attendanceScore*.11+stadiumScore*.08+leagueExposure*100*.12,25,100);
+    return {score,rep,capacity,demand,attendance,leagueId,leagueExposure};
+  }
+  window.ensureCommercialReachState=function(){
+    if(typeof state==='undefined'||!state?.club)return null;
+    const signal=commercialSignal(state.club);
+    if(!state.commercialReach){
+      state.commercialReach={version:1,seedScore:signal.score,score:signal.score,lastSignal:signal.score,lastLeagueId:signal.leagueId,lastSeason:state.season?.label||null,history:[]};
+    }
+    if(!Array.isArray(state.commercialReach.history))state.commercialReach.history=[];
+    return state.commercialReach;
+  };
+  window.refreshCommercialReach=function({seasonRollover=false}={}){
+    const cr=ensureCommercialReachState();if(!cr)return null;
+    const signal=commercialSignal(state.club),alpha=seasonRollover?.24:.08;
+    cr.score=cclamp(cr.score*(1-alpha)+signal.score*alpha,25,100);cr.lastSignal=signal.score;cr.lastLeagueId=signal.leagueId;cr.lastSeason=state.season?.label||cr.lastSeason;
+    if(seasonRollover){cr.history.push({season:state.season?.label||null,score:Math.round(cr.score*10)/10,leagueId:signal.leagueId,demand:Math.round(signal.demand),attendance:Math.round(signal.attendance)});cr.history=cr.history.slice(-12);}
+    return cr;
+  };
+  window.commercialReachScore=function(club=(typeof state!=='undefined'?state?.club:null)){
+    if(!club)return 50;
+    if(typeof state!=='undefined'&&state?.club===club){const cr=ensureCommercialReachState();return cr?cr.score:commercialSignal(club).score;}
+    return commercialSignal(club).score;
+  };
+  window.commercialReachLabel=function(score=commercialReachScore()){
+    score=n(score,50);return score>=88?'Global':score>=80?'Elite national':score>=70?'Strong national':score>=60?'Established':score>=50?'Regional':score>=40?'Developing':'Local';
+  };
+  window.commercialSponsorBenchmark=function(club=(typeof state!=='undefined'?state?.club:null)){
+    if(!club)return 1_000_000;
+    const c=typeof byClub==='function'?byClub(club):null,p=typeof financialProfileForClub==='function'?financialProfileForClub(club):null;
+    const sig=commercialSignal(club),rep=sig.rep,capacity=sig.capacity,demand=sig.demand,fanExposure=(Math.min(capacity,demand)/10000),revenue=Math.max(0,n(p?.revenue));
+    const coeff={
+      'premier-league':{base:3_000_000,rep:450_000,fans:700_000,revenue:.030},
+      'championship':{base:400_000,rep:220_000,fans:400_000,revenue:.025},
+      'league-one':{base:150_000,rep:85_000,fans:240_000,revenue:.018},
+      'league-two':{base:100_000,rep:55_000,fans:180_000,revenue:.014}
+    }[sig.leagueId]||{base:250_000,rep:100_000,fans:250_000,revenue:.02};
+    const structural=coeff.base+Math.max(0,rep-60)*coeff.rep+fanExposure*coeff.fans+revenue*coeff.revenue;
+    const anchor=Math.max(100_000,n(p?.sponsorBaseline,structural));
+    let base=structural*.70+anchor*.30;
+    if(typeof state!=='undefined'&&state?.club===club){
+      const cr=ensureCommercialReachState();
+      const growth=cclamp(1+(n(cr?.score)-n(cr?.seedScore))*.022,.65,1.65);
+      const relationship=cclamp(.95+(n(state.happiness?.sponsors,70)-70)*.003,.85,1.08);
+      base*=growth*relationship;
+    }
+    const step=sig.leagueId==='premier-league'?250_000:sig.leagueId==='championship'?50_000:25_000;
+    return Math.max(step,Math.round(base/step)*step);
+  };
+
   window.ensureTicketingState=function(){
     if(!state) return null;
     if(typeof ensureDynamicStadiumState==='function') ensureDynamicStadiumState();
@@ -53,7 +127,8 @@
     const p=state.pricing||defaultPricing(state.club);
     const avgMatch=n(p.ticket)*.76+n(p.concession)*.24;
     const discount=cclamp(n(state.seasonTicketDiscount,15),0,60)/100;
-    return Math.max(1,Math.round(avgMatch*19*(1-discount)));
+    const homeGames=typeof leagueHomeMatchCount==='function'?leagueHomeMatchCount():19;
+    return Math.max(1,Math.round(avgMatch*homeGames*(1-discount)));
   };
 
   function fanDemandFactor(){
@@ -63,7 +138,7 @@
 
   function performanceApplicationFactor(){
     let result=1;
-    const target=typeof byClub==='function'?(byClub(state.club)?.target||10):10;
+    const target=typeof currentSportingTargetPosition==='function'?currentSportingTargetPosition(state.club):(typeof byClub==='function'?(byClub(state.club)?.target||10):10);
     const pos=typeof clubLeaguePosition==='function'?clubLeaguePosition(state.club):target;
     if(state.week>=5){
       if(pos<=target-4) result+=.10;
@@ -100,7 +175,10 @@
     const sold=Math.min(allocation,renewals+waitingAccepted+brandNewSales);
     const waitingList=Math.max(0,oldWaiting-waitingAccepted)+Math.max(0,brandNewDemand-brandNewSales);
     const avgPrice=averageSeasonTicketUnitPrice();
-    return {allocation,previousSold:prevSold,renewalRate,renewals,waitingAccepted,newSales:waitingAccepted+brandNewSales,applications,sold,waitingList,avgPrice,revenue:sold*avgPrice};
+    const rawRevenue=sold*avgPrice;
+    const revenueScale=typeof currentMatchdayRevenueScale==='function'?currentMatchdayRevenueScale():1;
+    const revenue=Math.round(rawRevenue*revenueScale);
+    return {allocation,previousSold:prevSold,renewalRate,renewals,waitingAccepted,newSales:waitingAccepted+brandNewSales,applications,sold,waitingList,avgPrice,rawRevenue,revenue,revenueScale};
   };
 
   window.processSeasonTicketSales=function(){
@@ -125,7 +203,7 @@
   window.updateSupporterDemandWeekly=function(){
     const st=ensureTicketingState();
     const s=state.supporters;
-    const target=byClub(state.club)?.target||10;
+    const target=typeof currentSportingTargetPosition==='function'?currentSportingTargetPosition(state.club):(byClub(state.club)?.target||10);
     const pos=typeof clubLeaguePosition==='function'?clubLeaguePosition(state.club):target;
     const h=n(state.happiness?.fans,70);
     let weekly=0;
@@ -195,13 +273,19 @@
     const ticketRevenue=adult*state.pricing.ticket+concessions*state.pricing.concession;
     const hospitalityRevenue=hospitalitySold*state.pricing.hospitality;
     const foodTake=attendance*state.pricing.food*.68;
-    const revenue=Math.round(ticketRevenue+hospitalityRevenue+foodTake);
-    const seasonTicketRecognized=Math.round((st.revenue||0)/19);
+    const rawRevenue=Math.round(ticketRevenue+hospitalityRevenue+foodTake);
+    const revenueScale=typeof currentMatchdayRevenueScale==='function'?currentMatchdayRevenueScale():1;
+    const revenue=Math.round(rawRevenue*revenueScale);
+    const homeGames=typeof leagueHomeMatchCount==='function'?leagueHomeMatchCount():19;
+    const projectedSeasonTicketRevenue=st.revenue||((!st.processed&&typeof projectSeasonTicketSales==='function')?projectSeasonTicketSales().revenue:0);
+    const seasonTicketRecognized=Math.round(projectedSeasonTicketRevenue/Math.max(1,homeGames));
     const accountingRevenue=revenue+seasonTicketRecognized;
+    const unscaledSeasonTicketRevenue=st.rawRevenue||((!st.processed&&typeof projectSeasonTicketSales==='function')?projectSeasonTicketSales().rawRevenue:0)||0;
+    const unscaledAccountingRevenue=rawRevenue+Math.round(unscaledSeasonTicketRevenue/Math.max(1,homeGames));
     const demand=capacity?attendance/capacity:0;
     return {
       demand,pricingOnlyDemand:matchdayPriceDemand(),fanHappinessAttendanceMultiplier:fanMultiplier,
-      attendance,revenue,accountingRevenue,seasonTicketRecognized,hospitalitySold,stAttendance,matchdayTickets,showRate,
+      attendance,revenue,rawRevenue,revenueScale,accountingRevenue,unscaledAccountingRevenue,seasonTicketRecognized,hospitalitySold,stAttendance,matchdayTickets,showRate,
       supporterDemand:n(state.supporters?.demand),capacity
     };
   };

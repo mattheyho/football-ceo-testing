@@ -1,8 +1,9 @@
-/* Football CEO v0.24.8 — lightweight background league simulation.
-   Championship, League One, League Two, La Liga, Bundesliga, Serie A and Ligue 1 are simulated.
+/* Football CEO v0.24.26 — lightweight background league simulation.
+   The user's active league is excluded; the other configured leagues run in the background.
    Saudi Pro League is deliberately transfer-market only. */
 
 const BACKGROUND_LEAGUE_CONFIG={
+  'premier-league':{start:'08-16',end:'05-24'},
   'championship':{start:'08-09',end:'05-02'},
   'league-one':{start:'08-02',end:'05-02'},
   'league-two':{start:'08-02',end:'05-02'},
@@ -59,6 +60,8 @@ function simulateWorldLeagueRound(id,roundNo){
   c.week=roundNo;return true;
 }
 function worldLeagueStandings(id){
+  const active=typeof careerLeagueId==='function'?careerLeagueId():state?.leagueId;
+  if(id===active&&state?.table){return Object.entries(state.table).map(([name,x])=>({name,...x,gd:x.gf-x.ga})).sort((a,b)=>b.pts-a.pts||b.gd-a.gd||b.gf-a.gf||a.name.localeCompare(b.name));}
   const c=ensureWorldCompetitionState(id);if(!c)return[];
   return Object.entries(c.table).map(([name,x])=>({name,...x,gd:x.gf-x.ga})).sort((a,b)=>b.pts-a.pts||b.gd-a.gd||b.gf-a.gf||a.name.localeCompare(b.name));
 }
@@ -71,7 +74,8 @@ function backgroundLeagueProgressTarget(id,dateISO){
   const total=Math.max(1,bgDateDiff(start,end)),done=Math.max(0,bgDateDiff(start,dateISO));return Math.min(c.fixtures.length,Math.floor((done/total)*c.fixtures.length));
 }
 function processBackgroundLeaguesDay(dateISO){
-  Object.keys(BACKGROUND_LEAGUE_CONFIG).forEach(id=>{const c=ensureWorldCompetitionState(id);const target=backgroundLeagueProgressTarget(id,dateISO);while(c.week<target)simulateWorldLeagueRound(id,c.week+1);});
+  const active=typeof careerLeagueId==='function'?careerLeagueId():state?.leagueId;
+  Object.keys(BACKGROUND_LEAGUE_CONFIG).forEach(id=>{if(id===active)return;const c=ensureWorldCompetitionState(id);const target=backgroundLeagueProgressTarget(id,dateISO);while(c.week<target)simulateWorldLeagueRound(id,c.week+1);});
 }
 function processChampionshipDay(dateISO){return processBackgroundLeaguesDay(dateISO);}
 function championshipStandings(){return worldLeagueStandings('championship');}
@@ -86,5 +90,6 @@ function championshipPromotionPlaces(){return worldPromotionPlaces('championship
 function leagueOnePromotionPlaces(){return worldPromotionPlaces('league-one');}
 function leagueTwoPromotionPlaces(){return worldPromotionPlaces('league-two');}
 function resetChampionshipCompetitionForSeason(){
-  state.worldCompetitions={};Object.keys(BACKGROUND_LEAGUE_CONFIG).forEach(id=>ensureWorldCompetitionState(id));invalidateWorldStrengthCache();
+  const active=typeof careerLeagueId==='function'?careerLeagueId():state?.leagueId;
+  state.worldCompetitions={};Object.keys(BACKGROUND_LEAGUE_CONFIG).forEach(id=>{if(id!==active)ensureWorldCompetitionState(id);});invalidateWorldStrengthCache();
 }
