@@ -314,6 +314,61 @@
   window.addInfrastructureLoan=function({principal,annualRate,termMonths,label='Infrastructure loan',projectId=null,kind='infrastructure'}){const f=ensureClubFinanceState();principal=Math.max(0,Math.round(Number(principal)||0));if(!principal)return null;const debt={id:`debt-${Date.now()}-${Math.floor(Math.random()*10000)}`,label,projectId,kind,originalPrincipal:principal,outstanding:principal,annualRate:Number(annualRate)||0,termMonths:Math.max(1,Math.round(termMonths||120)),monthsPaid:0,monthlyPayment:Math.round(amortisingMonthlyPayment(principal,annualRate,termMonths)),started:today(),status:'active'};f.debts.push(debt);recordClubCash(principal,`${label} proceeds received`,'financing',{debtId:debt.id,projectId});return debt;};
   window.processMonthlyDebtPayments=function(dateISO){const f=ensureClubFinanceState();if(!f||!dateISO)return[];const monthKey=String(dateISO).slice(0,7);if(f.lastDebtPaymentMonth===monthKey)return[];f.lastDebtPaymentMonth=monthKey;const paid=[];(f.debts||[]).filter(d=>d.status==='active'&&d.outstanding>0).forEach(d=>{const monthlyRate=(Number(d.annualRate)||0)/12,interest=Math.round(d.outstanding*monthlyRate),scheduled=Math.min(Math.round(d.monthlyPayment||0),Math.round(d.outstanding+interest)),principal=Math.max(0,Math.min(d.outstanding,scheduled-interest)),total=Math.max(0,interest+principal);if(total<=0)return;recordClubCash(-total,`${d.label} monthly repayment`,'debt_service',{debtId:d.id,interest,principal});d.outstanding=Math.max(0,d.outstanding-principal);d.monthsPaid=(d.monthsPaid||0)+1;f.debtInterestThisSeason+=interest;f.debtPrincipalPaidThisSeason+=principal;f.seasonCosts.financeInterest=(f.seasonCosts.financeInterest||0)+interest;if(typeof state.seasonPL==='number')state.seasonPL-=interest;if(state.monthlyFinance){state.monthlyFinance.debtInterest=(state.monthlyFinance.debtInterest||0)+interest;state.monthlyFinance.debtPrincipal=(state.monthlyFinance.debtPrincipal||0)+principal;}if(d.outstanding<=1||d.monthsPaid>=d.termMonths){d.outstanding=0;d.status='paid';}paid.push({debt:d,total,interest,principal});});return paid;};
 
+  window.clubFinanceSeasonOverview=function(){
+    const f=ensureClubFinanceState(),revenue=f.seasonRevenue||{},costs=f.seasonCosts||{},season=seasonKey();
+    const ledger=(f.ledger||[]).filter(x=>!season||x.season===season);
+    const sum=(obj,keys)=>keys.reduce((t,k)=>t+(Number(obj?.[k])||0),0);
+    const leagueIncome=Object.entries(revenue).reduce((t,[k,v])=>/(Central|Facility|Merit)$/.test(k)?t+(Number(v)||0):t,0);
+    const sponsorship=Number(revenue.sponsorship)||0,commercial=Number(revenue.commercialRetail)||0,matchday=Number(revenue.matchday)||0;
+    const knownRevenueKeys=new Set(['sponsorship','commercialRetail','matchday']);
+    Object.keys(revenue).forEach(k=>{if(/(Central|Facility|Merit)$/.test(k))knownRevenueKeys.add(k);});
+    let otherIncome=Object.entries(revenue).reduce((t,[k,v])=>knownRevenueKeys.has(k)?t:t+(Number(v)||0),0);
+    const staffChanges=ledger.filter(x=>x.category==='staff'&&Number(x.amount)<0).reduce((t,x)=>t-Math.min(0,Number(x.amount)||0),0);
+    const regulation=ledger.filter(x=>x.category==='regulatory'&&Number(x.amount)<0).reduce((t,x)=>t-Math.min(0,Number(x.amount)||0),0);
+    const playerWages=Number(costs.playerWages)||0,staffWages=Number(costs.staffWages)||0,matchdayCosts=Number(costs.matchday)||0,financeInterest=Number(costs.financeInterest)||0;
+    const operatingRecorded=Number(costs.operating)||0;
+    const hasSplit=!!(Number.isFinite(Number(costs.clubOperations))&&Number.isFinite(Number(costs.facilities))&&(Number(costs.clubOperations)||Number(costs.facilities)));
+    const facilities=hasSplit?Number(costs.facilities)||0:0;
+    const clubOperations=hasSplit?(Number(costs.clubOperations)||0)+matchdayCosts:operatingRecorded+matchdayCosts;
+    const knownIncome=leagueIncome+sponsorship+commercial+matchday+otherIncome;
+    let knownCosts=playerWages+staffWages+clubOperations+facilities+financeInterest+staffChanges+regulation;
+    const reportedPL=Number(state?.seasonPL)||0;
+    const reconciliation=reportedPL-(knownIncome-knownCosts);
+    let otherCosts=0;
+    if(reconciliation>25000)otherIncome+=reconciliation;
+    else if(reconciliation<-25000)otherCosts=-reconciliation;
+    knownCosts+=otherCosts;
+    const operatingIncome=knownIncome+Math.max(0,reconciliation>25000?reconciliation:0);
+    const operatingCosts=knownCosts;
+
+    const ledgerNet=(categories)=>ledger.filter(x=>categories.includes(x.category)).reduce((t,x)=>t+(Number(x.amount)||0),0);
+    const transfers=ledgerNet(['transfer','transfer_installment']);
+    const ownerFunding=ledgerNet(['owner_equity']);
+    const borrowing=ledgerNet(['financing']);
+    const capital=ledgerNet(['capital']);
+    const debtService=ledgerNet(['debt_service']);
+    const seasonTickets=ledgerNet(['season_tickets']);
+    const acquisition=ledgerNet(['player_acquisition']);
+    const cashMovement=(Number(f.cash)||0)-(Number(f.openingCash)||0);
+    const captured=transfers+ownerFunding+borrowing+capital+debtService+seasonTickets+acquisition;
+    const otherCash=cashMovement-captured;
+    return {
+      openingCash:Number(f.openingCash)||0,currentCash:Number(f.cash)||0,cashMovement,
+      operatingPL:reportedPL,operatingIncome,operatingCosts,
+      income:{league:leagueIncome,sponsorship,commercial,matchday,other:otherIncome},
+      costs:{playerWages,staffWages,clubOperations,facilities,financeInterest,staffChanges,regulation,other:otherCosts,hasSplit},
+      cash:{transfers,ownerFunding,borrowing,capital,debtService,seasonTickets,acquisition,other:otherCash},
+      debt:totalClubDebt(),capitalSpent:Number(f.capitalSpentThisSeason)||0
+    };
+  };
+  window.activeDebtScheduleDetails=function(){
+    const f=ensureClubFinanceState();
+    return (f.debts||[]).filter(d=>d.status==='active'&&Number(d.outstanding)>0).map(d=>({
+      id:d.id,label:d.label||'Club financing',kind:d.kind||'financing',outstanding:Number(d.outstanding)||0,
+      originalPrincipal:Number(d.originalPrincipal)||0,annualRate:Number(d.annualRate)||0,monthlyPayment:Number(d.monthlyPayment)||0,
+      termMonths:Number(d.termMonths)||0,monthsPaid:Number(d.monthsPaid)||0,remainingMonths:Math.max(0,(Number(d.termMonths)||0)-(Number(d.monthsPaid)||0))
+    })).sort((a,b)=>b.outstanding-a.outstanding);
+  };
   window.clubFinanceSeasonSnapshot=function(){const f=ensureClubFinanceState();return {openingCash:f.openingCash,closingCash:f.cash,leagueId:clubLeagueId(),allocations:{...(f.allocations||{})},revenue:{...f.seasonRevenue},costs:{...f.seasonCosts},ownerFunding:f.ownerFundingThisSeason||0,emergencyOwnerFunding:f.emergencyOwnerFundingThisSeason||0,workingCapitalDrawn:f.workingCapitalDrawnThisSeason||0,futureTransferCommitments:futureTransferCommitments(),futureTransferReceivables:futureTransferReceivables(),outstandingDebt:totalClubDebt()};};
   window.resetClubFinanceForNewSeason=function(){const f=ensureClubFinanceState();if(!f)return;f.openingCash=f.cash;f.capitalSpentThisSeason=0;f.debtInterestThisSeason=0;f.debtPrincipalPaidThisSeason=0;f.seasonTicketCashThisSeason=0;f.ownerFundingThisSeason=0;f.ownerFootballFundingThisSeason=0;f.emergencyOwnerFundingThisSeason=0;f.acquisitionFeesThisSeason=0;f.workingCapitalDrawnThisSeason=0;f.seasonRevenue={};f.seasonCosts={};calibrateClubRevenueModel();};
 })();

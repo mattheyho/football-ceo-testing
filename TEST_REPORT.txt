@@ -1,65 +1,30 @@
-FOOTBALL CEO v0.24.28 — PIECE 9B.2 TEST REPORT
-Build: 0.24.28-piece-9b2-commercial-reach-infrastructure-costs
+FOOTBALL CEO v0.24.29 — PIECE 9B.3 TEST REPORT
+Build: 0.24.29-piece-9b3-finance-ux
 
-AUTOMATED SUITES
-----------------
-PASS Piece 8A ownership profiles
-PASS Piece 8B dynamic sporting expectations
-PASS Piece 9A English pyramid framework
-PASS Piece 9B Championship playability
-PASS Piece 9B.1 Championship regression/finance fixes
-PASS Piece 9B.2 commercial/facility/stadium/staff architecture
-PASS regression-fix preservation suite
+RESULT: PASS
 
-PIECE 9B.2 ACCEPTANCE CHECKS
-----------------------------
-PASS Commercial Reach persists in save state and updates gradually.
-PASS Sponsor benchmark is not a flat division value.
-PASS Neutral Championship benchmark examples:
-     Bristol City ~£3.30m
-     Sheffield Wednesday ~£3.50m
-     Watford ~£4.25m
-     Leicester City ~£6.40m
-PASS Promotion exposure materially changes sponsor value without erasing brand identity:
-     Bristol City Championship ~£3.30m -> PL ~£6.75m
-     Leicester City Championship ~£6.40m -> PL ~£11.75m
-PASS Existing staff contracts: promotion +20%, relegation -15%.
-PASS New staff hires continue to use divisional market salary scales.
-PASS Facility costs no longer use extreme PL/EFL repricing.
-PASS Same Bristol facility set changes by <12% when league is switched Championship -> PL in the architecture test.
-PASS Stadium fixed operations rise materially with capacity.
-PASS Matchday staffing rises materially with expected attendance/capacity.
-PASS Commercial Reach + sponsor benchmark visible in Finance UI.
+Regression suites passed:
+- Piece 8A ownership profiles
+- Piece 8B dynamic sporting expectations / club profiles
+- Piece 9A English pyramid framework
+- Piece 9B playable Championship
+- Piece 9B.1 Championship regression / finance calibration
+- Piece 9B.2 commercial reach / infrastructure / staff movement architecture
+- Piece 9B.3 Finance UX
+- Regression-fix preservation suite
 
-THREE-SEASON HANDS-OFF REGRESSIONS
-----------------------------------
-Same seeded football/finance harness as the prior Championship regression. User transfer decisions remain disabled, so later squad shrinkage from contract expiry is expected.
+Piece 9B.3 acceptance checks:
+- Finance page leads with Club Cash, Operating P/L, Transfer Balance and Financial Health.
+- League & broadcast income is visible in the operating-income breakdown.
+- Operating income and operating outgoings reconcile back to the authoritative Season P/L using an explicit material 'other' line only when required.
+- Cash movement is tracked separately from Operating P/L.
+- Synthetic finance test correctly reported £20.0m operating income, £10.0m operating outgoings, £10.0m Operating P/L, -£1.0m cash movement, -£2.0m transfer cash and +£1.0m owner equity.
+- Future transfer payable/receivable drill-downs remain present.
+- New debt drill-down lists outstanding balance, monthly repayment, interest rate and remaining term.
+- Placeholder Infrastructure Allocation and Finance-screen Squad Value / permanent Staff Compensation clutter are absent from the Finance overview.
+- Financial regulation detail is below Budget Control and collapsed by default.
+- New seasons record Club Operations and Facilities separately; legacy in-season finance state falls back safely to a combined row.
+- All root JavaScript files pass `node --check`.
+- PWA cache/version markers bumped to v0.24.29 / 02429-finance-ux.
 
-Bristol City:
-  2025/26 19th, P/L -£3.20m, closing cash £2.80m
-  2026/27 11th, P/L +£0.48m, closing cash £3.28m
-  2027/28 12th, P/L +£5.06m, closing cash £8.34m
-  Sponsor revenue starts ~£3.3m.
-
-Leicester City:
-  2025/26 24th, P/L -£6.49m, closing cash £23.51m
-  2026/27 7th, P/L +£10.29m, closing cash £33.80m
-  2027/28 4th, P/L +£22.57m, closing cash £56.36m
-  Sponsor revenue starts ~£6.4m.
-
-Sheffield Wednesday:
-  2025/26 20th, P/L -£3.84m, closing cash -£0.84m
-  2026/27 11th, P/L -£3.82m, closing cash -£4.66m
-  2027/28 21st, P/L approximately break-even, closing cash -£4.64m
-  Sponsor revenue starts ~£3.5m.
-
-KNOWN LIMITATION
-----------------
-The hands-off test deliberately does not renew/replace user players. Later-season wage bills therefore fall as contracts expire. Proper contract-renewal and long-term squad-maintenance logic remains a separate roadmap system.
-
-SCOPE CHECK
------------
-Promotion/relegation movement: DISABLED
-Play-off execution: DISABLED
-League One/League Two playability: DISABLED
-League Two National League relegation: NONE (intentional static floor)
+No underlying finance-economy calibration was changed in this presentation pass.

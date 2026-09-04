@@ -1,1 +1,2 @@
-0.24.28-piece-9b2-commercial-reach-infrastructure-costs
+0.24.29
+Piece 9B.3 — Finance UX clarity pass

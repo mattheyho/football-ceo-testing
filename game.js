@@ -3956,6 +3956,8 @@ function processWeeklyClubCycle(){
     cf.seasonCosts.playerWages=(cf.seasonCosts.playerWages||0)+playerWages;
     cf.seasonCosts.staffWages=(cf.seasonCosts.staffWages||0)+staffWeekly;
     cf.seasonCosts.operating=(cf.seasonCosts.operating||0)+operatingCosts.total;
+    cf.seasonCosts.facilities=(cf.seasonCosts.facilities||0)+(operatingCosts.facilityRunning||0);
+    cf.seasonCosts.clubOperations=(cf.seasonCosts.clubOperations||0)+Math.max(0,(operatingCosts.total||0)-(operatingCosts.facilityRunning||0));
   }
   if(typeof protectClubLiquidity==="function" && typeof clubCash==="function" && clubCash()<0) protectClubLiquidity("weekly operating costs");
   if(typeof updateSupporterDemandWeekly==="function") updateSupporterDemandWeekly();
@@ -4943,6 +4945,26 @@ function openTransferScheduleModal(kind="payable"){
   modal.classList.remove("hide");document.documentElement.classList.add("modal-open");document.body.classList.add("modal-open");
 }
 
+function ensureDebtScheduleModal(){
+  let modal=document.getElementById("debtScheduleModal");
+  if(modal)return modal;
+  modal=document.createElement("div");
+  modal.id="debtScheduleModal";
+  modal.className="player-modal hide";
+  modal.innerHTML=`<div class="player-modal-card finance-schedule-card"><div class="sectiontitle"><div><div class="eyebrow">CLUB FINANCE</div><h2 style="margin:4px 0 0">Debt repayments</h2></div><button class="btn secondary" id="closeDebtScheduleModal" type="button">Close</button></div><div id="debtScheduleBody"></div></div>`;
+  document.body.appendChild(modal);
+  const close=()=>{modal.classList.add("hide");document.documentElement.classList.remove("modal-open");document.body.classList.remove("modal-open");};
+  modal.querySelector("#closeDebtScheduleModal")?.addEventListener("click",close);
+  modal.addEventListener("click",e=>{if(e.target===modal)close();});
+  return modal;
+}
+function openDebtScheduleModal(){
+  const modal=ensureDebtScheduleModal(),rows=typeof activeDebtScheduleDetails==="function"?activeDebtScheduleDetails():[];
+  const total=rows.reduce((s,r)=>s+(Number(r.outstanding)||0),0),monthly=rows.reduce((s,r)=>s+(Number(r.monthlyPayment)||0),0);
+  modal.querySelector("#debtScheduleBody").innerHTML=`<div class="notice" style="margin:12px 0"><b>${money(total)} outstanding</b><div class="muted small">${rows.length?`${money(monthly)}/month scheduled across ${rows.length} active ${rows.length===1?"debt":"debts"}`:"No active club borrowing"}</div></div>`+(rows.length?rows.map(r=>`<div class="finance-schedule-row"><div class="finance-schedule-head"><div><b>${financeScheduleEscape(r.label)}</b><div class="muted small">${financeScheduleEscape((r.kind||"financing").replaceAll("_"," "))}</div></div><strong>${money(r.outstanding)} left</strong></div><div class="grid3 finance-schedule-summary"><div><span>Monthly repayment</span><b>${money(r.monthlyPayment)}</b></div><div><span>Interest rate</span><b>${(r.annualRate*100).toFixed(2)}%</b></div><div><span>Remaining term</span><b>${r.remainingMonths} months</b></div></div></div>`).join(""):`<div class="notice muted">The club has no active debt repayments.</div>`);
+  modal.classList.remove("hide");document.documentElement.classList.add("modal-open");document.body.classList.add("modal-open");
+}
+
 function renderFinances(){
   if(!q("financeCards")) return;
   ensureFinancialRegulationState();
@@ -4969,87 +4991,113 @@ function renderFinances(){
     projectedSanction.transferBan?"next-season transfer registration ban":null
   ].filter(Boolean):[];
 
+  const overview=typeof clubFinanceSeasonOverview==="function"?clubFinanceSeasonOverview():null;
+  const financeState=typeof ensureClubFinanceState==="function"?ensureClubFinanceState():null;
+  const distress=typeof clubFinancialDistressStatus==="function"?clubFinancialDistressStatus():null;
+  const healthLabel=distress?.severe?"Severe pressure":distress?.distressed?"Under pressure":scr.status;
+  const healthClass=distress?.distressed?"bad":(scr.status==="Healthy"?"good":"");
+  const cashMove=overview?.cashMovement||0,operatingPL=overview?.operatingPL??state.seasonPL??0;
+  const fmtSigned=n=>`${n>0?"+":""}${money(n)}`;
+  const financeRow=(label,value,{sub="",cls="",bold=false}={})=>`<div class="finance-flow-row ${bold?"finance-flow-total":""}"><div><span>${label}</span>${sub?`<small>${sub}</small>`:""}</div><b class="${cls}">${money(Math.abs(Number(value)||0))}</b></div>`;
+  const income=overview?.income||{},costs=overview?.costs||{},cashFlow=overview?.cash||{};
+  const opIncomeRows=[
+    financeRow("League & broadcast",income.league||0),
+    financeRow("Sponsorship",income.sponsorship||0,{sub:`Current deal ${state.sponsorship?.annualValue?money(state.sponsorship.annualValue)+"/yr":"—"} • ${typeof commercialReachLabel==="function"?commercialReachLabel():"Commercial reach"} • benchmark ${typeof commercialSponsorBenchmark==="function"?money(commercialSponsorBenchmark(state.club)):"—"}/yr`}),
+    financeRow("Commercial & retail",income.commercial||0),
+    financeRow("Matchday",income.matchday||0),
+    Math.abs(income.other||0)>25000?financeRow("Other operating income",income.other||0):"",
+  ].join("");
+  const opCostRows=[
+    financeRow("Player wages",costs.playerWages||0),
+    financeRow("Staff wages",costs.staffWages||0),
+    costs.hasSplit?financeRow("Club operations",costs.clubOperations||0,{sub:"Stadium, admin, logistics, insurance & matchday staffing"}):financeRow("Club operations & facilities",costs.clubOperations||0,{sub:"Legacy season breakdown; detailed split begins from this build"}),
+    costs.hasSplit?financeRow("Facilities",costs.facilities||0,{sub:"Training, medical, academy & recruitment"}):"",
+    (costs.financeInterest||0)>0?financeRow("Debt interest",costs.financeInterest||0):"",
+    (costs.staffChanges||0)>0?financeRow("Staff changes",costs.staffChanges||0,{sub:"Compensation and severance"}):"",
+    (costs.regulation||0)>0?financeRow("Regulatory fines",costs.regulation||0):"",
+    (costs.other||0)>25000?financeRow("Other operating costs",costs.other||0):"",
+  ].join("");
+  const nonOperatingDrivers=[
+    {label:"Net transfer cash",value:cashFlow.transfers||0},
+    {label:"Owner investment",value:cashFlow.ownerFunding||0},
+    {label:"Capital projects",value:cashFlow.capital||0},
+    {label:"Borrowing / debt repayments",value:(cashFlow.borrowing||0)+(cashFlow.debtService||0)},
+    {label:"Season-ticket timing",value:cashFlow.seasonTickets||0},
+    {label:"Agent / acquisition cash",value:cashFlow.acquisition||0}
+  ].filter(x=>Math.abs(x.value)>25000);
+  const largestDriver=[...nonOperatingDrivers].sort((a,b)=>Math.abs(b.value)-Math.abs(a.value))[0];
+  const outlook=`Cash has ${cashMove>25000?"risen":cashMove<-25000?"fallen":"been broadly stable"}${Math.abs(cashMove)>25000?` by ${money(Math.abs(cashMove))}`:""} this season. The club is operating at ${operatingPL>=0?"a profit":"a loss"} of ${money(Math.abs(operatingPL))}.${largestDriver?` ${largestDriver.label} (${fmtSigned(largestDriver.value)}) is the largest non-operating cash movement.`:""}`;
+  const activeDebt=typeof activeDebtScheduleDetails==="function"?activeDebtScheduleDetails():[];
+  const monthlyDebt=activeDebt.reduce((t,d)=>t+(Number(d.monthlyPayment)||0),0);
+
   q("financeCards").innerHTML=`
-  <div class="scr-card scr-${statusClass}">
-    <div class="sectiontitle">
-      <div>
-        <div class="k">Financial Regulations — Squad Cost Ratio</div>
-        <div class="scr-value">${pct.toFixed(1)}%</div>
+  <div class="finance-headline-grid">
+    <div class="metric finance-headline"><div class="k">Club cash</div><div class="v ${typeof clubCash==="function"&&clubCash()<0?"bad":""}">${typeof clubCash==="function"?money(clubCash()):"—"}</div><div class="muted small">Opening season: ${overview?money(overview.openingCash):"—"}</div></div>
+    <div class="metric finance-headline"><div class="k">Operating P/L</div><div class="v ${operatingPL>0?"good":operatingPL<0?"bad":""}">${fmtSigned(operatingPL)}</div><div class="muted small">Excludes transfer/acquisition cash, capital spend & debt principal</div></div>
+    <div class="metric finance-headline"><div class="k">Transfer balance</div><div class="v ${transferNet>0?"good":transferNet<0?"bad":""}">${fmtSigned(transferNet)}</div><div class="muted small">Headline fees agreed • Club cash ${fmtSigned(cashMove)} this season</div></div>
+    <div class="metric finance-headline"><div class="k">Financial health</div><div class="v ${healthClass}">${healthLabel}</div><div class="muted small">SCR ${(scr.ratio*100).toFixed(1)}% • Debt ${typeof totalClubDebt==="function"?money(totalClubDebt()):"—"}</div></div>
+  </div>
+
+  <div class="finance-outlook"><b>Financial outlook</b><div>${outlook}</div></div>
+
+  <div class="finance-flow-grid">
+    <section class="finance-flow-card"><div class="finance-flow-title"><span>Operating income this season</span><b>${money(overview?.operatingIncome||0)}</b></div>${opIncomeRows}</section>
+    <section class="finance-flow-card"><div class="finance-flow-title"><span>Operating outgoings this season</span><b>${money(overview?.operatingCosts||0)}</b></div>${opCostRows}</section>
+  </div>
+
+  <section class="finance-section">
+    <div class="sectiontitle"><div><div class="k">Cash movements outside operations</div><div class="muted small">These explain why cash can rise or fall even when the club records an operating profit.</div></div></div>
+    <div class="finance-cashflow-list">
+      ${nonOperatingDrivers.length?nonOperatingDrivers.map(x=>`<div class="finance-cashflow-chip"><span>${x.label}</span><b class="${x.value>0?"good":x.value<0?"bad":""}">${fmtSigned(x.value)}</b></div>`).join(""):`<div class="muted small">No material non-operating cash movements yet this season.</div>`}
+    </div>
+  </section>
+
+  <section class="finance-section">
+    <div class="sectiontitle"><div><div class="k">Future commitments</div><div class="muted small">Money already committed beyond today's cash balance.</div></div></div>
+    <div class="grid3 finance-commitment-grid">
+      <button class="metric finance-drilldown" type="button" data-transfer-schedule="payable"><div class="k">Transfer payments</div><div class="v">${typeof futureTransferCommitments==="function"?money(futureTransferCommitments()):"—"}</div><div class="muted small">Agreed instalments still payable • Tap for detail</div></button>
+      <button class="metric finance-drilldown" type="button" data-transfer-schedule="receivable"><div class="k">Transfer income</div><div class="v">${typeof futureTransferReceivables==="function"?money(futureTransferReceivables()):"—"}</div><div class="muted small">Agreed instalments still receivable • Tap for detail</div></button>
+      <button class="metric finance-drilldown" type="button" data-debt-schedule="active"><div class="k">Debt repayments</div><div class="v">${typeof totalClubDebt==="function"?money(totalClubDebt()):"—"}</div><div class="muted small">${activeDebt.length?`${money(monthlyDebt)}/month scheduled • Tap for detail`:"No active repayments"}</div></button>
+    </div>
+  </section>
+
+  <section class="finance-section">
+    <div class="sectiontitle"><div><div class="k">CEO budget control</div><div class="muted small">Choose how much of the club's resources to make available for recruitment. Player-sale proceeds remain in club cash unless you reinvest them.</div></div><span class="pill">CEO CONTROL</span></div>
+    <div class="grid3 finance-budget-summary">
+      <div class="metric"><div class="k">Transfer budget</div><div class="v">${money(state.budget)}</div><div class="muted small">Available for incoming fees</div></div>
+      <div class="metric"><div class="k">Weekly wage allocation</div><div class="v">${money(allocations.wageWeekly)}/wk</div><div class="muted small">Current player wages ${money(wages)}/wk</div></div>
+      <div class="metric"><div class="k">Unallocated cash</div><div class="v ${allocations.unallocatedCash<0?"bad":""}">${money(allocations.unallocatedCash)}</div><div class="muted small">Not earmarked for transfers or commitments</div></div>
+    </div>
+    <div class="playing-budget-control finance-budget-control-inner">
+      <div class="grid3" style="margin-top:2px">
+        <div class="metric"><div class="k">Total allocated</div><div class="v" id="playingBudgetAllocated">${money(playing.allocated)}</div></div>
+        <div class="metric"><div class="k">Already committed</div><div class="v">${money(playing.spent)}</div><div class="muted small">Completed incoming transfers</div></div>
+        <div class="metric"><div class="k">Available to spend</div><div class="v" id="playingBudgetRemaining">${money(playing.remaining)}</div></div>
       </div>
-      <span class="scr-status">${scr.status}</span>
+      <div class="budget-slider-row" style="margin-top:12px">
+        <input id="livePlayingBudgetSlider" type="range" min="${playing.minAllocation}" max="${playing.sliderMax}" step="${budgetStep}" value="${playing.allocated}" aria-label="Playing investment allocation">
+        <div class="budget-slider-summary"><b id="livePlayingBudgetPreview">${money(playing.allocated)}</b><button class="btn primary" id="applyLivePlayingBudget" type="button" disabled>Apply allocation</button></div>
+      </div>
+      <div id="livePlayingBudgetAdvice" class="muted small" style="margin-top:8px">Sustainable allocation today: ${money(playing.sustainableTotal)}. Minimum: ${money(playing.minAllocation)} already committed. Club cash: ${typeof clubCash==="function"?money(clubCash()):"—"}.</div>
     </div>
-    <div class="progress scr-progress"><span style="width:${progress}%"></span></div>
-    <div class="scr-scale"><span>0%</span><span>${Math.round(limitPct)}% regulatory limit</span><span>90%+</span></div>
+  </section>
 
-    <div class="grid3 scr-metrics">
-      <div><span>Football revenue</span><b>${money(scr.revenue)}</b></div>
-      <div><span>Regulated squad cost</span><b>${money(scr.squadCost)}</b></div>
-      <div><span>${scr.headroom>=0?"Headroom":"Reduction required"}</span><b class="${scr.headroom>=0?"good":"bad"}">${money(Math.abs(scr.headroom))}</b></div>
+  <details class="finance-regulation-details">
+    <summary><span>Financial regulation detail</span><b>SCR ${pct.toFixed(1)}% • ${scr.status}</b></summary>
+    <div class="scr-card scr-${statusClass}">
+      <div class="sectiontitle"><div><div class="k">Squad Cost Ratio</div><div class="scr-value">${pct.toFixed(1)}%</div></div><span class="scr-status">${scr.status}</span></div>
+      <div class="progress scr-progress"><span style="width:${progress}%"></span></div>
+      <div class="scr-scale"><span>0%</span><span>${Math.round(limitPct)}% regulatory limit</span><span>90%+</span></div>
+      <div class="grid3 scr-metrics"><div><span>Football revenue</span><b>${money(scr.revenue)}</b></div><div><span>Regulated squad cost</span><b>${money(scr.squadCost)}</b></div><div><span>${scr.headroom>=0?"Headroom":"Reduction required"}</span><b class="${scr.headroom>=0?"good":"bad"}">${money(Math.abs(scr.headroom))}</b></div></div>
+      <div class="scr-breakdown"><div><span>Annual football payroll</span><b>${money(scr.payroll)}</b></div><div><span>Inherited pre-save commitments</span><b>${money(scr.inherited)}</b></div><div><span>Post-save transfer & agent costs</span><b>${money(scr.acquisitions)}</b></div></div>
+      <div class="muted small scr-rule-note">Healthy ≤60% • Tight 60–${Math.round(limitPct)}% • Warning ${Math.round(limitPct)}–90% • Breach 90–95% • Severe above 95%. Annual assessment sanctions escalate for repeat breaches.</div>
+      ${projectedSanction&&scr.ratio>scr.limit?`<div class="scr-projected-sanction ${projectedSanction.status.toLowerCase()}"><b>If the season ended today — ${projectedSanction.status.toUpperCase()}</b><div>${sanctionBits.length?sanctionBits.join(" • "):"Formal warning only — no fine or investment reduction on a first warning."}</div><div class="muted small">Projected consecutive breach assessment: ${projectedSanction.repeat}. Final sanctions are calculated at the annual assessment.</div></div>`:""}
+      ${financialTransferBanActive()?`<div class="notice bad scr-sanction-note"><b>TRANSFER REGISTRATION BAN ACTIVE</b><br>Permanent incoming transfers cannot be registered this season.</div>`:""}
     </div>
-
-    <div class="scr-breakdown">
-      <div><span>Annual football payroll</span><b>${money(scr.payroll)}</b></div>
-      <div><span>Inherited pre-save commitments</span><b>${money(scr.inherited)}</b></div>
-      <div><span>Post-save transfer & agent costs</span><b>${money(scr.acquisitions)}</b></div>
-    </div>
-
-    <div class="muted small scr-rule-note">
-      Healthy ≤60% • Tight 60–${Math.round(limitPct)}% • Warning ${Math.round(limitPct)}–90% • Breach 90–95% • Severe above 95%.
-      Annual assessment sanctions escalate for repeat breaches.
-    </div>
-    ${projectedSanction&&scr.ratio>scr.limit?`
-      <div class="scr-projected-sanction ${projectedSanction.status.toLowerCase()}">
-        <b>If the season ended today — ${projectedSanction.status.toUpperCase()}</b>
-        <div>${sanctionBits.length?sanctionBits.join(" • "):"Formal warning only — no fine or investment reduction on a first warning."}</div>
-        <div class="muted small">Projected consecutive breach assessment: ${projectedSanction.repeat}. Final sanctions are calculated at the annual assessment.</div>
-      </div>`:""}
-    ${financialTransferBanActive()?`<div class="notice bad scr-sanction-note"><b>TRANSFER REGISTRATION BAN ACTIVE</b><br>Permanent incoming transfers cannot be registered this season.</div>`:""}
-  </div>
-
-  <div class="grid3 club-cash-grid">
-    <div class="metric"><div class="k">Club cash</div><div class="v ${typeof clubCash==="function"&&clubCash()<0?"bad":""}">${typeof clubCash==="function"?money(clubCash()):"—"}</div><div class="muted small">Real liquid club funds</div></div>
-    <div class="metric"><div class="k">Outstanding debt</div><div class="v">${typeof totalClubDebt==="function"?money(totalClubDebt()):"—"}</div><div class="muted small">Infrastructure & liquidity financing</div></div>
-    <div class="metric"><div class="k">Capital spend</div><div class="v">${typeof ensureClubFinanceState==="function"?money(ensureClubFinanceState().capitalSpentThisSeason||0):"—"}</div><div class="muted small">Excluded from transfer allocation</div></div>
-  </div>
-  <div class="grid3" style="margin-top:10px">
-    <div class="metric"><div class="k">Unallocated cash</div><div class="v ${allocations.unallocatedCash<0?"bad":""}">${money(allocations.unallocatedCash)}</div><div class="muted small">Liquid cash not earmarked for transfers, infrastructure or committed instalments</div></div>
-    <div class="metric"><div class="k">Weekly wage allocation</div><div class="v">${money(allocations.wageWeekly)}/wk</div><div class="muted small">Independent from the transfer allocation</div></div>
-    <div class="metric"><div class="k">Infrastructure allocation</div><div class="v">${money(allocations.infrastructure)}</div><div class="muted small">CEO-earmarked capital; controls arrive in a later finance piece</div></div>
-  </div>
-  <div class="grid3" style="margin-top:10px">
-    <div class="metric"><div class="k">Available transfer budget</div><div class="v">${money(state.budget)}</div><div class="muted small">From ${money(playing.allocated)} total playing allocation</div></div>
-    <button class="metric finance-drilldown" type="button" data-transfer-schedule="payable"><div class="k">Future transfer payments</div><div class="v">${typeof futureTransferCommitments==="function"?money(futureTransferCommitments()):"—"}</div><div class="muted small">Agreed instalments still payable • Tap for detail</div></button>
-    <button class="metric finance-drilldown" type="button" data-transfer-schedule="receivable"><div class="k">Future transfer income</div><div class="v">${typeof futureTransferReceivables==="function"?money(futureTransferReceivables()):"—"}</div><div class="muted small">Agreed instalments still receivable • Tap for detail</div></button>
-    <div class="metric"><div class="k">Squad value</div><div class="v">${money(vals)}</div></div>
-    <div class="metric"><div class="k">Player wages</div><div class="v">${money(wages)}/wk</div></div>
-    <div class="metric"><div class="k">Liquidity status</div><div class="v ${typeof clubFinancialDistressStatus==="function"&&clubFinancialDistressStatus().distressed?"bad":"good"}">${typeof clubFinancialDistressStatus==="function"?(clubFinancialDistressStatus().severe?"Severe pressure":clubFinancialDistressStatus().distressed?"Under pressure":"Healthy"):"—"}</div><div class="muted small">Affects available recruitment funding</div></div>
-  </div>
-  <div class="grid3" style="margin-top:10px">
-    <div class="metric"><div class="k">Staff wages</div><div class="v">${money(staffWages)}/wk</div></div>
-    <div class="metric"><div class="k">Staff compensation</div><div class="v">${money(state.staffSpend||0)}</div></div>
-    <div class="metric"><div class="k">Season P/L</div><div class="v">${money(state.seasonPL)}</div></div>
-    <div class="metric"><div class="k">Debt interest this season</div><div class="v">${typeof ensureClubFinanceState==="function"?money(ensureClubFinanceState().debtInterestThisSeason||0):"—"}</div></div>
-    <div class="metric"><div class="k">Debt principal repaid</div><div class="v">${typeof ensureClubFinanceState==="function"?money(ensureClubFinanceState().debtPrincipalPaidThisSeason||0):"—"}</div></div>
-    <div class="metric"><div class="k">Est. annual operating costs</div><div class="v">${money(annualisedOperatingCosts())}</div><div class="muted small">Stadium, admin, matchday staff & general overheads</div></div>
-    <div class="metric"><div class="k">Facility running costs</div><div class="v">${money(totalFacilityAnnualCost())}</div><div class="muted small">Training, medical, academy & recruitment</div></div>
-    <div class="metric"><div class="k">Commercial reach</div><div class="v">${typeof commercialReachLabel==="function"?commercialReachLabel():"—"}</div><div class="muted small">Main sponsor benchmark ${typeof commercialSponsorBenchmark==="function"?money(commercialSponsorBenchmark(state.club)):"—"}/yr</div></div>
-    <div class="metric"><div class="k">Transfer P/L</div><div class="v ${transferNet>0?"good":transferNet<0?"bad":""}">${money(transferNet)}</div><div class="muted small">${money(state.transferFinance?.received||0)} received • ${money(state.transferFinance?.spent||0)} spent</div></div>
-  </div>
-  <div class="playing-budget-control" style="margin-top:12px">
-    <div class="sectiontitle"><div><div class="k">Playing Investment Allocation</div><div class="muted small">You can change this throughout the season. Player-sale proceeds remain in club finances unless you choose to reinvest them.</div></div><span class="pill">CEO CONTROL</span></div>
-    <div class="grid3" style="margin-top:10px">
-      <div class="metric"><div class="k">Total allocated</div><div class="v" id="playingBudgetAllocated">${money(playing.allocated)}</div></div>
-      <div class="metric"><div class="k">Already committed</div><div class="v">${money(playing.spent)}</div><div class="muted small">Completed incoming transfers</div></div>
-      <div class="metric"><div class="k">Available to spend</div><div class="v" id="playingBudgetRemaining">${money(playing.remaining)}</div></div>
-    </div>
-    <div class="budget-slider-row" style="margin-top:12px">
-      <input id="livePlayingBudgetSlider" type="range" min="${playing.minAllocation}" max="${playing.sliderMax}" step="${budgetStep}" value="${playing.allocated}" aria-label="Playing investment allocation">
-      <div class="budget-slider-summary"><b id="livePlayingBudgetPreview">${money(playing.allocated)}</b><button class="btn primary" id="applyLivePlayingBudget" type="button" disabled>Apply allocation</button></div>
-    </div>
-    <div id="livePlayingBudgetAdvice" class="muted small" style="margin-top:8px">Sustainable allocation today: ${money(playing.sustainableTotal)}. Minimum: ${money(playing.minAllocation)} already committed. Club cash: ${typeof clubCash==="function"?money(clubCash()):"—"}.</div>
-  </div>`;
+  </details>`;
 
   q("financeCards")?.querySelectorAll("[data-transfer-schedule]").forEach(btn=>btn.addEventListener("click",()=>openTransferScheduleModal(btn.dataset.transferSchedule||"payable")));
+  q("financeCards")?.querySelectorAll("[data-debt-schedule]").forEach(btn=>btn.addEventListener("click",openDebtScheduleModal));
 
   const liveBudgetSlider=q("livePlayingBudgetSlider"),liveBudgetBtn=q("applyLivePlayingBudget"),livePreview=q("livePlayingBudgetPreview"),liveAdvice=q("livePlayingBudgetAdvice");
   const updateLiveBudgetPreview=()=>{

@@ -1,0 +1,32 @@
+FOOTBALL CEO — PIECE 9B.3: FINANCE UX CLARITY PASS
+Version: v0.24.29
+
+PURPOSE
+Make the Finances screen understandable at a glance without adding new accounting complexity or changing the underlying finance model.
+
+PLAYER-FACING CHANGES
+- Four headline measures: Club Cash, Operating P/L, Transfer Balance, Financial Health.
+- Plain-English Financial Outlook explains the relationship between profit/loss and cash movement.
+- Operating income is itemised into League & Broadcast, Sponsorship, Commercial & Retail, Matchday and any material other income.
+- Operating outgoings are itemised into Player Wages, Staff Wages, Club Operations, Facilities, Debt Interest and material exceptional operating costs.
+- League/broadcast income is now explicitly visible, fixing the previous UI reconciliation gap.
+- Sponsorship shows the current annual deal, Commercial Reach label and current market benchmark in one line.
+- Non-operating cash movements (transfers, owner equity, capital projects, borrowing/debt service, season-ticket timing and acquisition cash) are separated from Operating P/L.
+- Future commitments are grouped together: transfer payables, transfer receivables and debt repayments.
+- Debt repayments are tappable and show each active debt's balance, monthly repayment, interest rate and remaining term.
+- CEO Budget Control is grouped into transfer budget, weekly wage allocation and unallocated cash, followed by the existing live playing-budget slider.
+- Detailed Squad Cost Ratio regulation data is retained but collapsed by default below the core finance information.
+- Removed top-level clutter from the Finances screen: Squad Value, permanent Staff Compensation, placeholder Infrastructure Allocation, duplicated annual operating/facility estimates and standalone Commercial Reach card.
+
+DATA / COMPATIBILITY
+- No finance calibration formulas, sponsorship economics, staff wage economics, facility costs or stadium costs were changed in this piece.
+- New weekly tracking records Club Operations and Facilities separately for clearer future-season reporting.
+- Existing in-progress saves that do not yet have the split fall back to one combined 'Club operations & facilities' row; no historical values are invented.
+- Operating P/L remains the authoritative accounting result. Cash movement is the exact difference between opening-season and current club cash.
+
+OUT OF SCOPE
+- Promotion/relegation execution.
+- Championship playoffs.
+- Infrastructure allocation controls.
+- New debt products.
+- Contract-renewal / AI squad-maintenance systems.
