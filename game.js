@@ -533,7 +533,6 @@ function openPlayerProfile(id){
   const contract=state.playerContracts[p.id]||{wage:p.wage,endYear:p.contract};
   q("profileContract").textContent=contract.endYear;
   q("profilePosition").textContent=p.positions;
-  if(typeof recalculateAllPlayerMarketValues==="function") recalculateAllPlayerMarketValues();
   q("profileValue").textContent=money(typeof dynamicPlayerMarketValue==="function"?dynamicPlayerMarketValue(p):p.value);
   if(q("profileDevelopment")){
     const pathway=playerDevelopmentPathway(p);
@@ -546,6 +545,9 @@ function openPlayerProfile(id){
     : state.injuries?.[p.id]
       ? `<span class="bad">Injured — ${state.injuries[p.id].daysRemaining??state.injuries[p.id].weeksLeft*7} day${(state.injuries[p.id].daysRemaining??state.injuries[p.id].weeksLeft*7)===1?"":"s"} remaining</span>`
       : `<span class="${playerConditionClass(p)}">${Math.round(playerCondition(p))}% • ${playerConditionLabel(p)}</span><br><span class="muted small">Workload: ${playerWorkloadLabel(p)} • ${workloadMinutes(p,14)} mins / 14 days</span>`;
+
+  if(q("profileMoraleHero")){q("profileMoraleHero").textContent=morale;q("profileMoraleHero").className=playerMoraleClass(morale);}
+  if(q("profileConditionHero")){q("profileConditionHero").textContent=p.retired?"Retired":state.injuries?.[p.id]?"Injured":`${Math.round(playerCondition(p))}% • ${playerConditionLabel(p)}`;q("profileConditionHero").className=p.retired?"muted":state.injuries?.[p.id]?"bad":playerConditionClass(p);}
 
   const listStatus=state.playerListStatus[p.id]||"None";
   if(q("profileSupporterStatus")){
@@ -569,8 +571,8 @@ function openPlayerProfile(id){
   q("negotiateContractBtn").disabled=Boolean(p.retired||incomingLoan);
   q("transferListBtn").disabled=Boolean(p.retired||activeLoan);
   q("loanListBtn").disabled=Boolean(p.retired||(activeLoan&&!recallableLoan));
-  q("transferListBtn").textContent=listStatus==="Transfer"?"Remove from transfer list":"Add to transfer list";
-  q("loanListBtn").textContent=recallableLoan?"Recall from loan":listStatus==="Loan"?"Remove from loan list":"Add to loan list";
+  q("transferListBtn").textContent=listStatus==="Transfer"?"Remove list":"Transfer list";
+  q("loanListBtn").textContent=recallableLoan?"Recall":listStatus==="Loan"?"Remove loan":"Loan";
   const ownYoungPlayer=p.club===state.club && !incomingLoan && !p.retired && Number(p.age||99)<=22;
   if(q("requestDevelopmentMinutesBtn")){
     const eligibility=typeof managerDevelopmentRequestEligibility==="function"?managerDevelopmentRequestEligibility(p):{eligible:false,reason:"Unavailable"};
@@ -592,10 +594,21 @@ function openPlayerProfile(id){
     }
   }
   q("contractNegotiation")?.classList.add("hide");
+  if(q("profileAppsForm"))q("profileAppsForm").textContent=q("profileApps")?.textContent||"—";
+  if(q("profileStartsForm"))q("profileStartsForm").textContent=q("profileStarts")?.textContent||"—";
+  if(q("profileGoalsForm"))q("profileGoalsForm").textContent=q("profileGoals")?.textContent||"—";
+  if(q("profileAssistsForm"))q("profileAssistsForm").textContent=q("profileAssists")?.textContent||"—";
+  if(q("profileAvgRatingForm"))q("profileAvgRatingForm").textContent=q("profileAvgRating")?.textContent||"—";
+  if(q("profileAvailabilityForm"))q("profileAvailabilityForm").innerHTML=q("profileAvailability")?.innerHTML||"—";
+  if(q("profileWageContract"))q("profileWageContract").textContent=q("profileWage")?.textContent||"—";
+  if(q("profileContractContract"))q("profileContractContract").textContent=q("profileContract")?.textContent||"—";
+  setPlayerProfilePane("overview");
 
   q("playerModal").classList.remove("hide");
 }
 
+
+function setPlayerProfilePane(name){document.querySelectorAll('[data-profile-pane]').forEach(el=>el.classList.toggle('hide',el.dataset.profilePane!==name));document.querySelectorAll('[data-profile-pane-btn]').forEach(btn=>btn.classList.toggle('active',btn.dataset.profilePaneBtn===name));}
 
 function closePlayerProfile(){
   q("playerModal")?.classList.add("hide");
@@ -1928,6 +1941,18 @@ function closeClubProfile(){
   if(typeof setModalScrollLock==='function') setModalScrollLock(false);
 }
 
+
+/* v0.24.30 club-driven visual identity. Dark surfaces stay neutral; accents follow the user's club. */
+const FOOTBALL_CEO_CLUB_THEMES={
+  "Arsenal":["#D71920","#FFFFFF"],"Aston Villa":["#670E36","#95BFE5"],"Bournemouth":["#DA291C","#111111"],"Brentford":["#E30613","#FFFFFF"],"Brighton":["#0057B8","#FFFFFF"],"Burnley":["#6C1D45","#99D6EA"],"Chelsea":["#034694","#FFFFFF"],"Crystal Palace":["#1B458F","#C4122E"],"Everton":["#003399","#FFFFFF"],"Fulham":["#FFFFFF","#111111"],"Leeds United":["#FFCD00","#1D428A"],"Liverpool":["#C8102E","#00B2A9"],"Manchester City":["#6CABDD","#FFFFFF"],"Manchester United":["#DA291C","#FBE122"],"Newcastle United":["#111111","#FFFFFF"],"Nottingham Forest":["#DD0000","#FFFFFF"],"Sunderland":["#EB172B","#FFFFFF"],"Tottenham Hotspur":["#FFFFFF","#132257"],"West Ham United":["#7A263A","#1BB1E7"],"Wolverhampton Wanderers":["#FDB913","#111111"],
+  "Birmingham City":["#0057B8","#FFFFFF"],"Blackburn Rovers":["#009EE0","#FFFFFF"],"Bristol City":["#E21A2D","#FFFFFF"],"Charlton Athletic":["#D71920","#FFFFFF"],"Coventry City":["#69B3E7","#FFFFFF"],"Derby County":["#111111","#FFFFFF"],"Hull City":["#F5A12D","#111111"],"Ipswich Town":["#0054A6","#FFFFFF"],"Leicester City":["#003090","#FDBE11"],"Middlesbrough":["#E00000","#FFFFFF"],"Millwall":["#001E62","#FFFFFF"],"Norwich City":["#FFF200","#00A650"],"Oxford United":["#F9D616","#13294B"],"Portsmouth":["#001489","#FFFFFF"],"Preston North End":["#FFFFFF","#001F5B"],"Queens Park Rangers":["#005CAB","#FFFFFF"],"Sheffield United":["#EE2737","#FFFFFF"],"Sheffield Wednesday":["#0054A6","#FFFFFF"],"Southampton":["#D71920","#FFFFFF"],"Stoke City":["#E03A3E","#FFFFFF"],"Swansea City":["#FFFFFF","#111111"],"Watford":["#FDEE00","#111111"],"West Bromwich Albion":["#122F67","#FFFFFF"],"Wrexham":["#D71920","#FFFFFF"],
+  "AFC Wimbledon":["#003B7A","#F5D000"],"Barnsley":["#D71920","#FFFFFF"],"Blackpool":["#F68712","#FFFFFF"],"Bolton Wanderers":["#FFFFFF","#0B1E5B"],"Bradford City":["#6A1B2C","#F2C94C"],"Burton Albion":["#F6D32D","#111111"],"Cardiff City":["#0070B5","#FFFFFF"],"Doncaster Rovers":["#E21A2D","#FFFFFF"],"Exeter City":["#D71920","#111111"],"Huddersfield Town":["#0E63AD","#FFFFFF"],"Leyton Orient":["#E1251B","#FFFFFF"],"Lincoln City":["#D71920","#FFFFFF"],"Luton Town":["#F78F1E","#1D2D5C"],"Mansfield Town":["#F4C430","#1D4F91"],"Northampton Town":["#7A263A","#FFFFFF"],"Peterborough United":["#0055A5","#FFFFFF"],"Plymouth Argyle":["#006B54","#FFFFFF"],"Port Vale":["#FFFFFF","#111111"],"Reading":["#0057B8","#FFFFFF"],"Rotherham United":["#E31B23","#FFFFFF"],"Stevenage":["#E31B23","#FFFFFF"],"Stockport County":["#0057B8","#FFFFFF"],"Wigan Athletic":["#005BAC","#FFFFFF"],"Wycombe Wanderers":["#003B70","#69B3E7"],
+  "Accrington Stanley":["#E31B23","#FFFFFF"],"Barnet":["#F18A00","#111111"],"Barrow":["#0057B8","#FFFFFF"],"Bristol Rovers":["#0057B8","#FFFFFF"],"Bromley":["#FFFFFF","#111111"],"Cambridge United":["#F9D616","#111111"],"Cheltenham Town":["#D71920","#FFFFFF"],"Chesterfield":["#0057B8","#FFFFFF"],"Colchester United":["#0057B8","#FFFFFF"],"Crawley Town":["#E31B23","#FFFFFF"],"Crewe Alexandra":["#E31B23","#FFFFFF"],"Fleetwood Town":["#E31B23","#FFFFFF"],"Gillingham":["#0057B8","#FFFFFF"],"Grimsby Town":["#111111","#FFFFFF"],"Harrogate Town":["#F9D616","#111111"],"Milton Keynes Dons":["#FFFFFF","#111111"],"Newport County":["#F4A900","#111111"],"Notts County":["#111111","#FFFFFF"],"Oldham Athletic":["#0057B8","#FFFFFF"],"Salford City":["#E31B23","#FFFFFF"],"Shrewsbury Town":["#0057B8","#F9D616"],"Swindon Town":["#E31B23","#FFFFFF"],"Tranmere Rovers":["#FFFFFF","#0057B8"],"Walsall":["#E31B23","#FFFFFF"]
+};
+function themeHexLuminance(hex){const h=String(hex||'#000').replace('#','');const rgb=[0,2,4].map(i=>parseInt(h.slice(i,i+2),16)/255).map(v=>v<=.03928?v/12.92:Math.pow((v+.055)/1.055,2.4));return .2126*rgb[0]+.7152*rgb[1]+.0722*rgb[2];}
+function clubThemeFor(club){const pair=FOOTBALL_CEO_CLUB_THEMES[club]||['#670E36','#95BFE5'];let primary=pair[0],secondary=pair[1];/* White is often a shirt colour rather than a useful UI base. For white-primary clubs, use the darker secondary colour as the structural accent while retaining white as the contrast colour. */if(String(primary).toUpperCase()==='#FFFFFF'&&String(secondary).toUpperCase()!=='#FFFFFF'){[primary,secondary]=[secondary,primary];}const pLum=themeHexLuminance(primary),sLum=themeHexLuminance(secondary);const accent=sLum>.12?secondary:(pLum>.12?primary:'#95BFE5');const onPrimary=pLum>.43?'#071018':'#FFFFFF';return {primary,secondary,accent,onPrimary};}
+function applyClubTheme(club=state?.club){if(!club||typeof document==='undefined')return;const t=clubThemeFor(club),r=document.documentElement.style;r.setProperty('--club-primary',t.primary);r.setProperty('--club-secondary',t.secondary);r.setProperty('--club-accent',t.accent);r.setProperty('--club-on-primary',t.onPrimary);/* compatibility with the existing Villa-named variables */r.setProperty('--villa-claret',t.primary);r.setProperty('--villa-claret-light',t.primary);r.setProperty('--villa-sky',t.accent);r.setProperty('--villa-sky-strong',t.accent);document.documentElement.dataset.clubTheme=club;}
+
 function createCareer(club){
   if(getSaveManifest().length>=MAX_LOCAL_SAVES){
     alert(`You already have ${MAX_LOCAL_SAVES} local careers. Delete a save before starting another.`);
@@ -2015,6 +2040,7 @@ function createCareer(club){
 }
 
 function enterGame(){
+  applyClubTheme(state?.club);
   if(!activeSaveId) activeSaveId=state?.saveId||null;
   if(activeSaveId && state) state.saveId=activeSaveId;
   ensureStaffState();
@@ -3170,50 +3196,39 @@ function renderSquad(){
   });
 }
 
+let DATABASE_VISIBLE_LIMIT=50;
+let DATABASE_SEARCH_TIMER=null;
+const DATABASE_COST_CACHE=new Map();
+function databasePlayerLeagueId(p){return (typeof byClub==='function'?byClub(p.club)?.leagueId:null)||'other';}
+function databaseLeagueLabel(id){const labels={'premier-league':'Premier League','championship':'Championship','league-one':'League One','league-two':'League Two','bundesliga':'Bundesliga','la-liga':'La Liga','serie-a':'Serie A','ligue-1':'Ligue 1','saudi-pro-league':'Saudi Pro League'};return labels[id]||String(id||'Other').replace(/-/g,' ').replace(/\b\w/g,m=>m.toUpperCase());}
+function databaseExpectedCost(p){const day=typeof currentCareerDay==='function'?currentCareerDay():state?.week||0;const key=`${state?.club}|${day}|${p.id}|${aiAvailabilityStatus(p)}`;if(DATABASE_COST_CACHE.has(key))return DATABASE_COST_CACHE.get(key);const cost=typeof expectedTransferCost==='function'?expectedTransferCost(p,state.club):{mid:p.value,low:p.value,high:p.value,status:'Not for sale'};DATABASE_COST_CACHE.set(key,cost);if(DATABASE_COST_CACHE.size>12000){const first=DATABASE_COST_CACHE.keys().next().value;DATABASE_COST_CACHE.delete(first);}return cost;}
+function ensureDatabaseLeagueOptions(){const sel=q('dbLeague');if(!sel||sel.dataset.ready==='1')return;const ids=[...new Set(DB.players.filter(p=>!p.retired&&p.club&&p.club!==state.club&&p.club!=='Free Agent').map(databasePlayerLeagueId))].sort((a,b)=>databaseLeagueLabel(a).localeCompare(databaseLeagueLabel(b)));sel.innerHTML='<option value="all">All leagues</option>'+ids.map(id=>`<option value="${id}">${databaseLeagueLabel(id)}</option>`).join('');sel.dataset.ready='1';}
+function databaseActiveFilterCount(){const checks=[q('dbPosition')?.value!=='all',q('dbAvailability')?.value!=='all',Number(q('dbMinOverall')?.value||0)>0,Number(q('dbMinPotential')?.value||0)>0,Number(q('dbMinAge')?.value||0)>0,Number(q('dbMaxAge')?.value||99)<99,q('dbLeague')?.value!=='all',Number(q('dbMaxCost')?.value||0)>0,Boolean(q('dbAffordableOnly')?.checked)];return checks.filter(Boolean).length;}
 function renderDatabase(){
-  if(!q("dbRows")) return;
-  if(typeof recalculateAllPlayerMarketValues==="function") recalculateAllPlayerMarketValues();
-  if(typeof refreshAIPlayerAvailability==="function" && isTransferWindowOpen()) refreshAIPlayerAvailability();
-
-  const query=(q("dbSearch")?.value||"").toLowerCase();
-  const availability=q("dbAvailability")?.value||"all";
-  const sort=q("dbSort")?.value||"ovr";
-
-  let arr=DB.players
-    .filter(p=>!p.retired && p.club!=="Retired" && p.club!==state.club && p.club!=="Free Agent")
-    .filter(p=>(`${p.name} ${p.club} ${p.nationality} ${p.positions}`).toLowerCase().includes(query))
-    .map(p=>{
-      const mv=typeof dynamicPlayerMarketValue==="function"?dynamicPlayerMarketValue(p):p.value;
-      const cost=typeof expectedTransferCost==="function"?expectedTransferCost(p,state.club):{mid:p.value,low:p.value,high:p.value,status:"Not for sale"};
-      const status=typeof aiAvailabilityStatus==="function"?aiAvailabilityStatus(p):"Not for sale";
-      return {p,mv,cost,status};
-    })
-    .filter(x=>availability==="all" || x.status===availability);
-
-  arr.sort((a,b)=>{
-    if(sort==="cost") return a.cost.mid-b.cost.mid;
-    if(sort==="value") return a.mv-b.mv;
-    if(sort==="discount") return (a.cost.mid/a.mv)-(b.cost.mid/b.mv);
-    if(sort==="age") return (a.p.age||99)-(b.p.age||99);
-    return (b.p.overall||0)-(a.p.overall||0);
+  if(!q('dbRows'))return;
+  ensureDatabaseLeagueOptions();
+  const query=(q('dbSearch')?.value||'').trim().toLowerCase(),availability=q('dbAvailability')?.value||'all',position=q('dbPosition')?.value||'all',sort=q('dbSort')?.value||'ovr',minOvr=Number(q('dbMinOverall')?.value||0),minPot=Number(q('dbMinPotential')?.value||0),minAge=Number(q('dbMinAge')?.value||0),maxAge=Number(q('dbMaxAge')?.value||99),league=q('dbLeague')?.value||'all',maxCost=Number(q('dbMaxCost')?.value||0),affordable=Boolean(q('dbAffordableOnly')?.checked),budget=Number(state?.budget||0);
+  let arr=DB.players.filter(p=>!p.retired&&p.club!=='Retired'&&p.club!==state.club&&p.club!=='Free Agent').filter(p=>{
+    if(query){if(!p.__dbSearchIndex)p.__dbSearchIndex=`${p.name} ${p.fullName||''} ${p.club} ${p.nationality} ${p.positions}`.toLowerCase();if(!p.__dbSearchIndex.includes(query))return false;}
+    if(position!=='all'&&!String(p.positions||'').split(',').map(x=>x.trim()).includes(position))return false;
+    if((p.overall||0)<minOvr||(p.potential||p.overall||0)<minPot)return false;if((p.age||0)<minAge||(p.age||99)>maxAge)return false;
+    if(league!=='all'&&databasePlayerLeagueId(p)!==league)return false;
+    if(availability!=='all'&&aiAvailabilityStatus(p)!==availability)return false;
+    return true;
   });
-
-  q("dbRows").innerHTML=arr.map(x=>{
-    const p=x.p;
-    const opp=typeof valueOpportunityLabel==="function"?valueOpportunityLabel(p,state.club):"";
-    return `<tr>
-      <td><button class="player-link database-player-link" data-player-id="${p.id}" type="button">${p.name}</button>${opp?`<div class="market-opportunity">${opp}</div>`:""}</td>
-      <td>${p.club}</td>
-      <td>${p.positions}</td>
-      <td><span class="rating">${p.overall}</span></td>
-      <td>${p.potential||p.overall}</td>
-      <td>${p.age}</td>
-      <td>${money(x.mv)}</td>
-      <td><b>${money(x.cost.low)}–${money(x.cost.high)}</b></td>
-      <td><span class="availability-chip ${x.status==="Transfer listed"?"listed":x.status==="Open to offers"?"open":""}">${x.status}</span></td>
-    </tr>`;
-  }).join("");
+  const needsCost=maxCost>0||affordable||sort==='cost'||sort==='discount';
+  if(needsCost)arr=arr.map(p=>({p,cost:databaseExpectedCost(p)})).filter(x=>(!maxCost||x.cost.mid<=maxCost)&&(!affordable||x.cost.mid<=budget)).map(x=>x.p);
+  arr.sort((a,b)=>{if(sort==='age')return(a.age||99)-(b.age||99);if(sort==='potential')return(b.potential||b.overall||0)-(a.potential||a.overall||0);if(sort==='value')return(dynamicPlayerMarketValue(a)-dynamicPlayerMarketValue(b));if(sort==='cost')return databaseExpectedCost(a).mid-databaseExpectedCost(b).mid;if(sort==='discount'){const av=dynamicPlayerMarketValue(a),bv=dynamicPlayerMarketValue(b);return databaseExpectedCost(a).mid/Math.max(1,av)-databaseExpectedCost(b).mid/Math.max(1,bv);}return(b.overall||0)-(a.overall||0);});
+  const total=arr.length,visible=arr.slice(0,DATABASE_VISIBLE_LIMIT),rows=visible.map(p=>{const mv=typeof dynamicPlayerMarketValue==='function'?dynamicPlayerMarketValue(p):p.value,cost=databaseExpectedCost(p),status=typeof aiAvailabilityStatus==='function'?aiAvailabilityStatus(p):'Not for sale',opp=typeof valueOpportunityLabel==='function'&&cost.mid<=mv*.88?'Good value':'';return {p,mv,cost,status,opp};});
+  q('dbRows').innerHTML=rows.map(x=>`<tr><td><button class="player-link database-player-link" data-player-id="${x.p.id}" type="button">${x.p.name}</button>${x.opp?`<div class="market-opportunity">${x.opp}</div>`:''}</td><td>${x.p.club}</td><td>${x.p.positions}</td><td><span class="rating">${x.p.overall}</span></td><td>${x.p.potential||x.p.overall}</td><td>${x.p.age}</td><td>${money(x.mv)}</td><td><b>${money(x.cost.low)}–${money(x.cost.high)}</b></td><td><span class="availability-chip ${x.status==='Transfer listed'?'listed':x.status==='Open to offers'?'open':''}">${x.status}</span></td></tr>`).join('');
+  const cards=q('dbCards');if(cards)cards.innerHTML=rows.map(x=>`<button class="database-player-card" data-player-id="${x.p.id}" type="button"><div class="db-card-top"><div class="db-card-ovr">${x.p.overall}</div><div><div class="db-card-name">${x.p.name}</div><div class="db-card-sub">${x.p.club} • ${x.p.positions} • Age ${x.p.age}</div></div><div class="db-card-status"><span class="availability-chip ${x.status==='Transfer listed'?'listed':x.status==='Open to offers'?'open':''}">${x.status}</span></div></div><div class="db-card-facts"><div><span>Potential</span><b>${x.p.potential||x.p.overall}</b></div><div><span>Value</span><b>${money(x.mv)}</b></div><div><span>Expected cost</span><b>${money(x.cost.low)}–${money(x.cost.high)}</b></div></div>${x.opp?`<div class="db-card-opportunity">Good value opportunity</div>`:''}</button>`).join('');
+  const meta=q('dbResultMeta');if(meta)meta.textContent=`${total.toLocaleString('en-GB')} player${total===1?'':'s'} match • showing ${Math.min(total,DATABASE_VISIBLE_LIMIT).toLocaleString('en-GB')}`;
+  const load=q('dbLoadMore');if(load)load.classList.toggle('hide',DATABASE_VISIBLE_LIMIT>=total);
+  const count=databaseActiveFilterCount(),countEl=q('dbFilterCount');if(countEl){countEl.textContent=String(count);countEl.classList.toggle('hide',count===0);}
+  document.querySelectorAll('.database-player-card').forEach(btn=>btn.addEventListener('click',()=>typeof openTransferPlayerFile==='function'?openTransferPlayerFile(btn.dataset.playerId):openPlayerProfile(btn.dataset.playerId)));
 }
+function scheduleDatabaseRender({resetLimit=true}={}){if(resetLimit)DATABASE_VISIBLE_LIMIT=50;clearTimeout(DATABASE_SEARCH_TIMER);DATABASE_SEARCH_TIMER=setTimeout(renderDatabase,160);}
+function clearDatabaseFilters(){['dbPosition','dbAvailability','dbLeague'].forEach(id=>{if(q(id))q(id).value='all';});['dbMinOverall','dbMinPotential','dbMinAge','dbMaxCost'].forEach(id=>{if(q(id))q(id).value='0';});if(q('dbMaxAge'))q('dbMaxAge').value='99';if(q('dbAffordableOnly'))q('dbAffordableOnly').checked=false;if(q('dbSort'))q('dbSort').value='ovr';DATABASE_VISIBLE_LIMIT=50;renderDatabase();}
 
 function poisson(lambda){
   let L=Math.exp(-lambda),k=0,p=1;
@@ -4748,12 +4763,12 @@ function leagueTableRowClass(index){
   return relegation&&position>size-relegation?'pos18':'';
 }
 function renderTable(){
-  if(!q("tableRows")) return;
-  q("tableWeek").textContent=`After MW ${state.week}`;
-  q("tableRows").innerHTML=tableArray().map((x,i)=>`<tr class="${leagueTableRowClass(i)}">
-    <td>${i+1}</td><td><b>${x.name}</b></td><td>${x.p}</td><td>${x.w}</td><td>${x.d}</td>
-    <td>${x.l}</td><td>${x.gf}</td><td>${x.ga}</td><td>${x.gd>0?"+":""}${x.gd}</td><td><b>${x.pts}</b></td>
-  </tr>`).join("");
+  if(!q('tableRows'))return;
+  const id=typeof careerLeagueId==='function'?careerLeagueId():(state?.leagueId||'premier-league'),rules=typeof englishCompetitionDefinition==='function'?englishCompetitionDefinition(id):null;
+  if(q('leagueTableTitle'))q('leagueTableTitle').textContent=`${rules?.name||'League'} table`;
+  q('tableWeek').textContent=`After MW ${state.week}`;
+  q('tableRows').innerHTML=tableArray().map((x,i)=>`<tr class="${leagueTableRowClass(i)} league-main-row" data-league-row="${i}"><td>${i+1}</td><td><b>${x.name}</b></td><td>${x.p}</td><td class="league-detail-col">${x.w}</td><td class="league-detail-col">${x.d}</td><td class="league-detail-col">${x.l}</td><td class="league-detail-col">${x.gf}</td><td class="league-detail-col">${x.ga}</td><td>${x.gd>0?'+':''}${x.gd}</td><td><b>${x.pts}</b></td></tr><tr class="league-mobile-detail-row hide" data-league-detail="${i}"><td colspan="10" class="league-mobile-detail"><strong>${x.name}</strong> • W ${x.w} &nbsp; D ${x.d} &nbsp; L ${x.l} &nbsp; GF ${x.gf} &nbsp; GA ${x.ga}</td></tr>`).join('');
+  q('tableRows').querySelectorAll('.league-main-row').forEach(row=>row.addEventListener('click',()=>{if(window.innerWidth>600||q('table')?.querySelector('.league-table-panel')?.classList.contains('league-full-stats'))return;const detail=q('tableRows').querySelector(`[data-league-detail="${row.dataset.leagueRow}"]`);detail?.classList.toggle('hide');}));
 }
 
 const FORMATION_PITCH_COORDS={
@@ -5842,6 +5857,15 @@ function init(){
   document.querySelectorAll("[data-go-tab]").forEach(btn=>{
     btn.addEventListener("click",()=>showTab(btn.dataset.goTab));
   });
+  document.querySelectorAll('[data-profile-pane-btn]').forEach(btn=>btn.addEventListener('click',()=>setPlayerProfilePane(btn.dataset.profilePaneBtn)));
+  q('leagueFullStatsToggle')?.addEventListener('click',()=>{const panel=q('table')?.querySelector('.league-table-panel');if(!panel)return;const on=panel.classList.toggle('league-full-stats');q('leagueFullStatsToggle').textContent=on?'Compact':'Full stats';});
+  q('dbFilterToggle')?.addEventListener('click',()=>q('dbAdvancedFilters')?.classList.toggle('hide'));
+  q('dbApplyFilters')?.addEventListener('click',()=>{q('dbAdvancedFilters')?.classList.add('hide');DATABASE_VISIBLE_LIMIT=50;renderDatabase();});
+  q('dbClearFilters')?.addEventListener('click',clearDatabaseFilters);
+  q('dbLoadMore')?.addEventListener('click',()=>{DATABASE_VISIBLE_LIMIT+=50;renderDatabase();});
+  q('dbSearch')?.addEventListener('input',()=>scheduleDatabaseRender());
+  ['dbPosition','dbAvailability','dbSort'].forEach(id=>q(id)?.addEventListener('change',()=>scheduleDatabaseRender()));
+  ['dbMinOverall','dbMinPotential','dbMinAge','dbMaxAge','dbLeague','dbMaxCost','dbAffordableOnly'].forEach(id=>q(id)?.addEventListener('change',()=>scheduleDatabaseRender()));
   document.querySelectorAll(".home-dashboard-btn").forEach(btn=>{
     btn.addEventListener("click",()=>showTab("dashboard"));
   });
@@ -5944,12 +5968,13 @@ function init(){
     if(p) openPlayerProfile(p.id);
   });
   q("playerModal")?.addEventListener("click",e=>{if(e.target===q("playerModal")) closePlayerProfile();});
-  q("negotiateContractBtn")?.addEventListener("click",e=>beginContractNegotiation(e.currentTarget.dataset.playerId));
+  q("negotiateContractBtn")?.addEventListener("click",e=>{setPlayerProfilePane("contract");beginContractNegotiation(e.currentTarget.dataset.playerId);});
   q("contractWageInput")?.addEventListener("input",()=>{
     const id=q("contractNegotiation")?.dataset.playerId;
     const p=DB.players.find(x=>String(x.id)===String(id));
     if(p) renderContractSCRPreview(p);
   });
+  if(typeof bindMoneyInput==="function") bindMoneyInput(q("contractWageInput"));
   q("contractYearsInput")?.addEventListener("change",()=>{
     const id=q("contractNegotiation")?.dataset.playerId;
     const p=DB.players.find(x=>String(x.id)===String(id));

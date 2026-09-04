@@ -1,0 +1,12 @@
+FOOTBALL CEO v0.24.30 — Mobile UI / Recruitment Performance / Club Themes
+
+- Mobile league table redesigned to Position / Club / P / GD / Pts by default, with tap-to-expand detail and Full stats toggle.
+- Player Database no longer recalculates all market values or refreshes AI availability simply because the screen opened.
+- Database renders 50 results at a time, caches expected-cost calculations, debounces search, and adds extensive mobile-friendly filters.
+- Mobile database switches from a forced 920px table to recruitment cards; desktop retains the data table.
+- Player profile rebuilt as a compact dashboard with hero facts, form strip, Overview/Form/Contract/Development tabs and sticky CEO actions.
+- Transfer target/negotiation UI rebuilt as a dark-theme deal room with visible negotiation stages and decision-first fee controls.
+- Transfer bid increments now scale by deal size: £10k / £25k / £100k / £250k / £500k / £1m.
+- Contract and transfer money-entry fields display comma separators while preserving numeric values internally.
+- Managed club now drives the visual accent palette for all 92 PL/EFL clubs; dark neutral surfaces remain for readability.
+- Existing save/game simulation format remains compatible.

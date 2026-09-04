@@ -11,7 +11,7 @@
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="apple-touch-icon" sizes="180x180" href="icon-180.png">
 <link rel="icon" type="image/png" sizes="192x192" href="icon-192.png">
-<link rel="stylesheet" href="styles.css?v=02429-finance-ux">
+<link rel="stylesheet" href="styles.css?v=02430-mobile-ui">
 </head>
 <body>
 <div class="shell">
@@ -540,31 +540,53 @@
 </div>
 
 <div id="database" class="tab hide">
-  <div class="panel pad">
-    <div class="sectiontitle"><h2>Player database</h2><span class="pill">Multi-league market</span></div>
-    <div class="database-toolbar">
-      <input id="dbSearch" class="search" placeholder="Search player, club, nationality or position…" oninput="renderDatabase()">
-      <select id="dbAvailability" class="search database-filter" onchange="renderDatabase()">
-        <option value="all">All availability</option>
-        <option value="Transfer listed">Transfer listed</option>
-        <option value="Open to offers">Open to offers</option>
-        <option value="Not for sale">Not for sale</option>
+  <div class="panel pad database-panel">
+    <div class="sectiontitle database-title-row">
+      <div><h2>Player database</h2><div class="muted tiny">Search the global recruitment market</div></div>
+      <span class="pill">Multi-league market</span>
+    </div>
+
+    <div class="database-search-row">
+      <input id="dbSearch" class="search" placeholder="Search player, club, nationality or position…" autocomplete="off" inputmode="search">
+      <button id="dbFilterToggle" class="btn secondary database-filter-toggle" type="button">Filters <span id="dbFilterCount" class="database-filter-count hide">0</span></button>
+    </div>
+
+    <div class="database-quick-filters" aria-label="Quick player filters">
+      <select id="dbPosition" class="search database-filter">
+        <option value="all">Position</option><option>GK</option><option>RB</option><option>CB</option><option>LB</option><option>CDM</option><option>CM</option><option>CAM</option><option>RW</option><option>LW</option><option>ST</option>
       </select>
-      <select id="dbSort" class="search database-filter" onchange="renderDatabase()">
-        <option value="ovr">Sort: Overall</option>
-        <option value="cost">Expected cost: Low to high</option>
-        <option value="value">Market value: Low to high</option>
-        <option value="discount">Best value opportunity</option>
-        <option value="age">Age: Youngest</option>
+      <select id="dbAvailability" class="search database-filter">
+        <option value="all">Availability</option><option>Transfer listed</option><option>Open to offers</option><option>Not for sale</option>
+      </select>
+      <select id="dbSort" class="search database-filter">
+        <option value="ovr">Overall ↓</option><option value="potential">Potential ↓</option><option value="cost">Expected cost ↑</option><option value="value">Market value ↑</option><option value="discount">Best value</option><option value="age">Age ↑</option>
       </select>
     </div>
-    <div class="muted small database-market-note">Market value estimates the player as an asset. Expected cost reflects contract leverage, player interest, selling-club resistance, rivalry and availability.</div>
-    <div class="scroll"><table class="database-table"><thead><tr><th>Player</th><th>Club</th><th>Pos</th><th>OVR</th><th>POT</th><th>Age</th><th>Market value</th><th>Expected cost</th><th>Availability</th></tr></thead><tbody id="dbRows"></tbody></table></div>
+
+    <div id="dbAdvancedFilters" class="database-advanced-filters hide">
+      <div class="database-filter-grid">
+        <label><span>Minimum OVR</span><select id="dbMinOverall"><option value="0">Any</option><option>60</option><option>65</option><option>70</option><option>75</option><option>80</option><option>85</option></select></label>
+        <label><span>Minimum potential</span><select id="dbMinPotential"><option value="0">Any</option><option>65</option><option>70</option><option>75</option><option>80</option><option>85</option><option>90</option></select></label>
+        <label><span>Minimum age</span><select id="dbMinAge"><option value="0">Any</option><option>16</option><option>18</option><option>21</option><option>23</option><option>25</option><option>28</option><option>30</option></select></label>
+        <label><span>Maximum age</span><select id="dbMaxAge"><option value="99">Any</option><option>20</option><option>21</option><option>23</option><option>25</option><option>28</option><option>30</option><option>33</option></select></label>
+        <label><span>League</span><select id="dbLeague"><option value="all">All leagues</option></select></label>
+        <label><span>Maximum expected cost</span><select id="dbMaxCost"><option value="0">Any</option><option value="250000">£250k</option><option value="500000">£500k</option><option value="1000000">£1m</option><option value="2500000">£2.5m</option><option value="5000000">£5m</option><option value="10000000">£10m</option><option value="20000000">£20m</option><option value="40000000">£40m</option><option value="75000000">£75m</option></select></label>
+      </div>
+      <label class="database-checkbox"><input id="dbAffordableOnly" type="checkbox"> <span>Only show players within my current transfer budget</span></label>
+      <div class="database-filter-actions"><button id="dbClearFilters" class="btn secondary" type="button">Clear filters</button><button id="dbApplyFilters" class="btn primary" type="button">Show results</button></div>
+    </div>
+
+    <div id="dbResultMeta" class="database-result-meta muted small">Loading recruitment market…</div>
+    <div class="muted tiny database-market-note">Market value estimates the player as an asset. Expected cost reflects contract leverage, player interest, selling-club resistance, rivalry and availability.</div>
+
+    <div id="dbCards" class="database-mobile-cards"></div>
+    <div class="scroll database-desktop-table"><table class="database-table"><thead><tr><th>Player</th><th>Club</th><th>Pos</th><th>OVR</th><th>POT</th><th>Age</th><th>Market value</th><th>Expected cost</th><th>Availability</th></tr></thead><tbody id="dbRows"></tbody></table></div>
+    <button id="dbLoadMore" class="btn secondary database-load-more hide" type="button">Show more players</button>
   </div>
 </div>
 
 <div id="fixtures" class="tab hide"><div class="panel pad"><div class="sectiontitle"><h2>Premier League fixtures</h2><span class="pill">38 matchweeks</span></div><div id="fixturesList"></div></div></div>
-<div id="table" class="tab hide"><div class="panel pad"><div class="sectiontitle"><h2>Premier League table</h2><span class="pill" id="tableWeek"></span></div><div class="scroll"><table><thead><tr><th>#</th><th>Club</th><th>P</th><th>W</th><th>D</th><th>L</th><th>GF</th><th>GA</th><th>GD</th><th>Pts</th></tr></thead><tbody id="tableRows"></tbody></table></div></div></div>
+<div id="table" class="tab hide"><div class="panel pad league-table-panel"><div class="sectiontitle league-table-title"><div><h2 id="leagueTableTitle">League table</h2><div class="muted tiny">Tap a club for W/D/L and goals</div></div><div class="league-table-head-actions"><button id="leagueFullStatsToggle" class="btn secondary league-full-stats-toggle" type="button">Full stats</button><span class="pill" id="tableWeek"></span></div></div><div class="scroll league-table-scroll"><table id="leagueTable"><thead><tr><th>#</th><th>Club</th><th>P</th><th class="league-detail-col">W</th><th class="league-detail-col">D</th><th class="league-detail-col">L</th><th class="league-detail-col">GF</th><th class="league-detail-col">GA</th><th>GD</th><th>Pts</th></tr></thead><tbody id="tableRows"></tbody></table></div></div></div>
 
 <div id="facilities" class="tab hide">
   <div class="panel pad">
@@ -758,29 +780,29 @@
 
 </section>
 </div>
-<script src="database.js?v=02429-finance-ux"></script>
-<script src="world-leagues.js?v=02429-finance-ux"></script>
-<script src="english-pyramid.js?v=02429-finance-ux"></script>
-<script src="non-league-clubs.js?v=02429-finance-ux"></script>
-<script src="world-players.js?v=02429-finance-ux"></script>
-<script src="financial-profiles.js?v=02429-finance-ux"></script>
-<script src="academy-profiles.js?v=02429-finance-ux"></script>
-<script src="ownership-profiles.js?v=02429-finance-ux"></script>
-<script src="sporting-expectations.js?v=02429-finance-ux"></script>
-<script src="championship-simulation.js?v=02429-finance-ux"></script>
-<script src="state.js?v=02429-finance-ux"></script>
-<script src="ageing.js?v=02429-finance-ux"></script>
-<script src="finance.js?v=02429-finance-ux"></script>
-<script src="stadiums.js?v=02429-finance-ux"></script>
-<script src="stakeholders.js?v=02429-finance-ux"></script>
-<script src="staff.js?v=02429-finance-ux"></script>
-<script src="commercial.js?v=02429-finance-ux"></script>
-<script src="transfers.js?v=02429-finance-ux"></script>
-<script src="loans.js?v=02429-finance-ux"></script>
-<script src="player-lifecycle.js?v=02429-finance-ux"></script>
-<script src="simulation.js?v=02429-finance-ux"></script>
-<script src="ui.js?v=02429-finance-ux"></script>
-<script src="game.js?v=02429-finance-ux"></script>
+<script src="database.js?v=02430-mobile-ui"></script>
+<script src="world-leagues.js?v=02430-mobile-ui"></script>
+<script src="english-pyramid.js?v=02430-mobile-ui"></script>
+<script src="non-league-clubs.js?v=02430-mobile-ui"></script>
+<script src="world-players.js?v=02430-mobile-ui"></script>
+<script src="financial-profiles.js?v=02430-mobile-ui"></script>
+<script src="academy-profiles.js?v=02430-mobile-ui"></script>
+<script src="ownership-profiles.js?v=02430-mobile-ui"></script>
+<script src="sporting-expectations.js?v=02430-mobile-ui"></script>
+<script src="championship-simulation.js?v=02430-mobile-ui"></script>
+<script src="state.js?v=02430-mobile-ui"></script>
+<script src="ageing.js?v=02430-mobile-ui"></script>
+<script src="finance.js?v=02430-mobile-ui"></script>
+<script src="stadiums.js?v=02430-mobile-ui"></script>
+<script src="stakeholders.js?v=02430-mobile-ui"></script>
+<script src="staff.js?v=02430-mobile-ui"></script>
+<script src="commercial.js?v=02430-mobile-ui"></script>
+<script src="transfers.js?v=02430-mobile-ui"></script>
+<script src="loans.js?v=02430-mobile-ui"></script>
+<script src="player-lifecycle.js?v=02430-mobile-ui"></script>
+<script src="simulation.js?v=02430-mobile-ui"></script>
+<script src="ui.js?v=02430-mobile-ui"></script>
+<script src="game.js?v=02430-mobile-ui"></script>
 
 
 <div id="tutorialModal" class="tutorial-overlay hide">
@@ -979,83 +1001,95 @@
 </div>
 
 <div id="playerModal" class="player-modal hide">
-  <div class="player-modal-card">
-    <div class="player-header">
-      <div>
+  <div class="player-modal-card player-dashboard-card">
+    <div class="player-header player-dashboard-header">
+      <div class="player-dashboard-title">
         <div class="player-name-large" id="profileName"></div>
         <div class="muted" id="profileSubtitle"></div>
       </div>
       <button id="closePlayerModal" class="close-x" type="button">×</button>
     </div>
 
-    <div class="player-meta-grid">
-      <div class="metric"><div class="k">Overall</div><div class="v" id="profileOverall"></div></div>
-      <div class="metric"><div class="k">Morale</div><div class="v" id="profileMorale"></div></div>
-      <div class="metric"><div class="k">Appearances</div><div class="v" id="profileApps"></div></div>
-      <div class="metric"><div class="k">Starts</div><div class="v" id="profileStarts"></div></div>
-      <div class="metric"><div class="k">Goals</div><div class="v" id="profileGoals"></div></div>
-      <div class="metric"><div class="k">Assists</div><div class="v" id="profileAssists"></div></div>
-      <div class="metric"><div class="k">Avg rating</div><div class="v" id="profileAvgRating"></div></div>
+    <div class="player-dashboard-hero">
+      <div class="player-ovr-tile"><span>OVR</span><strong id="profileOverall"></strong></div>
+      <div class="player-hero-facts">
+        <div><span>Age</span><b id="profileAge"></b></div>
+        <div><span>Value</span><b id="profileValue"></b></div>
+        <div><span>Wage</span><b id="profileWage"></b></div>
+        <div><span>Contract</span><b id="profileContract"></b></div>
+      </div>
     </div>
 
-    <div class="profile-actions">
-      <button id="negotiateContractBtn" class="btn secondary" type="button">Negotiate new contract</button>
-      <button id="transferListBtn" class="btn secondary" type="button">Add to transfer list</button>
-      <button id="loanListBtn" class="btn secondary" type="button">Add to loan list</button>
-      <button id="requestDevelopmentMinutesBtn" class="btn secondary hide" type="button">Request development minutes</button>
+    <div class="player-status-line"><div><span>Morale</span><b id="profileMoraleHero">—</b></div><div><span>Condition</span><b id="profileConditionHero">—</b></div></div>
+
+    <div class="player-stat-strip">
+      <div><span>Apps</span><b id="profileApps"></b></div><div><span>Starts</span><b id="profileStarts"></b></div><div><span>Goals</span><b id="profileGoals"></b></div><div><span>Assists</span><b id="profileAssists"></b></div><div><span>Rating</span><b id="profileAvgRating"></b></div>
     </div>
 
-    <div id="contractNegotiation" class="contract-box hide">
-      <h3 style="margin-top:0">Contract negotiation</h3>
-      <div class="contract-grid">
-        <div>
-          <label>Weekly wage</label>
-          <input id="contractWageInput" type="number" min="1000" step="1000">
+    <div class="player-profile-tabs" role="tablist">
+      <button class="active" data-profile-pane-btn="overview" type="button">Overview</button>
+      <button data-profile-pane-btn="form" type="button">Form</button>
+      <button data-profile-pane-btn="contract" type="button">Contract</button>
+      <button data-profile-pane-btn="development" type="button">Development</button>
+    </div>
+
+    <div class="player-profile-pane" data-profile-pane="overview">
+      <div class="player-info-grid">
+        <div class="player-info-item"><span>Position</span><b id="profilePosition"></b></div>
+        <div class="player-info-item"><span>Nationality</span><b id="profileNationality"></b></div>
+        <div class="player-info-item"><span>Joined</span><b id="profileJoined"></b></div>
+        <div class="player-info-item"><span>Morale</span><b id="profileMorale"></b></div>
+        <div class="player-info-item span-2"><span>Manager view</span><b id="profileManagerRole"></b><small>Internal football role — not a contractual promise.</small></div>
+        <div class="player-info-item span-2"><span>Availability</span><b id="profileAvailability"></b></div>
+        <div class="player-info-item"><span>Squad status</span><b id="profileListStatus"></b></div>
+        <div class="player-info-item"><span>Supporter status</span><b id="profileSupporterStatus"></b></div>
+      </div>
+    </div>
+
+    <div class="player-profile-pane hide" data-profile-pane="form">
+      <div class="player-form-summary">
+        <div class="player-info-item"><span>Appearances</span><b id="profileAppsForm">—</b></div>
+        <div class="player-info-item"><span>Starts</span><b id="profileStartsForm">—</b></div>
+        <div class="player-info-item"><span>Goals</span><b id="profileGoalsForm">—</b></div>
+        <div class="player-info-item"><span>Assists</span><b id="profileAssistsForm">—</b></div>
+        <div class="player-info-item"><span>Average rating</span><b id="profileAvgRatingForm">—</b></div>
+        <div class="player-info-item span-2"><span>Fitness & workload</span><b id="profileAvailabilityForm">—</b></div>
+      </div>
+    </div>
+
+    <div class="player-profile-pane hide" data-profile-pane="contract">
+      <div class="player-info-grid">
+        <div class="player-info-item"><span>Current wage</span><b id="profileWageContract">—</b></div>
+        <div class="player-info-item"><span>Contract expires</span><b id="profileContractContract">—</b></div>
+      </div>
+      <div id="contractNegotiation" class="contract-box hide">
+        <h3 style="margin-top:0">Contract negotiation</h3>
+        <div class="contract-grid">
+          <div><label>Weekly wage</label><input id="contractWageInput" class="money-input" type="text" inputmode="numeric" autocomplete="off"></div>
+          <div><label>Contract length</label><select id="contractYearsInput"><option value="1">1 year</option><option value="2">2 years</option><option value="3">3 years</option><option value="4">4 years</option><option value="5">5 years</option></select></div>
         </div>
-        <div>
-          <label>Contract length</label>
-          <select id="contractYearsInput">
-            <option value="1">1 year</option>
-            <option value="2">2 years</option>
-            <option value="3">3 years</option>
-            <option value="4">4 years</option>
-            <option value="5">5 years</option>
-          </select>
-        </div>
-      </div>
-      <div class="muted small" id="contractDemandText" style="margin-top:10px"></div>
-      <div id="contractSCRPreview" class="transfer-box financial-regulation-preview contract-scr-preview" style="margin-top:10px"></div>
-      <div class="action" style="margin-top:10px">
-        <button id="submitContractOfferBtn" class="btn primary" type="button">Submit offer</button>
-        <button id="cancelContractBtn" class="btn secondary" type="button">Cancel</button>
+        <div class="muted small" id="contractDemandText" style="margin-top:10px"></div>
+        <div id="contractSCRPreview" class="transfer-box financial-regulation-preview contract-scr-preview" style="margin-top:10px"></div>
+        <div class="action" style="margin-top:10px"><button id="submitContractOfferBtn" class="btn primary" type="button">Submit offer</button><button id="cancelContractBtn" class="btn secondary" type="button">Cancel</button></div>
       </div>
     </div>
 
-    <div class="grid2" style="margin-top:12px">
-      <div class="panel pad">
-        <h3 style="margin-top:0">Player information</h3>
-        <div class="notice"><b>Date joined</b><br><span id="profileJoined"></span></div>
-        <div class="notice"><b>Age</b><br><span id="profileAge"></span></div>
-        <div class="notice"><b>Nationality</b><br><span id="profileNationality"></span></div>
-        <div class="notice"><b>Contract</b><br><span id="profileContract"></span></div>
+    <div class="player-profile-pane hide" data-profile-pane="development">
+      <div class="player-info-grid">
+        <div class="player-info-item span-2"><span>Development</span><b id="profileDevelopment"></b></div>
+        <div class="player-info-item span-2 hide" id="profileDevelopmentRequestBox"><span>Development request</span><b id="profileDevelopmentRequest"></b></div>
+        <div class="player-info-item span-2 hide" id="profileLoanPathwayBox"><span>Loan pathway</span><b id="profileLoanPathway"></b></div>
       </div>
-      <div class="panel pad">
-        <h3 style="margin-top:0">Status</h3>
-        <div class="notice"><b>Position</b><br><span id="profilePosition"></span></div>
-        <div class="notice"><b>Value</b><br><span id="profileValue"></span></div>
-        <div class="notice"><b>Development</b><br><span id="profileDevelopment"></span></div>
-        <div class="notice"><b>Wage</b><br><span id="profileWage"></span></div>
-        <div class="notice"><b>Manager view</b><br><span id="profileManagerRole"></span><br><span class="muted small">Internal football role — not a contractual promise.</span></div>
-        <div class="notice hide" id="profileDevelopmentRequestBox"><b>Development request</b><br><span id="profileDevelopmentRequest"></span></div>
-        <div class="notice hide" id="profileLoanPathwayBox"><b>Loan pathway</b><br><span id="profileLoanPathway"></span></div>
-        <div class="notice"><b>Availability</b><br><span id="profileAvailability"></span></div>
-        <div class="notice"><b>Squad status</b><br><span id="profileListStatus"></span></div>
-        <div class="notice"><b>Supporter status</b><br><span id="profileSupporterStatus"></span></div>
-      </div>
+    </div>
+
+    <div class="profile-actions player-sticky-actions">
+      <button id="negotiateContractBtn" class="btn secondary" type="button">Contract</button>
+      <button id="transferListBtn" class="btn secondary" type="button">Transfer list</button>
+      <button id="loanListBtn" class="btn secondary" type="button">Loan</button>
+      <button id="requestDevelopmentMinutesBtn" class="btn secondary hide" type="button">Request minutes</button>
     </div>
   </div>
 </div>
-
 
 
 <div id="stakeholderDetailModal" class="stakeholder-detail-overlay hide">
@@ -1246,7 +1280,7 @@
 <script>
 if ("serviceWorker" in navigator) {
   window.addEventListener("load", () => {
-    navigator.serviceWorker.register("./sw.js?v=02429-finance-ux").catch(err => {
+    navigator.serviceWorker.register("./sw.js?v=02430-mobile-ui").catch(err => {
       console.warn("Football CEO service worker registration failed:", err);
     });
   });

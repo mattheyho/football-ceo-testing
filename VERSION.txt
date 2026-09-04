@@ -1,2 +1,2 @@
-0.24.29
-Piece 9B.3 — Finance UX clarity pass
+0.24.30
+Piece 9B.4 — Mobile UI, recruitment performance & club themes

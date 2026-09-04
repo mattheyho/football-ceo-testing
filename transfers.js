@@ -11,6 +11,19 @@
    This file is loaded before game.js, so these functions are available globally.
 */
 
+
+/* v0.24.30 readable money inputs + deal-size-aware transfer increments. */
+function moneyInputNumber(inputOrValue){const raw=typeof inputOrValue==='object'&&inputOrValue?inputOrValue.value:inputOrValue;return Math.max(0,Number(String(raw??'').replace(/[^0-9.-]/g,''))||0);}
+function formatMoneyInputValue(value){return Math.max(0,Math.round(Number(value)||0)).toLocaleString('en-GB');}
+function bindMoneyInput(input,{onChange=null}={}){if(!input)return;const refresh=()=>{const n=moneyInputNumber(input);input.value=formatMoneyInputValue(n);if(onChange)onChange(n);};input.addEventListener('focus',()=>{input.select?.();});input.addEventListener('input',()=>{const caret=input.selectionStart;const n=moneyInputNumber(input);input.value=formatMoneyInputValue(n);try{input.setSelectionRange(input.value.length,input.value.length);}catch(e){}if(onChange)onChange(n);});input.addEventListener('blur',refresh);refresh();}
+function transferMoneyStep(amount){const n=Math.max(0,Number(amount)||0);if(n<250000)return 10000;if(n<1000000)return 25000;if(n<5000000)return 100000;if(n<15000000)return 250000;if(n<40000000)return 500000;return 1000000;}
+function roundTransferAmount(amount){const n=Math.max(0,Number(amount)||0),step=transferMoneyStep(n);return Math.max(step,Math.round(n/step)*step);}
+function roundTransferAmountToStep(amount,step){const n=Math.max(0,Number(amount)||0),s=Math.max(10000,Number(step)||transferMoneyStep(n));return Math.max(s,Math.round(n/s)*s);}
+function transferNegotiationStep(amount,target=0){const base=transferMoneyStep(amount),tiers=[10000,25000,100000,250000,500000,1000000],idx=tiers.indexOf(base);if(!target||idx<=0)return base;const gap=Math.abs(Number(amount||0)-Number(target||0));return gap<=Math.max(base*3,Number(target||0)*.035)?tiers[idx-1]:base;}
+function transferValuationStep(amount){const tiers=[10000,25000,100000,250000,500000,1000000],base=transferMoneyStep(amount),idx=tiers.indexOf(base);return idx>0?tiers[idx-1]:base;}
+function roundTransferValuation(amount){return roundTransferAmountToStep(amount,transferValuationStep(amount));}
+function compactStepMoney(step){if(step>=1000000)return `£${(step/1000000).toFixed(step%1000000?1:0)}m`;if(step>=1000)return `£${(step/1000).toFixed(step%1000?1:0)}k`;return `£${step}`;}
+
 function ensureContractState(){
   ensureTransferMarketState();
   repairFalseRejectedSaleStakeholderReactions();
@@ -1917,7 +1930,7 @@ function beginContractNegotiation(id){
   const n=initialiseContractNegotiation(p,"renewal",breakdown.demand);
   const demand=n.currentDemand;
 
-  q("contractWageInput").value=Math.max(current.wage,demand);
+  q("contractWageInput").value=formatMoneyInputValue(Math.max(current.wage,demand));
   q("contractYearsInput").value=String(n.preferredYears||3);
   const managerRole=typeof managerInternalSquadRole==="function"?managerInternalSquadRole(p,state.club):"First-team player";
   q("contractDemandText").textContent=`Manager view: ${managerRole} • Agent demand: ${money(demand)}/wk • Preferred term: ${n.preferredYears} year${n.preferredYears===1?"":"s"} • ${breakdown.reasons.join(" • ")}.`;
@@ -1931,7 +1944,7 @@ function submitContractOffer(){
   const p=DB.players.find(x=>String(x.id)===String(id));
   if(!p) return;
 
-  const wage=Number(q("contractWageInput").value||0);
+  const wage=moneyInputNumber(q("contractWageInput"));
   const years=Number(q("contractYearsInput").value||1);
   const decision=contractTermsDecision(p,wage,years,"renewal");
 
@@ -2592,7 +2605,7 @@ function projectSCRAfterContractRenewal(player,newWeeklyWage,newYears){
 function renderContractSCRPreview(player){
   const box=q("contractSCRPreview");
   if(!box||!player) return;
-  const wage=Number(q("contractWageInput")?.value||0);
+  const wage=moneyInputNumber(q("contractWageInput"));
   const years=Number(q("contractYearsInput")?.value||1);
   const current=userSCRSnapshot();
   const projected=projectSCRAfterContractRenewal(player,wage,years);
@@ -4399,15 +4412,15 @@ function ensureTransferPlayerModal(){
   style.textContent=`
     #transferPlayerModal{position:fixed;inset:0;background:rgba(8,12,20,.72);z-index:9999;display:flex;align-items:center;justify-content:center;padding:18px}
     #transferPlayerModal.hide{display:none}
-    #transferPlayerModal .transfer-sheet{width:min(760px,100%);max-height:92vh;overflow:auto;background:#fff;color:#18202b;border-radius:16px;padding:22px;box-shadow:0 24px 70px rgba(0,0,0,.35)}
+    #transferPlayerModal .transfer-sheet{width:min(760px,100%);max-height:92vh;overflow:auto;background:var(--panel,#21111A);color:var(--text,#edf4fb);border-radius:16px;padding:22px;box-shadow:0 24px 70px rgba(0,0,0,.35)}
     #transferPlayerModal .transfer-head{display:flex;justify-content:space-between;gap:15px;align-items:flex-start;margin-bottom:16px}
     #transferPlayerModal .transfer-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;margin:14px 0}
-    #transferPlayerModal .transfer-metric{border:1px solid #e4e8ee;border-radius:10px;padding:12px}
-    #transferPlayerModal .transfer-metric span{display:block;font-size:12px;color:#667085;margin-bottom:4px}
+    #transferPlayerModal .transfer-metric{border:1px solid var(--line,#543246);border-radius:10px;padding:12px}
+    #transferPlayerModal .transfer-metric span{display:block;font-size:12px;color:var(--muted,#B9A8B2);margin-bottom:4px}
     #transferPlayerModal .transfer-metric b{font-size:16px}
     #transferPlayerModal .transfer-actions{display:flex;flex-wrap:wrap;gap:8px;margin-top:14px}
-    #transferPlayerModal .transfer-box{background:#f6f8fb;border-radius:10px;padding:13px;margin-top:14px}
-    #transferPlayerModal input,#transferPlayerModal select{padding:9px;border:1px solid #cfd5df;border-radius:8px;max-width:180px}
+    #transferPlayerModal .transfer-box{background:#0b1726;border-radius:10px;padding:13px;margin-top:14px}
+    #transferPlayerModal input,#transferPlayerModal select{padding:9px;border:1px solid var(--line,#543246);background:#071421;color:var(--text,#edf4fb);border-radius:8px;max-width:180px}
     #transferPlayerModal button{cursor:pointer}
     @media(max-width:600px){#transferPlayerModal .transfer-grid{grid-template-columns:1fr}.transfer-sheet{padding:16px!important}}
   `;
@@ -4475,34 +4488,36 @@ function openTransferPlayerFile(id,context={}){
   const managerRoleText=managerTransferRoleView(p,context,active);
 
   q("transferFileName").textContent=p.name;
-  q("transferFileSub").textContent=`${p.club} • ${p.positions} • ${p.age} • ${p.nationality}`;
+  q("transferFileSub").textContent=`${p.club} • ${p.positions} • ${p.overall} OVR • Age ${p.age} • ${p.nationality}`;
   const externalOwned=isExternalTransferClub(p.club) && !clubHasRecruitableSquad(p.club);
 
   q("transferFileBody").innerHTML=`
-    <div class="transfer-grid">
-      <div class="transfer-metric"><span>Joined current club</span><b>${joined}</b></div>
-      <div class="transfer-metric"><span>Transfer market value</span><b>${money(dynamicPlayerMarketValue(p))}</b></div>
-      <div class="transfer-metric"><span>Expected cost</span><b>${money(expectedCost.low)}–${money(expectedCost.high)}</b><div class="muted small">${expectedCost.status}${valueOpportunityLabel(p)?" • Good value":""}</div></div>
-      <div class="transfer-metric"><span>Current wage</span><b>${money(p.wage||0)}/wk</b></div>
-      <div class="transfer-metric"><span>Contract</span><b>${contract}</b></div>
-      <div class="transfer-metric"><span>Interest in joining ${state.club}</span><b>${interestLabel(d.interest)}</b></div>
-      <div class="transfer-metric"><span>Manager interest</span><b>${managerInterestText}</b></div>
-      <div class="transfer-metric"><span>Manager sees role as</span><b>${managerRoleText}</b></div>
-      <div class="transfer-metric"><span>Director of Football interest</span><b>${staffInterestLabel(d.dof)}</b></div>
-      <div class="transfer-metric"><span>Seller context</span><b>${expectedCost.drivers.length?expectedCost.drivers.slice(0,2).join(" • "):"Normal market conditions"}</b></div>
+    <div class="transfer-stage-strip"><div class="transfer-stage ${active?'done':'active'}">1 · Approach</div><div class="transfer-stage ${active?'active':''}">2 · Fee</div><div class="transfer-stage">3 · Contract</div><div class="transfer-stage">4 · Complete</div></div>
+    <div class="transfer-deal-summary transfer-file-summary">
+      <div><span>Market value</span><b>${money(dynamicPlayerMarketValue(p))}</b></div>
+      <div><span>Expected cost</span><b>${money(expectedCost.low)}–${money(expectedCost.high)}</b></div>
+      <div><span>Expected wage</span><b>${money(d.wage)}/wk</b></div>
     </div>
-    <div class="transfer-box">
-      <b>Recruitment view</b><br>
-      <span class="muted small">Expected wage demand: around ${money(d.wage)}/wk. Lower player interest increases the wage premium needed to complete a deal.</span>
-    </div>
-    ${financialRegulationTransferPreviewHTML(p,d.asking,d.wage,4,"buy")}
     ${transferWindowStatusHTML()}
     <div id="transferNegotiationArea"></div>
     ${externalOwned?`<div class="transfer-box"><b>External club</b><br><span class="muted small">This club currently exists only as an abstract transfer-market actor and has no recruitable squad data.</span></div>`:""}
-    <div class="transfer-actions">
-      <button class="btn primary" id="authoriseTransferApproach" ${(isTransferWindowOpen()&&!externalOwned)?"":"disabled"}>${externalOwned?"External recruitment unavailable":isTransferWindowOpen()?(active?"Continue negotiation":"Authorise approach"):"Window closed"}</button>
-    </div>`;
-  q("authoriseTransferApproach").addEventListener("click",()=>{if(!externalOwned) beginTransferApproach(p.id,context);});
+    ${!active?`<div class="transfer-actions transfer-primary-action"><button class="btn primary" id="authoriseTransferApproach" ${(isTransferWindowOpen()&&!externalOwned)?"":"disabled"}>${externalOwned?"External recruitment unavailable":isTransferWindowOpen()?"Authorise approach":"Window closed"}</button></div>`:""}
+    <details class="transfer-dossier-details">
+      <summary>Recruitment dossier</summary>
+      <div class="transfer-grid">
+        <div class="transfer-metric"><span>Joined current club</span><b>${joined}</b></div>
+        <div class="transfer-metric"><span>Current wage</span><b>${money(p.wage||0)}/wk</b></div>
+        <div class="transfer-metric"><span>Contract</span><b>${contract}</b></div>
+        <div class="transfer-metric"><span>Interest in joining ${state.club}</span><b>${interestLabel(d.interest)}</b></div>
+        <div class="transfer-metric"><span>Manager interest</span><b>${managerInterestText}</b></div>
+        <div class="transfer-metric"><span>Manager sees role as</span><b>${managerRoleText}</b></div>
+        <div class="transfer-metric"><span>Director of Football interest</span><b>${staffInterestLabel(d.dof)}</b></div>
+        <div class="transfer-metric"><span>Seller context</span><b>${expectedCost.drivers.length?expectedCost.drivers.slice(0,2).join(" • "):"Normal market conditions"}</b></div>
+      </div>
+      <div class="transfer-box"><b>Recruitment view</b><br><span class="muted small">${expectedCost.status}${valueOpportunityLabel(p)?" • Good value opportunity":""}. Lower player interest increases the wage premium needed to complete a deal.</span></div>
+      ${financialRegulationTransferPreviewHTML(p,d.asking,d.wage,4,"buy")}
+    </details>`;
+  if(q("authoriseTransferApproach")) q("authoriseTransferApproach").addEventListener("click",()=>{if(!externalOwned) beginTransferApproach(p.id,context);});
   q("transferPlayerModal").classList.remove("hide");
   if(active) renderTransferNegotiation(p.id);
 }
@@ -4534,12 +4549,12 @@ function transferSellerReservationPrice(n){
   // Translate the existing DoF modifier into a capped 0–8% negotiating advantage.
   const rawModifier=dofNegotiationModifier();
   const dofAdvantage=clamp((1-rawModifier)*0.40,-0.04,0.08);
-  return Math.round((n.askingPrice*(0.97-dofAdvantage))/250000)*250000;
+  return roundTransferValuation(n.askingPrice*(0.97-dofAdvantage));
 }
 
 function initialSellerCounter(n){
   const reservation=transferSellerReservationPrice(n);
-  const opening=Math.round((n.askingPrice*(1.00+stablePlayerTrait({id:n.playerId},"seller-counter")*0.035))/250000)*250000;
+  const opening=roundTransferValuation(n.askingPrice*(1.00+stablePlayerTrait({id:n.playerId},"seller-counter")*0.035));
   return Math.max(reservation,opening);
 }
 
@@ -4557,7 +4572,7 @@ function beginTransferApproach(id,context={}){
   }
   if(!state.transferNegotiations[p.id]){
     const asking=estimatedAskingPrice(p,state.club);
-    const suggested=Math.round((asking*.82)/250000)*250000;
+    const suggested=roundTransferAmount(asking*.82);
     const negotiation={
       playerId:p.id,sellingClub:p.club,buyingClub:state.club,askingPrice:asking,
       latestOffer:suggested,round:0,status:"negotiating",managerRequestId:context.managerRequestId||null,
@@ -4588,6 +4603,8 @@ function renderTransferNegotiation(id){
   const n=state.transferNegotiations?.[id];
   const area=q("transferNegotiationArea");
   if(!p||!n||!area) return;
+  const stageIndex=(n.status==="clubAccepted"||n.status==="terms")?2:1;
+  q("transferFileBody")?.querySelectorAll(".transfer-stage").forEach((el,i)=>{el.classList.toggle("active",i===stageIndex);el.classList.toggle("done",i<stageIndex);});
 
   if(n.status==="clubAccepted" || n.status==="terms"){
     const contractN=initialiseContractNegotiation(p,"signing",expectedTransferWage(p,state.club));
@@ -4597,7 +4614,7 @@ function renderTransferNegotiation(id){
       <b>${n.sellingClub} accepted ${money(n.agreedFee)}.</b><br>
       <span class="muted small">${terms&&typeof transferTermsLabel==="function"?transferTermsLabel(terms):"Paid upfront"}. You can now agree terms with ${p.name}, or withdraw before the transfer is completed.</span>
       <div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:10px;align-items:center">
-        <label>Weekly wage <input id="newSigningWage" type="number" step="1000" value="${demand}"></label>
+        <label>Weekly wage <input id="newSigningWage" class="money-input" type="text" inputmode="numeric" value="${formatMoneyInputValue(demand)}"></label>
         <label>Contract <select id="newSigningYears"><option>3</option><option selected>4</option><option>5</option></select> years</label>
         <button class="btn primary" id="submitSigningTerms">Offer contract</button>
         <button class="btn secondary" id="withdrawAcceptedTransfer">Withdraw transfer</button>
@@ -4605,6 +4622,7 @@ function renderTransferNegotiation(id){
       <div class="muted small" style="margin-top:8px">Agent demand: ${money(demand)}/wk • Preferred term: ${contractN.preferredYears} year${contractN.preferredYears===1?"":"s"} • Player interest: ${interestLabel(playerInterestScore(p,state.club))}.</div>
       ${financialRegulationTransferPreviewHTML(p,n.agreedFee,demand,4,"buy")}
     </div>`;
+    bindMoneyInput(q("newSigningWage"));
     q("submitSigningTerms").addEventListener("click",()=>submitNewSigningTerms(p.id));
     q("withdrawAcceptedTransfer").addEventListener("click",()=>withdrawTransferApproach(p.id,"You withdrew after the selling club accepted the bid."));
     return;
@@ -4617,38 +4635,30 @@ function renderTransferNegotiation(id){
 
   const currentUpfront=n.proposedUpfrontPercent??100,currentYears=currentUpfront>=100?0:(n.proposedInstallmentYears??2);
   const counterHeadline=n.lastCounter&&typeof headlineFeeForSellerValue==="function"?headlineFeeForSellerValue(n.lastCounter,currentUpfront,currentYears):n.lastCounter;
-  const initialFee=Math.max(250000,Math.round((n.userHeadlineOffer||counterHeadline||n.latestOffer||0)/250000)*250000);
+  const initialFee=roundTransferAmount(n.userHeadlineOffer||counterHeadline||n.latestOffer||n.askingPrice*.82);
+  let currentStep=transferNegotiationStep(initialFee,counterHeadline||n.askingPrice);
   area.innerHTML=`<div class="transfer-box">
-    <b>Club negotiation — ${n.sellingClub}</b><br>
-    <span class="muted small">Recruitment estimates the player may cost around ${money(Math.round(n.askingPrice*.92/250000)*250000)}–${money(Math.round(n.askingPrice*1.08/250000)*250000)}. Payment timing changes how strongly the selling club values your bid.</span>
+    <b>Club negotiation — ${n.sellingClub}</b>
+    <div class="transfer-deal-summary"><div><span>Recruitment range</span><b>${money(roundTransferAmount(n.askingPrice*.92))}–${money(roundTransferAmount(n.askingPrice*1.08))}</b></div><div><span>Seller target</span><b>${n.lastCounter?money(n.lastCounter):'Not disclosed'}</b></div><div><span>Your budget</span><b>${money(state.budget||0)}</b></div></div>
     ${n.message?`<div style="margin-top:8px">${n.message}</div>`:""}
-    ${n.lastCounter?`<div class="muted small" style="margin-top:6px">Seller's current value target: ${money(n.lastCounter)}. With these terms that is roughly ${money(counterHeadline)} headline.</div>`:""}
+    ${n.lastCounter?`<div class="muted small" style="margin-top:6px">With the selected payment structure, the seller's ${money(n.lastCounter)} value target is roughly ${money(counterHeadline)} headline.</div>`:""}
     <div id="transferBidWarning" class="transfer-bid-warning hide"></div>
-    <div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:10px;align-items:end">
-      <label>Headline fee <input id="transferFeeOffer" type="number" step="250000" value="${initialFee}"></label>
-      <label>Upfront <select id="transferUpfront"><option value="25" ${currentUpfront===25?'selected':''}>25%</option><option value="50" ${currentUpfront===50?'selected':''}>50%</option><option value="75" ${currentUpfront===75?'selected':''}>75%</option><option value="100" ${currentUpfront===100?'selected':''}>100%</option></select></label>
-      <label>Deferred over <select id="transferInstallmentYears"><option value="1" ${currentYears===1?'selected':''}>1 year</option><option value="2" ${currentYears===2?'selected':''}>2 years</option><option value="3" ${currentYears===3?'selected':''}>3 years</option></select></label>
-      <button class="btn primary" id="submitTransferBid">Submit bid</button>
-      <button class="btn secondary" id="walkAwayTransfer">Walk away</button>
-    </div>
+    <div class="transfer-fee-control"><button class="transfer-fee-step" id="transferFeeMinus" type="button">− ${compactStepMoney(currentStep)}</button><div class="transfer-fee-input-wrap"><input id="transferFeeOffer" class="money-input" type="text" inputmode="numeric" value="${formatMoneyInputValue(initialFee)}" aria-label="Headline transfer fee"></div><button class="transfer-fee-step" id="transferFeePlus" type="button">+ ${compactStepMoney(currentStep)}</button></div>
+    <div class="transfer-terms-row"><label>Upfront<select id="transferUpfront"><option value="25" ${currentUpfront===25?'selected':''}>25%</option><option value="50" ${currentUpfront===50?'selected':''}>50%</option><option value="75" ${currentUpfront===75?'selected':''}>75%</option><option value="100" ${currentUpfront===100?'selected':''}>100%</option></select></label><label>Deferred over<select id="transferInstallmentYears"><option value="1" ${currentYears===1?'selected':''}>1 year</option><option value="2" ${currentYears===2?'selected':''}>2 years</option><option value="3" ${currentYears===3?'selected':''}>3 years</option></select></label></div>
     <div id="transferPaymentPreview" class="muted small" style="margin-top:8px"></div>
+    <div class="transfer-negotiation-actions"><button class="btn secondary" id="walkAwayTransfer">Walk away</button><button class="btn primary" id="submitTransferBid">Submit bid</button></div>
   </div>`;
-  const input=q("transferFeeOffer"),up=q("transferUpfront"),yrs=q("transferInstallmentYears");
-  const update=()=>{
-    const fee=Number(input?.value||0),pct=Number(up?.value||100),years=pct>=100?0:Number(yrs?.value||1),terms=typeof normaliseTransferPaymentTerms==="function"?normaliseTransferPaymentTerms(fee,pct,years):null;
-    if(yrs)yrs.disabled=pct>=100;
-    const pr=q("transferPaymentPreview");if(pr&&terms)pr.textContent=`Payment: ${money(terms.upfront)} now${terms.deferred?` • ${money(terms.deferred)} over ${terms.installmentYears} year${terms.installmentYears===1?'':'s'}`:''}. Selling-club value: ${money(transferTermsSellerValue(terms))}.`;
-    const warn=q("transferBidWarning"),estimateHigh=n.askingPrice*1.08;if(warn){if(fee>estimateHigh*1.25){warn.classList.remove("hide");warn.innerHTML=`<b>Check this bid.</b> ${money(fee)} is far above the recruitment estimate for ${p.name}.`;}else{warn.classList.add("hide");warn.innerHTML="";}}
-  };
-  [input,up,yrs].forEach(el=>el?.addEventListener("input",update));[up,yrs].forEach(el=>el?.addEventListener("change",update));update();
-  q("submitTransferBid").addEventListener("click",()=>submitTransferBid(p.id,Number(input?.value||0),Number(up?.value||100),Number(up?.value||100)>=100?0:Number(yrs?.value||1)));
+  const input=q("transferFeeOffer"),up=q("transferUpfront"),yrs=q("transferInstallmentYears"),minus=q("transferFeeMinus"),plus=q("transferFeePlus");
+  const update=()=>{const fee=moneyInputNumber(input),pct=Number(up?.value||100),years=pct>=100?0:Number(yrs?.value||1),terms=typeof normaliseTransferPaymentTerms==="function"?normaliseTransferPaymentTerms(fee,pct,years):null;currentStep=transferNegotiationStep(fee,counterHeadline||n.askingPrice);if(minus)minus.textContent=`− ${compactStepMoney(currentStep)}`;if(plus)plus.textContent=`+ ${compactStepMoney(currentStep)}`;if(yrs)yrs.disabled=pct>=100;const pr=q("transferPaymentPreview");if(pr&&terms)pr.textContent=`Payment: ${money(terms.upfront)} now${terms.deferred?` • ${money(terms.deferred)} over ${terms.installmentYears} year${terms.installmentYears===1?'':'s'}`:''}. Selling-club value: ${money(transferTermsSellerValue(terms))}.`;const warn=q("transferBidWarning"),estimateHigh=n.askingPrice*1.08;if(warn){if(fee>estimateHigh*1.25){warn.classList.remove("hide");warn.innerHTML=`<b>Check this bid.</b> ${money(fee)} is far above the recruitment estimate for ${p.name}.`;}else{warn.classList.add("hide");warn.innerHTML="";}}};
+  bindMoneyInput(input,{onChange:update});[up,yrs].forEach(el=>el?.addEventListener("change",update));minus?.addEventListener('click',()=>{input.value=formatMoneyInputValue(Math.max(currentStep,moneyInputNumber(input)-currentStep));update();});plus?.addEventListener('click',()=>{input.value=formatMoneyInputValue(moneyInputNumber(input)+currentStep);update();});update();
+  q("submitTransferBid").addEventListener("click",()=>submitTransferBid(p.id,moneyInputNumber(input),Number(up?.value||100),Number(up?.value||100)>=100?0:Number(yrs?.value||1)));
   q("walkAwayTransfer").addEventListener("click",()=>withdrawTransferApproach(p.id));
 }
 
 function submitTransferBid(id,fee,upfrontPercent=100,installmentYears=0){
   if(blockClosedWindow("submit a transfer bid")) return;
   const p=DB.players.find(x=>String(x.id)===String(id)),n=state.transferNegotiations?.[id];if(!p||!n||fee<=0)return;
-  const offer=Math.round(fee/250000)*250000,terms=typeof normaliseTransferPaymentTerms==="function"?normaliseTransferPaymentTerms(offer,upfrontPercent,installmentYears):{fee:offer,upfront:offer,upfrontPercent:100,installments:[]};
+  const headlineTarget=n.lastCounter&&typeof headlineFeeForSellerValue==="function"?headlineFeeForSellerValue(n.lastCounter,upfrontPercent,installmentYears):n.askingPrice;const step=transferNegotiationStep(fee,headlineTarget);const offer=roundTransferAmountToStep(fee,step),terms=typeof normaliseTransferPaymentTerms==="function"?normaliseTransferPaymentTerms(offer,upfrontPercent,installmentYears):{fee:offer,upfront:offer,upfrontPercent:100,installments:[]};
   const sellerValue=typeof transferTermsSellerValue==="function"?transferTermsSellerValue(terms):offer;
   n.proposedUpfrontPercent=terms.upfrontPercent;n.proposedInstallmentYears=terms.installmentYears;n.userHeadlineOffer=offer;
   if(offer>(state.budget||0)){n.message=`Bid blocked: ${money(offer)} exceeds the remaining transfer budget of ${money(state.budget||0)}.`;renderTransferNegotiation(id);return;}
@@ -4661,7 +4671,7 @@ function submitTransferBid(id,fee,upfrontPercent=100,installmentYears=0){
   if(previousValue>0&&improvement<=0){n.stagnantRounds+=1;n.previousUserOffer=offer;n.previousUserSellerValue=sellerValue;if(n.stagnantRounds>=2||n.round>=6){n.status="rejected";n.message=`${n.sellingClub} ended negotiations after you failed to improve the value of your offer.`;}else n.message=`${n.sellingClub} rejected the bid. Their value target remains ${money(sellerCounter)}.`;saveGame(false);renderTransferNegotiation(id);return;}
   n.stagnantRounds=0;
   if(sellerValue<reservation*.82){n.previousUserOffer=offer;n.previousUserSellerValue=sellerValue;n.message=`${n.sellingClub} rejected the bid as well below their valuation. Their value target remains ${money(sellerCounter)}.`;if(n.round>=3){n.status="rejected";n.message=`${n.sellingClub} have ended negotiations after repeated low-value offers.`;}saveGame(false);renderTransferNegotiation(id);return;}
-  const concession=Math.max(0,Math.min(sellerCounter-reservation,Math.round((Math.max(250000,improvement)*.35)/250000)*250000));let newCounter=Math.max(reservation,sellerCounter-concession,sellerValue+250000);newCounter=Math.round(newCounter/250000)*250000;
+  const sellerStep=transferValuationStep(Math.max(sellerCounter,sellerValue));const concession=Math.max(0,Math.min(sellerCounter-reservation,roundTransferAmountToStep(Math.max(sellerStep,improvement)*.35,sellerStep)));let newCounter=Math.max(reservation,sellerCounter-concession,sellerValue+sellerStep);newCounter=roundTransferAmountToStep(newCounter,sellerStep);
   if(newCounter<=sellerValue){accept();return;}
   n.previousUserOffer=offer;n.previousUserSellerValue=sellerValue;n.lastCounter=newCounter;n.latestOffer=headlineFeeForSellerValue(newCounter,terms.upfrontPercent,terms.installmentYears);n.message=`${n.sellingClub} rejected the bid and retained a value target of ${money(newCounter)}.`;
   if(n.round>=6&&sellerValue<reservation*.94){n.status="rejected";n.message=`${n.sellingClub} have ended negotiations because your offers remained below their valuation.`;}
@@ -4673,7 +4683,7 @@ function submitNewSigningTerms(id){
   const p=DB.players.find(x=>String(x.id)===String(id));
   const n=state.transferNegotiations?.[id];
   if(!p||!n||n.status!=="clubAccepted") return;
-  const wage=Math.max(1000,Number(q("newSigningWage")?.value||0));
+  const wage=Math.max(1000,moneyInputNumber(q("newSigningWage")));
   const years=Math.max(1,Number(q("newSigningYears")?.value||4));
   const demand=expectedTransferWage(p,state.club);
   const interest=playerInterestScore(p,state.club);
@@ -4797,7 +4807,7 @@ function playerSaleDecisionStatsHTML(p){
 }
 
 function incomingOfferFairValue(p){
-  return Math.round(estimatedAskingPrice(p,state.club)/250000)*250000;
+  return roundTransferAmount(estimatedAskingPrice(p,state.club));
 }
 
 
@@ -5228,7 +5238,7 @@ function createIncomingOfferForPlayer(p,{listed=false}={}){
     feeFactor=listed?0.76+Math.random()*0.20:0.88+Math.random()*0.22;
   }
 
-  const fee=Math.max(250000,Math.round((fair*feeFactor)/250000)*250000);
+  const fee=roundTransferAmount(fair*feeFactor);
   const wage=transferBuyerExpectedWage(p,buyer.name);
 
   if(!transferBuyerCanAfford(buyer.name,p,fee,wage).ok) return false;
@@ -5363,15 +5373,15 @@ function openIncomingTransferOffer(id){
     <div class="transfer-actions">
       <button class="btn primary" id="acceptIncomingOffer">Accept</button>
       <button class="btn secondary" id="rejectIncomingOffer">Reject</button>
-      <label>Counter fee <input id="incomingCounterFee" type="number" step="250000" value="${Math.round(v.fair/250000)*250000}"></label>
+      <label>Counter fee <input id="incomingCounterFee" class="money-input" type="text" inputmode="numeric" value="${formatMoneyInputValue(roundTransferAmount(v.fair))}"></label>
       <label>Upfront <select id="incomingCounterUpfront"><option value="25">25%</option><option value="50">50%</option><option value="75">75%</option><option value="100" selected>100%</option></select></label>
       <label>Deferred over <select id="incomingCounterYears"><option value="1">1 year</option><option value="2">2 years</option><option value="3">3 years</option></select></label>
       <button class="btn secondary" id="counterIncomingOffer">Negotiate</button>
     </div>
     <div id="incomingCounterPreview" class="muted small" style="margin-top:8px"></div>`;
   const cf=q("incomingCounterFee"),cu=q("incomingCounterUpfront"),cy=q("incomingCounterYears");
-  const preview=()=>{const fee=Number(cf?.value||0),pct=Number(cu?.value||100),years=pct>=100?0:Number(cy?.value||1),t=normaliseTransferPaymentTerms(fee,pct,years);if(cy)cy.disabled=pct>=100;const el=q("incomingCounterPreview");if(el)el.textContent=`Counter structure: ${money(t.upfront)} cash now${t.deferred?` • ${money(t.deferred)} deferred`:''}.`;};[cf,cu,cy].forEach(x=>x?.addEventListener("input",preview));[cu,cy].forEach(x=>x?.addEventListener("change",preview));preview();
-  q("acceptIncomingOffer").addEventListener("click",()=>resolveIncomingTransferOffer(id,"accept"));q("rejectIncomingOffer").addEventListener("click",()=>resolveIncomingTransferOffer(id,"reject"));q("counterIncomingOffer").addEventListener("click",()=>resolveIncomingTransferOffer(id,"counter",Number(cf.value||0),Number(cu.value||100),Number(cy.value||1)));q("transferPlayerModal").classList.remove("hide");
+  const preview=()=>{const fee=moneyInputNumber(cf),pct=Number(cu?.value||100),years=pct>=100?0:Number(cy?.value||1),t=normaliseTransferPaymentTerms(fee,pct,years);if(cy)cy.disabled=pct>=100;const el=q("incomingCounterPreview");if(el)el.textContent=`Counter structure: ${money(t.upfront)} cash now${t.deferred?` • ${money(t.deferred)} deferred`:''}.`;};bindMoneyInput(cf,{onChange:preview});[cu,cy].forEach(x=>x?.addEventListener("change",preview));preview();
+  q("acceptIncomingOffer").addEventListener("click",()=>resolveIncomingTransferOffer(id,"accept"));q("rejectIncomingOffer").addEventListener("click",()=>resolveIncomingTransferOffer(id,"reject"));q("counterIncomingOffer").addEventListener("click",()=>resolveIncomingTransferOffer(id,"counter",moneyInputNumber(cf),Number(cu.value||100),Number(cy.value||1)));q("transferPlayerModal").classList.remove("hide");
 }
 
 function resolveIncomingTransferOffer(id,action,counter=0,counterUpfront=100,counterYears=1){
@@ -5379,14 +5389,14 @@ function resolveIncomingTransferOffer(id,action,counter=0,counterUpfront=100,cou
   if(!offer.paymentTerms&&typeof normaliseTransferPaymentTerms==="function")offer.paymentTerms=normaliseTransferPaymentTerms(offer.fee,100,0);
   if(action==="reject"){offer.status="rejected";addNews(`${state.club} rejected ${offer.buyingClub}'s ${money(offer.fee)} offer for ${p.name}.`);closeTransferPlayerFile();}
   else if(action==="counter"){
-    counter=Math.round(counter/250000)*250000;counterUpfront=Math.max(25,Math.min(100,Math.round(counterUpfront||100)));counterYears=counterUpfront>=100?0:Math.max(1,Math.min(3,Math.round(counterYears||1)));
+    counter=roundTransferAmount(counter);counterUpfront=Math.max(25,Math.min(100,Math.round(counterUpfront||100)));counterYears=counterUpfront>=100?0:Math.max(1,Math.min(3,Math.round(counterYears||1)));
     const counterTerms=typeof normaliseTransferPaymentTerms==="function"?normaliseTransferPaymentTerms(counter,counterUpfront,counterYears):{fee:counter,upfront:counter};
     const buyerCeiling=fair*(.98+stablePlayerTrait(p,offer.buyingClub)*.20),buyerCost=typeof transferTermsBuyerCostValue==="function"?transferTermsBuyerCostValue(counterTerms):counter;
     if(buyerCost<=buyerCeiling){offer.fee=counter;offer.paymentTerms=counterTerms;action="accept";}
     else{
       offer.round++;
       if(offer.round>=3||buyerCost>buyerCeiling*1.16){offer.status="rejected";addNews(`${offer.buyingClub} withdrew from talks for ${p.name} after rejecting ${state.club}'s ${money(counter)} asking price.`);closeTransferPlayerFile();}
-      else{const revised=typeof headlineFeeForBuyerValue==="function"?headlineFeeForBuyerValue(buyerCeiling*.97,counterUpfront,counterYears):Math.round((buyerCeiling*.97)/250000)*250000;offer.fee=revised;offer.paymentTerms=normaliseTransferPaymentTerms(revised,counterUpfront,counterYears);addNews(`${offer.buyingClub} have revised their offer for ${p.name} to ${money(revised)} (${transferTermsLabel(offer.paymentTerms)}).`);openIncomingTransferOffer(id);}
+      else{const revised=typeof headlineFeeForBuyerValue==="function"?headlineFeeForBuyerValue(buyerCeiling*.97,counterUpfront,counterYears):roundTransferAmount(buyerCeiling*.97);offer.fee=revised;offer.paymentTerms=normaliseTransferPaymentTerms(revised,counterUpfront,counterYears);addNews(`${offer.buyingClub} have revised their offer for ${p.name} to ${money(revised)} (${transferTermsLabel(offer.paymentTerms)}).`);openIncomingTransferOffer(id);}
     }
   }
   if(action==="accept"){
@@ -5509,7 +5519,7 @@ function simulateOneAITransfer(){
   const sellerOldWage=p.wage||0;
   const newWage=expectedTransferWage(p,buyer.name);
   const expected=expectedTransferCost(p,buyer.name);
-  const fee=Math.round(((expected.low+Math.random()*(expected.high-expected.low))/250000))*250000;
+  const fee=roundTransferAmount(expected.low+Math.random()*(expected.high-expected.low));
   if(!aiCanAffordTransfer(buyer.name,fee,newWage).ok) return false;
 
   applyAITransferPurchase(buyer.name,fee,newWage);

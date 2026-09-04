@@ -1,5 +1,5 @@
-FOOTBALL CEO v0.24.29 — PIECE 9B.3 TEST REPORT
-Build: 0.24.29-piece-9b3-finance-ux
+FOOTBALL CEO v0.24.30 — PIECE 9B.4 TEST REPORT
+Build: 0.24.30-piece-9b4-mobile-ui
 
 RESULT: PASS
 
@@ -11,20 +11,22 @@ Regression suites passed:
 - Piece 9B.1 Championship regression / finance calibration
 - Piece 9B.2 commercial reach / infrastructure / staff movement architecture
 - Piece 9B.3 Finance UX
+- Piece 9B.4 Mobile UI / recruitment performance / club themes
 - Regression-fix preservation suite
 
-Piece 9B.3 acceptance checks:
-- Finance page leads with Club Cash, Operating P/L, Transfer Balance and Financial Health.
-- League & broadcast income is visible in the operating-income breakdown.
-- Operating income and operating outgoings reconcile back to the authoritative Season P/L using an explicit material 'other' line only when required.
-- Cash movement is tracked separately from Operating P/L.
-- Synthetic finance test correctly reported £20.0m operating income, £10.0m operating outgoings, £10.0m Operating P/L, -£1.0m cash movement, -£2.0m transfer cash and +£1.0m owner equity.
-- Future transfer payable/receivable drill-downs remain present.
-- New debt drill-down lists outstanding balance, monthly repayment, interest rate and remaining term.
-- Placeholder Infrastructure Allocation and Finance-screen Squad Value / permanent Staff Compensation clutter are absent from the Finance overview.
-- Financial regulation detail is below Budget Control and collapsed by default.
-- New seasons record Club Operations and Facilities separately; legacy in-season finance state falls back safely to a combined row.
-- All root JavaScript files pass `node --check`.
-- PWA cache/version markers bumped to v0.24.29 / 02429-finance-ux.
+Piece 9B.4 acceptance checks:
+- Mobile league table defaults to Position / Club / P / GD / Pts with tap-to-expand W/D/L/GF/GA detail and a Full stats toggle.
+- Player Database no longer recalculates all player market values or refreshes AI availability simply because the screen opens.
+- Database renders 50 results at a time, caches expected-cost calculations, debounces search, and only performs transfer-cost work when needed.
+- Mobile database uses recruitment cards rather than a forced desktop-width table.
+- Database filters include position, availability, OVR, potential, age, league, maximum expected cost and an affordable-only option.
+- Player profile is now a compact dashboard with hero information, form strip, Overview/Form/Contract/Development tabs and sticky CEO actions.
+- Transfer target/negotiation screen is a decision-first dark deal room with visible negotiation stages and collapsible secondary dossier information.
+- Transfer bid controls use deal-size-aware increments from £10k up to £1m, with a finer step near the seller target.
+- Contract, signing-wage, outgoing-bid and incoming-counter money inputs display comma separators while retaining numeric values internally.
+- Club-driven themes are defined for all 92 PL/EFL clubs. Watford resolves to yellow/black; white-primary clubs use a darker structural colour for readability.
+- Existing save format remains compatible.
+- All root JavaScript files pass node --check.
+- PWA cache/version marker bumped to v0.24.30-mobile-ui.
 
-No underlying finance-economy calibration was changed in this presentation pass.
+No intended simulation/economy rules were changed by this UI piece beyond transfer fee rounding/increment presentation becoming scale-aware.

@@ -1,4 +1,4 @@
-const CACHE_NAME = "football-ceo-v0.24.29-finance-ux";
+const CACHE_NAME = "football-ceo-v0.24.30-mobile-ui";
 
 // Everything required to boot the current Football CEO build offline.
 // These paths are relative so they work correctly from the GitHub Pages
