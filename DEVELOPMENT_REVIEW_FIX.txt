@@ -1,0 +1,15 @@
+Football CEO v0.24.22 — Development Review Fix
+
+Restores the scheduled player-development reports on:
+- 1 October (Autumn)
+- 1 January (Mid-season)
+- 1 April (Spring)
+
+Fixes:
+1. A development report is now created at every scheduled checkpoint even when no player crosses an OVR threshold.
+2. The review pool includes the current first-team squad plus players owned by the user club who are out on loan.
+3. User-owned outgoing loanees use the user/player development path (including loan minutes and loan environment) rather than the lightweight AI background path.
+4. User-owned outgoing loanees are excluded from the subsequent AI-world checkpoint buckets, preventing double processing.
+5. Development review rows show unchanged players and identify players who are out on loan.
+
+No change has been made to the year-end ageing model: biological age decline remains a once-per-season calculation.

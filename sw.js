@@ -1,4 +1,4 @@
-const CACHE_NAME = "football-ceo-v0.24.22-wage-full-efl";
+const CACHE_NAME = "football-ceo-v0.24.23-regression-fixes";
 
 // Everything required to boot the current Football CEO build offline.
 // These paths are relative so they work correctly from the GitHub Pages

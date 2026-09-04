@@ -172,6 +172,13 @@
   }
   window.futureTransferCommitments=function(withinDays=null){const f=ensureClubFinanceState(),cut=withinDays==null?null:new Date(`${today()}T00:00:00Z`).getTime()+withinDays*86400000;return f.transferPayables.filter(e=>e.status==='active').reduce((s,e)=>s+e.installments.filter(i=>i.status==='scheduled'&&(cut==null||new Date(`${i.dueDate}T00:00:00Z`).getTime()<=cut)).reduce((a,i)=>a+i.amount,0),0);};
   window.futureTransferReceivables=function(withinDays=null){const f=ensureClubFinanceState(),cut=withinDays==null?null:new Date(`${today()}T00:00:00Z`).getTime()+withinDays*86400000;return f.transferReceivables.filter(e=>e.status==='active').reduce((s,e)=>s+e.installments.filter(i=>i.status==='scheduled'&&(cut==null||new Date(`${i.dueDate}T00:00:00Z`).getTime()<=cut)).reduce((a,i)=>a+i.amount,0),0);};
+  window.transferScheduleDetails=function(kind='payable'){
+    const f=ensureClubFinanceState(),arr=kind==='receivable'?f.transferReceivables:f.transferPayables;
+    return (arr||[]).filter(e=>e.status==='active'&&e.installments?.some(i=>i.status==='scheduled')).map(e=>{
+      const scheduled=(e.installments||[]).filter(i=>i.status==='scheduled').sort((a,b)=>String(a.dueDate).localeCompare(String(b.dueDate)));
+      return {...e,remaining:scheduled.reduce((sum,i)=>sum+(Number(i.amount)||0),0),nextDue:scheduled[0]?.dueDate||null,finalDue:scheduled[scheduled.length-1]?.dueDate||null,scheduled};
+    }).sort((a,b)=>String(a.nextDue||'9999').localeCompare(String(b.nextDue||'9999')));
+  };
   window.processDueTransferInstallments=function(dateISO=today()){
     const f=ensureClubFinanceState(),done=[];
     const run=(arr,sign,label)=>arr.forEach(e=>{if(e.status!=='active')return;e.installments.forEach(i=>{if(i.status==='scheduled'&&i.dueDate<=dateISO){i.status='paid';e.remaining=Math.max(0,(e.remaining||0)-i.amount);recordClubCash(sign*i.amount,`${label}: ${e.playerName}`,'transfer_installment',{scheduleId:e.id,playerId:e.playerId});if(state.monthlyFinance){if(sign<0)state.monthlyFinance.transferSpent=(state.monthlyFinance.transferSpent||0)+i.amount;else state.monthlyFinance.transferReceived=(state.monthlyFinance.transferReceived||0)+i.amount;}done.push({entry:e,installment:i});}});if(e.remaining<=0||e.installments.every(i=>i.status!=='scheduled')){e.remaining=0;e.status='complete';}});

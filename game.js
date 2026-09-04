@@ -2820,6 +2820,8 @@ function resolveManagerDepthComplaint(id,response){
 function renderInbox(){
   const inboxEl=q("inbox");
   if(!inboxEl) return;
+  if(typeof ensureTransferMarketState==="function") ensureTransferMarketState();
+  if(typeof ensureLoanState==="function") ensureLoanState();
   inboxEl.innerHTML=state.news.map(n=>{
     let actions="";
     if(n.requestId){
@@ -4256,53 +4258,150 @@ function lightweightBackgroundDevelopmentStep(p){
   return step;
 }
 
+function userClubDevelopmentReviewPlayers(){
+  const seen=new Set();
+  return DB.players.filter(p=>{
+    if(!p||p.retired)return false;
+    const loan=typeof activeLoanForPlayer==="function"?activeLoanForPlayer(p):null;
+    const belongsToUser=p.club===state.club || Boolean(loan&&loan.parentClub===state.club);
+    if(!belongsToUser||seen.has(String(p.id)))return false;
+    seen.add(String(p.id));
+    return true;
+  });
+}
+
+function isUserDevelopmentPlayer(p){
+  if(!p)return false;
+  if(p.club===state.club)return true;
+  const loan=typeof activeLoanForPlayer==="function"?activeLoanForPlayer(p):null;
+  return Boolean(loan&&loan.parentClub===state.club);
+}
+
 function applyDevelopmentCheckpointToPlayers(players,{userReport=false}={}){
-  ensurePlayerDevelopmentState();if(typeof ensurePlayerMarketState==='function')ensurePlayerMarketState();const changes=[];
+  ensurePlayerDevelopmentState();
+  if(typeof ensurePlayerMarketState==='function')ensurePlayerMarketState();
+  const reviewRows=[];
+
   (players||[]).forEach(p=>{
-    const d=state.playerDevelopment[String(p.id)];if(!d)return;const before=p.overall||0,seasonChange=before-(d.seasonStartOverall??before);
+    const d=state.playerDevelopment[String(p.id)];
+    if(!d)return;
+
+    const before=p.overall||0;
+    const seasonChange=before-(d.seasonStartOverall??before);
     let step=0;
-    if(p.club===state.club){
+
+    if(isUserDevelopmentPlayer(p)){
       const projected=calculatePlayerYearEndChange(p);
-      const checkpointTrait=typeof stablePlayerTrait==="function"?stablePlayerTrait(p,`user-checkpoint-${developmentCheckpointKey()}`):Math.random();
+      const checkpointTrait=typeof stablePlayerTrait==="function"
+        ? stablePlayerTrait(p,`user-checkpoint-${developmentCheckpointKey()}`)
+        : Math.random();
       const minutesFactor=developmentPlayingTimeFactor(p);
       const perfFactor=developmentPerformanceFactor(p);
-      const declining=typeof playerInAgeDeclinePhase==="function"?playerInAgeDeclinePhase(p):(p.age||25)>=31;
+      const declining=typeof playerInAgeDeclinePhase==="function"
+        ? playerInAgeDeclinePhase(p)
+        : (p.age||25)>=31;
       const annualGrowthCap=Math.max(0,Math.min(3,projected));
+
       if(!declining&&annualGrowthCap>0&&seasonChange<annualGrowthCap&&before<(p.potential??before)){
         // Checkpoints can realise annual development early, but can no longer
         // multiply a projected +1 into +2/+3 simply because three checkpoints fire.
         const chance=clamp(0.18+minutesFactor*.34+Math.max(0,perfFactor-.85)*.45,0.08,0.82);
         if(checkpointTrait<chance) step=1;
       }
-    }else step=lightweightBackgroundDevelopmentStep(p);
-    if(step){const ceiling=Math.max(before,p.potential??before);p.overall=clamp(before+step,40,ceiling);const actual=p.overall-before;if(actual){d.status=developmentLabelFromChange(actual,p.age||25);state.playerWorldOverrides=state.playerWorldOverrides||{};state.playerWorldOverrides[p.id]={...(state.playerWorldOverrides[p.id]||{}),overall:p.overall};if(typeof updatePlayerStoredMarketValue==='function')updatePlayerStoredMarketValue(p);changes.push({playerId:p.id,name:p.name,age:p.age,before,after:p.overall,change:actual,potential:p.potential??p.overall});}}
-    else d.status=seasonChange>0?'Progressing':seasonChange<0?'Declining':((p.age||25)<=25?'Stagnating':'Stable');
+    }else{
+      step=lightweightBackgroundDevelopmentStep(p);
+    }
+
+    let actual=0;
+    if(step){
+      const ceiling=Math.max(before,p.potential??before);
+      p.overall=clamp(before+step,40,ceiling);
+      actual=p.overall-before;
+      if(actual){
+        d.status=developmentLabelFromChange(actual,p.age||25);
+        state.playerWorldOverrides=state.playerWorldOverrides||{};
+        state.playerWorldOverrides[p.id]={...(state.playerWorldOverrides[p.id]||{}),overall:p.overall};
+        if(typeof updatePlayerStoredMarketValue==='function')updatePlayerStoredMarketValue(p);
+      }
+    }
+
+    if(!actual){
+      d.status=seasonChange>0?'Progressing':seasonChange<0?'Declining':((p.age||25)<=25?'Stagnating':'Stable');
+    }
+
+    if(userReport){
+      const loan=typeof activeLoanForPlayer==="function"?activeLoanForPlayer(p):null;
+      const outgoingLoan=loan&&loan.parentClub===state.club&&loan.loanClub!==state.club;
+      reviewRows.push({
+        playerId:p.id,
+        name:p.name,
+        age:p.age,
+        before,
+        after:p.overall||before,
+        change:actual,
+        potential:p.potential??p.overall,
+        status:d.status,
+        loanClub:outgoingLoan?loan.loanClub:null
+      });
+    }
   });
-  if(userReport&&changes.length)createDevelopmentReview(changes);
-  return changes;
+
+  if(userReport&&reviewRows.length)createDevelopmentReview(reviewRows);
+  return reviewRows.filter(x=>x.change!==0);
 }
-function createDevelopmentReview(changes){
-  state.developmentReviews=state.developmentReviews||[];const date=currentGameDateISO(),key=developmentCheckpointKey(date);const id=`dev-${Date.now()}-${Math.floor(Math.random()*1000)}`;
-  const sorted=[...changes].sort((a,b)=>b.change-a.change||b.after-a.after);const best=sorted[0],decline=sorted.find(x=>x.change<0);const manager=state.staff?.manager?.name||'The manager';
-  const report={id,key,date,season:currentSeasonLabel(),manager,changes:sorted};state.developmentReviews.unshift(report);state.developmentReviews=state.developmentReviews.slice(0,12);
-  let summary=`${changes.length} player${changes.length===1?' has':'s have'} changed overall rating in the latest squad development review.`;
-  if(best?.change>=2)summary+=` ${best.name} has made the strongest progress (+${best.change}).`;else if(best?.change>0)summary+=` ${best.name} showed the strongest progress.`;
-  if(decline)summary+=` ${decline.name} has shown signs of decline.`;
+
+function createDevelopmentReview(rows){
+  state.developmentReviews=state.developmentReviews||[];
+  const date=currentGameDateISO(),key=developmentCheckpointKey(date);
+  const id=`dev-${Date.now()}-${Math.floor(Math.random()*1000)}`;
+  const sorted=[...(rows||[])].sort((a,b)=>{
+    if(Boolean(a.loanClub)!==Boolean(b.loanClub))return a.loanClub?1:-1;
+    return b.change-a.change||b.after-a.after;
+  });
+  const changes=sorted.filter(x=>x.change!==0);
+  const best=changes.find(x=>x.change>0);
+  const decline=changes.find(x=>x.change<0);
+  const loanees=sorted.filter(x=>x.loanClub).length;
+  const manager=state.staff?.manager?.name||'The manager';
+  const report={id,key,date,season:currentSeasonLabel(),manager,changes:sorted};
+  state.developmentReviews.unshift(report);
+  state.developmentReviews=state.developmentReviews.slice(0,12);
+
+  let summary=`${sorted.length} player${sorted.length===1?' was':'s were'} reviewed`;
+  if(loanees)summary+=`, including ${loanees} out on loan`;
+  summary+=`. ${changes.length} overall rating change${changes.length===1?'':'s'} recorded.`;
+  if(best?.change>=2)summary+=` ${best.name} made the strongest progress (+${best.change}).`;
+  else if(best?.change>0)summary+=` ${best.name} showed the strongest progress.`;
+  if(decline)summary+=` ${decline.name} showed signs of decline.`;
+  if(!changes.length)summary+=` No player crossed an OVR threshold at this checkpoint.`;
+
   state.news.unshift({week:state.week,date,developmentReviewId:id,text:`${manager}: Squad Development Update — ${summary}`});
 }
+
 function openDevelopmentReview(id){
-  const report=state.developmentReviews?.find(r=>r.id===id);if(!report)return;const modal=q('developmentReviewModal');if(!modal)return;
-  q('developmentReviewTitle').textContent=`${report.key} Development Review`;q('developmentReviewMeta').textContent=`${report.manager} • ${formatGameDate(report.date,{weekday:false})}`;
-  const positives=report.changes.filter(x=>x.change>0).length,declines=report.changes.filter(x=>x.change<0).length;
-  q('developmentReviewSummary').textContent=`${positives} improved • ${declines} declined • ${report.changes.length} rating changes`;
-  q('developmentReviewRows').innerHTML=report.changes.map(x=>`<tr><td><b>${x.name}</b></td><td>${x.age}</td><td>${x.potential??'—'}</td><td>${x.before}</td><td><span class="rating">${x.after}</span></td><td class="${x.change>0?'good':'bad'}"><b>${x.change>0?'+':''}${x.change}</b>${x.change>=2?' <span class="breakthrough-badge">★ Breakthrough</span>':''}</td></tr>`).join('');
+  const report=state.developmentReviews?.find(r=>r.id===id);if(!report)return;
+  const modal=q('developmentReviewModal');if(!modal)return;
+  q('developmentReviewTitle').textContent=`${report.key} Development Review`;
+  q('developmentReviewMeta').textContent=`${report.manager} • ${formatGameDate(report.date,{weekday:false})}`;
+  const positives=report.changes.filter(x=>x.change>0).length;
+  const declines=report.changes.filter(x=>x.change<0).length;
+  const unchanged=report.changes.filter(x=>!x.change).length;
+  const loanees=report.changes.filter(x=>x.loanClub).length;
+  q('developmentReviewSummary').textContent=`${positives} improved • ${declines} declined • ${unchanged} unchanged${loanees?` • ${loanees} out on loan`:''}`;
+  q('developmentReviewRows').innerHTML=report.changes.map(x=>{
+    const changeClass=x.change>0?'good':x.change<0?'bad':'';
+    const changeText=x.change>0?`+${x.change}`:`${x.change||0}`;
+    const loanNote=x.loanClub?`<br><span class="muted small">On loan at ${x.loanClub}</span>`:'';
+    const statusNote=x.status?`<br><span class="muted small">${x.status}</span>`:'';
+    return `<tr><td><b>${x.name}</b>${loanNote}${statusNote}</td><td>${x.age}</td><td>${x.potential??'—'}</td><td>${x.before}</td><td><span class="rating">${x.after}</span></td><td class="${changeClass}"><b>${changeText}</b>${x.change>=2?' <span class="breakthrough-badge">★ Breakthrough</span>':''}</td></tr>`;
+  }).join('');
   modal.classList.remove('hide');setModalScrollLock(true);
 }
 function closeDevelopmentReview(){q('developmentReviewModal')?.classList.add('hide');setModalScrollLock(false);}
 function processPlayerDevelopmentCheckpoint(dateISO=currentGameDateISO()){
   if(!/-(10|01|04)-0[1-7]$/.test(dateISO))return;state.developmentWindows=state.developmentWindows||{};const key=developmentCheckpointKey(dateISO);const w=state.developmentWindows[key]||(state.developmentWindows[key]={user:false,buckets:[]});const day=Number(dateISO.slice(8,10));
-  if(day===1&&!w.user){applyDevelopmentCheckpointToPlayers(squad(state.club),{userReport:true});w.user=true;return;}
-  if(day>=2&&day<=7&&!w.buckets.includes(day)){const players=DB.players.filter(p=>!p.retired&&p.club!==state.club&&developmentWorldBucketForPlayer(p)===day);applyDevelopmentCheckpointToPlayers(players);w.buckets.push(day);}
+  if(day===1&&!w.user){applyDevelopmentCheckpointToPlayers(userClubDevelopmentReviewPlayers(),{userReport:true});w.user=true;return;}
+  if(day>=2&&day<=7&&!w.buckets.includes(day)){const players=DB.players.filter(p=>!p.retired&&!isUserDevelopmentPlayer(p)&&developmentWorldBucketForPlayer(p)===day);applyDevelopmentCheckpointToPlayers(players);w.buckets.push(day);}
 }
 
 function processPlayerYearEnd(players=DB.players){
@@ -4595,6 +4694,38 @@ function renderFixtures(){
     btn.addEventListener("click",()=>openStoredMatchReport(Number(btn.dataset.week),btn.dataset.home,btn.dataset.away));
   });
 }
+function financeScheduleEscape(value){return String(value??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));}
+function financeScheduleDate(dateISO){
+  if(!dateISO)return "—";
+  const d=new Date(`${dateISO}T12:00:00Z`);
+  return Number.isNaN(d.getTime())?dateISO:d.toLocaleDateString("en-GB",{day:"numeric",month:"short",year:"numeric",timeZone:"UTC"});
+}
+function ensureTransferScheduleModal(){
+  let modal=document.getElementById("transferScheduleModal");
+  if(modal)return modal;
+  modal=document.createElement("div");
+  modal.id="transferScheduleModal";
+  modal.className="player-modal hide";
+  modal.innerHTML=`<div class="player-modal-card finance-schedule-card"><div class="sectiontitle"><div><div class="eyebrow">TRANSFER FINANCE</div><h2 id="transferScheduleTitle" style="margin:4px 0 0">Future transfer payments</h2></div><button class="btn secondary" id="closeTransferScheduleModal" type="button">Close</button></div><div id="transferScheduleBody"></div></div>`;
+  document.body.appendChild(modal);
+  const close=()=>{modal.classList.add("hide");document.documentElement.classList.remove("modal-open");document.body.classList.remove("modal-open");};
+  modal.querySelector("#closeTransferScheduleModal")?.addEventListener("click",close);
+  modal.addEventListener("click",e=>{if(e.target===modal)close();});
+  return modal;
+}
+function openTransferScheduleModal(kind="payable"){
+  const incoming=kind==="receivable",modal=ensureTransferScheduleModal();
+  const rows=typeof transferScheduleDetails==="function"?transferScheduleDetails(kind):[];
+  const total=rows.reduce((sum,r)=>sum+(Number(r.remaining)||0),0);
+  modal.querySelector("#transferScheduleTitle").textContent=incoming?"Future transfer income":"Future transfer payments";
+  const body=modal.querySelector("#transferScheduleBody");
+  body.innerHTML=`<div class="notice" style="margin:12px 0"><b>${money(total)} ${incoming?"still receivable":"still payable"}</b><div class="muted small">${rows.length} active transfer ${rows.length===1?"schedule":"schedules"}</div></div>`+(rows.length?rows.map(r=>{
+    const installments=(r.scheduled||[]).map(i=>`<div class="finance-installment-row"><span>${financeScheduleDate(i.dueDate)}</span><b>${money(i.amount||0)}</b></div>`).join("");
+    return `<div class="finance-schedule-row"><div class="finance-schedule-head"><div><b>${financeScheduleEscape(r.playerName||"Player")}</b><div class="muted small">${incoming?"From":"To"} ${financeScheduleEscape(r.club||"Unknown club")} • Headline fee ${money(r.headlineFee||0)}</div></div><strong>${money(r.remaining||0)} left</strong></div><div class="grid3 finance-schedule-summary"><div><span>Next payment</span><b>${financeScheduleDate(r.nextDue)}</b></div><div><span>Final payment</span><b>${financeScheduleDate(r.finalDue)}</b></div><div><span>Instalments left</span><b>${(r.scheduled||[]).length}</b></div></div><details class="finance-installment-details"><summary>View payment schedule</summary>${installments}</details></div>`;
+  }).join(""):`<div class="notice muted">There are no active ${incoming?"transfer receivables":"transfer payment commitments"}.</div>`);
+  modal.classList.remove("hide");document.documentElement.classList.add("modal-open");document.body.classList.add("modal-open");
+}
+
 function renderFinances(){
   if(!q("financeCards")) return;
   ensureFinancialRegulationState();
@@ -4670,8 +4801,8 @@ function renderFinances(){
   </div>
   <div class="grid3" style="margin-top:10px">
     <div class="metric"><div class="k">Available transfer budget</div><div class="v">${money(state.budget)}</div><div class="muted small">From ${money(playing.allocated)} total playing allocation</div></div>
-    <div class="metric"><div class="k">Future transfer payments</div><div class="v">${typeof futureTransferCommitments==="function"?money(futureTransferCommitments()):"—"}</div><div class="muted small">Agreed instalments still payable</div></div>
-    <div class="metric"><div class="k">Future transfer income</div><div class="v">${typeof futureTransferReceivables==="function"?money(futureTransferReceivables()):"—"}</div><div class="muted small">Agreed instalments still receivable</div></div>
+    <button class="metric finance-drilldown" type="button" data-transfer-schedule="payable"><div class="k">Future transfer payments</div><div class="v">${typeof futureTransferCommitments==="function"?money(futureTransferCommitments()):"—"}</div><div class="muted small">Agreed instalments still payable • Tap for detail</div></button>
+    <button class="metric finance-drilldown" type="button" data-transfer-schedule="receivable"><div class="k">Future transfer income</div><div class="v">${typeof futureTransferReceivables==="function"?money(futureTransferReceivables()):"—"}</div><div class="muted small">Agreed instalments still receivable • Tap for detail</div></button>
     <div class="metric"><div class="k">Squad value</div><div class="v">${money(vals)}</div></div>
     <div class="metric"><div class="k">Player wages</div><div class="v">${money(wages)}/wk</div></div>
     <div class="metric"><div class="k">Liquidity status</div><div class="v ${typeof clubFinancialDistressStatus==="function"&&clubFinancialDistressStatus().distressed?"bad":"good"}">${typeof clubFinancialDistressStatus==="function"?(clubFinancialDistressStatus().severe?"Severe pressure":clubFinancialDistressStatus().distressed?"Under pressure":"Healthy"):"—"}</div><div class="muted small">Affects available recruitment funding</div></div>
@@ -4699,6 +4830,8 @@ function renderFinances(){
     </div>
     <div id="livePlayingBudgetAdvice" class="muted small" style="margin-top:8px">Sustainable allocation today: ${money(playing.sustainableTotal)}. Minimum: ${money(playing.minAllocation)} already committed. Club cash: ${typeof clubCash==="function"?money(clubCash()):"—"}.</div>
   </div>`;
+
+  q("financeCards")?.querySelectorAll("[data-transfer-schedule]").forEach(btn=>btn.addEventListener("click",()=>openTransferScheduleModal(btn.dataset.transferSchedule||"payable")));
 
   const liveBudgetSlider=q("livePlayingBudgetSlider"),liveBudgetBtn=q("applyLivePlayingBudget"),livePreview=q("livePlayingBudgetPreview"),liveAdvice=q("livePlayingBudgetAdvice");
   const updateLiveBudgetPreview=()=>{

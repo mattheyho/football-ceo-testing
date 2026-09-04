@@ -796,9 +796,13 @@ function realisticManagerTargetPool(position,limit=30,context={}){
   const standard=managerPositionStandard(position);
   const role=context.role||"starter";
   const excluded=new Set((context.excludePlayerIds||[]).map(String));
+  const ownedByUser=p=>{
+    const loan=typeof activeLoanForPlayer==="function"?activeLoanForPlayer(p):null;
+    return p.club===club || Boolean(loan&&loan.parentClub===club);
+  };
 
   return DB.players
-    .filter(p=>!p.retired && p.club!=="Retired" && p.club!==club && p.club!=="Free Agent" && playsPositionGroup(p,position))
+    .filter(p=>!p.retired && p.club!=="Retired" && !ownedByUser(p) && p.club!=="Free Agent" && playsPositionGroup(p,position))
     .filter(p=>!excluded.has(String(p.id)))
     .filter(p=>!playerSoldByUserClubRecently(p,365))
     .map(p=>{
@@ -1333,10 +1337,15 @@ function buildManagerShortlist(position,role="starter",context={}){
   return out.slice(0,3);
 }
 
+function managerShortlistPlayerIsInvalid(p){
+  if(!p||p.retired||p.club==="Retired"||p.club===state.club)return true;
+  const loan=typeof activeLoanForPlayer==="function"?activeLoanForPlayer(p):null;
+  return Boolean(loan&&loan.parentClub===state.club);
+}
 function managerShortlistForRequest(req){
   return (req.shortlist||[]).map(x=>{
     const p=DB.players.find(pl=>String(pl.id)===String(x.playerId));
-    return p?{...x,player:p}:null;
+    return !managerShortlistPlayerIsInvalid(p)?{...x,player:p}:null;
   }).filter(Boolean);
 }
 
@@ -2825,6 +2834,36 @@ function ensureTransferMarketState(){
       const p=byId.get(String(pid));
       if(p) Object.assign(p,changes);
     });
+
+    // v0.24.23 repair: a cached positional pool could previously allow a
+    // retired player to be signed from the synthetic "Retired" club. Repair
+    // any such legacy transfer once when an existing career is loaded.
+    if(!state.retiredTransferRepairV02423){
+      state.retiredTransferRepairV02423=true;
+      const invalid=[];
+      state.transferLedger=(state.transferLedger||[]).filter(tx=>{
+        const p=byId.get(String(tx.playerId));
+        const bad=tx?.fromClub==="Retired";
+        if(bad) invalid.push(tx);
+        return !bad;
+      });
+      invalid.forEach(tx=>{
+        const p=byId.get(String(tx.playerId));
+        if(p){
+          p.retired=true;p.club="Retired";
+          state.playerClubOverrides[p.id]="Retired";
+          state.playerWorldOverrides[p.id]={...(state.playerWorldOverrides[p.id]||{}),retired:true,club:"Retired"};
+          if(state.aiPlayerAvailability?.[p.id]) delete state.aiPlayerAvailability[p.id];
+        }
+        const f=state.aiClubFinances?.[tx.toClub];
+        if(f && (!tx.season || tx.season===currentSeasonLabel())){
+          f.transferSpent=Math.max(0,(f.transferSpent||0)-(Number(tx.fee)||0));
+          f.transferBudget=Math.max(0,(f.transferBudget||0)+(Number(tx.fee)||0));
+        }
+      });
+      if(Array.isArray(state.news)) state.news=state.news.filter(n=>!String(n?.text||"").includes(" from Retired for "));
+    }
+
     TRANSFER_MARKET_APPLIED_STATE=state;
     CLUB_SQUAD_CACHE.clear();
     CLUB_SQUAD_CACHE_PLAYER_COUNT=DB.players.length;
@@ -3516,7 +3555,10 @@ function ensureTransferPositionIndex(){
 
 function transferPlayersForPosition(position){
   const index=ensureTransferPositionIndex();
-  return index[position]||DB.players;
+  // The positional index is intentionally cached, so retirement status can
+  // change after a player was indexed. Filter at read time to guarantee a
+  // retired player can never re-enter either user or AI recruitment.
+  return (index[position]||DB.players).filter(p=>!p.retired&&p.club!=="Retired");
 }
 
 let BULK_AI_RECRUITMENT_REVIEW=false;
@@ -4224,7 +4266,7 @@ function playerRecentlyTransferred(p,days=120){
 
 
 function transferTargetAttainableForClub(player,buyingClub){
-  if(!player || player.club===buyingClub) return false;
+  if(!player || player.retired || player.club==="Retired" || !player.club || player.club==="Free Agent" || player.club===buyingClub) return false;
   if(typeof activeLoanForPlayer==="function" && activeLoanForPlayer(player)) return false;
   const interest=playerInterestScore(player,buyingClub);
   const buyerRep=byClub(buyingClub)?.reputation||70;
@@ -5625,6 +5667,8 @@ function giveManagerShortlistFeedback(requestId,feedback){
 function openManagerShortlist(requestId){
   const req=state.managerRequests?.find(r=>String(r.id)===String(requestId));
   if(!req||req.type!=="sign") return;
+  const hadInvalid=(req.shortlist||[]).some(x=>managerShortlistPlayerIsInvalid(DB.players.find(p=>String(p.id)===String(x.playerId))));
+  if(hadInvalid && typeof rebuildManagerRequestShortlist==="function") rebuildManagerRequestShortlist(req,"refresh");
   const shortlist=managerShortlistForRequest(req);
   if(!shortlist.length) return;
 

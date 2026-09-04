@@ -1,0 +1,22 @@
+Football CEO v0.24.23 — Regression fixes
+
+1. Loan inbox ownership
+- Final loan reports are now generated only for players owned by the user club and loaned out.
+- AI-to-AI loan completions no longer pollute the CEO inbox.
+- Incoming user loans receive a simple return-to-parent notification, not a development report.
+- Existing invalid AI loan reports/news are cleaned from compatible saves once on load.
+
+2. Retired-player transfer guard
+- Retired players are filtered from cached positional recruitment pools at read time.
+- Transfer attainability now hard-rejects retired players and the synthetic Retired club.
+- Existing invalid transfers from Retired are repaired once on load: the player is restored to Retired, the invalid ledger/news item is removed, and the AI buyer budget is refunded.
+
+3. Manager shortlist ownership
+- User-owned players who are out on loan are excluded from manager recruitment target pools.
+- This prevents players such as R. Esse being recommended as external transfer targets while still owned by the user club.
+
+4. Future transfer payment drill-down
+- Future transfer payments and future transfer income are now tappable on the finance screen.
+- Detail shows player, counterparty, headline fee, remaining balance, next due date, final due date, instalments remaining, and the individual payment schedule.
+
+5. Includes the prior October/January/April development-review restoration.

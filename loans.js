@@ -9,6 +9,18 @@ function ensureLoanState(){
   if(!state.loanReviews) state.loanReviews=[];
   if(!state.loanHistory) state.loanHistory=[];
   if(!state.loanReports) state.loanReports=[];
+
+  // v0.24.23 repair: older builds created final loan reports/news for every
+  // AI-to-AI loan in the world. The CEO should only receive development reports
+  // for players owned by their club and sent out on loan.
+  if(!state.loanReportOwnershipRepairV02423){
+    state.loanReportOwnershipRepairV02423=true;
+    state.loanReports=state.loanReports.filter(r=>r && r.parentClub===state.club);
+    const validReportIds=new Set(state.loanReports.map(r=>String(r.id)));
+    if(Array.isArray(state.news)){
+      state.news=state.news.filter(n=>!n?.loanReportId || validReportIds.has(String(n.loanReportId)));
+    }
+  }
 }
 function activeLoanForPlayer(pOrId){
   ensureLoanState(); const id=typeof pOrId==='object'?pOrId.id:pOrId;
@@ -248,11 +260,17 @@ function loanCreateReport(l,type='final'){
 function completeLoan(l,{recalled=false}={}){
   const p=DB.players.find(x=>String(x.id)===String(l.playerId));if(!p||l.status!=='active')return false;
   loanSimulateProgress(l,currentGameDateISO());const st=loanStats(l);l.actualMinutes=st.minutes;l.finalMinutes=st.minutes;l.actualRole=loanActualRoleFromStats(st,loanRecentStats(l,6));l.currentStatus=loanOutcomeStatus(l);l.status=recalled?'recalled':'completed';l.completedDate=currentGameDateISO();l.endedOverall=p.overall||0;
-  const report=loanCreateReport(l,recalled?'recall':'final');
+  const userOutgoing=l.parentClub===state.club;
+  const userIncoming=l.loanClub===state.club;
+  const report=userOutgoing?loanCreateReport(l,recalled?'recall':'final'):null;
   movePlayerForLoan(p,l.parentClub,l.loanClub,recalled?'loan-recall':'loan-return');
   state.loanHistory.push({...l});state.loanHistory=state.loanHistory.slice(-300);state.loans=state.loans.filter(x=>x.id!==l.id);
   const outcome=l.currentStatus||'Completed';
-  state.news.unshift({week:state.week,date:currentGameDateISO(),loanReportId:report?.id,text:`${p.name}'s loan at ${l.loanClub} has ${recalled?'been recalled':'ended'}. ${st.starts} starts, ${st.appearances} appearances and ${Number(st.minutes||0).toLocaleString('en-GB')} minutes. Outcome: ${outcome}.`});
+  if(userOutgoing){
+    state.news.unshift({week:state.week,date:currentGameDateISO(),loanReportId:report?.id,text:`${p.name}'s loan at ${l.loanClub} has ${recalled?'been recalled':'ended'}. ${st.starts} starts, ${st.appearances} appearances and ${Number(st.minutes||0).toLocaleString('en-GB')} minutes. Outcome: ${outcome}.`});
+  }else if(userIncoming){
+    state.news.unshift({week:state.week,date:currentGameDateISO(),text:`${p.name}'s loan spell at ${state.club} has ended. The player has returned to ${l.parentClub}.`});
+  }
   return true;
 }
 function recallLoan(id){ensureLoanState();const l=state.loans.find(x=>x.id===id&&x.status==='active');if(!l||!l.recallAllowed||l.parentClub!==state.club)return false;const ok=completeLoan(l,{recalled:true});if(ok){saveGame(false);renderAll();}return ok;}
