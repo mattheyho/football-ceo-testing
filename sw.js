@@ -1,4 +1,4 @@
-const CACHE_NAME = "football-ceo-v0.24.34-parachute-payments";
+const CACHE_NAME = "football-ceo-v0.24.36-squad-planning";
 
 // Everything required to boot the current Football CEO build offline.
 // These paths are relative so they work correctly from the GitHub Pages
@@ -34,6 +34,7 @@ const APP_SHELL = [
   "./simulation.js",
   "./promotion-relegation.js",
   "./ui.js",
+  "./save-storage.js",
   "./game.js",
 
   // App icons

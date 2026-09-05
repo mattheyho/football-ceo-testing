@@ -696,6 +696,8 @@ function processInjuries(){
 
 let state=null;
 let squadView="stats";
+let squadSection="players";
+let squadPlanningView="depth";
 
 const STADIUMS={
   "Arsenal":{name:"Emirates Stadium",capacity:60704},
@@ -1961,7 +1963,7 @@ function applyClubTheme(club=state?.club){if(!club||typeof document==='undefined
 
 function createCareer(club){
   if(getSaveManifest().length>=MAX_LOCAL_SAVES){
-    alert(`You already have ${MAX_LOCAL_SAVES} local careers. Delete a save before starting another.`);
+    alert(`You already have ${MAX_LOCAL_SAVES} device careers. Delete a save before starting another.`);
     renderSavedCareers();
     return;
   }
@@ -2135,129 +2137,258 @@ function enterGame(){
 }
 
 let storageAvailable=true;
-
+let saveStorageReady=false;
+let saveManifestCache=[];
+let saveWriteSequence=0;
+let saveWriteQueue=Promise.resolve();
+let pendingSaveWrites=0;
+let lastSaveError=null;
 
 function storageWorks(){
-  try{
-    if(!window.localStorage) return false;
-    const key="__football_ceo_storage_test__";
-    window.localStorage.setItem(key,"1");
-    window.localStorage.removeItem(key);
-    storageAvailable=true;
-    return true;
-  }catch(e){
-    storageAvailable=false;
-    return false;
-  }
+  const ok=Boolean(globalThis.FootballCEOSaveStore);
+  storageAvailable=ok;
+  return ok;
 }
 
 function getSaveManifest(){
-  if(!storageWorks()) return [];
-  try{
-    const raw=window.localStorage.getItem(SAVE_MANIFEST_KEY);
-    const manifest=raw?JSON.parse(raw):[];
-    return Array.isArray(manifest)?manifest:[];
-  }catch(e){
-    console.error("Save manifest could not be read",e);
-    return [];
-  }
+  return Array.isArray(saveManifestCache)?saveManifestCache.slice():[];
 }
 
-function setSaveManifest(manifest){
-  if(!storageWorks()) return false;
-  try{
-    window.localStorage.setItem(SAVE_MANIFEST_KEY,JSON.stringify(manifest.slice(0,MAX_LOCAL_SAVES)));
-    return true;
-  }catch(e){
-    storageAvailable=false;
-    return false;
-  }
-}
-
-function saveSlotKey(id){
-  return `${SAVE_SLOT_PREFIX}${id}`;
+function setManifestCache(manifest){
+  saveManifestCache=(Array.isArray(manifest)?manifest:[])
+    .slice()
+    .sort((a,b)=>String(b.savedAt||'').localeCompare(String(a.savedAt||'')))
+    .slice(0,MAX_LOCAL_SAVES);
+  return saveManifestCache;
 }
 
 function generateSaveId(){
   return `save_${Date.now()}_${Math.floor(Math.random()*100000)}`;
 }
 
-function saveMetadataFromState(id=activeSaveId,savedAt=new Date().toISOString()){
+function saveMetadataFromState(id=activeSaveId,savedAt=new Date().toISOString(),saveState=state){
   return {
     id,
-    club:state?.club||"Unknown club",
-    season:state?.season?.label||"—",
-    seasonNumber:state?.season?.number||1,
-    gameDate:typeof currentGameDateISO==="function"?currentGameDateISO():(state?.calendar?.date||null),
-    week:state?.week||0,
+    club:saveState?.club||"Unknown club",
+    season:saveState?.season?.label||"—",
+    seasonNumber:saveState?.season?.number||1,
+    gameDate:saveState?.calendar?.date||null,
+    week:saveState?.week||0,
     savedAt,
-    version:SAVE_FORMAT_VERSION
+    version:SAVE_FORMAT_VERSION,
+    storage:"indexeddb"
   };
 }
 
-function writeSaveSlot(id,saveState=state){
-  if(!id || !saveState || !storageWorks()) return false;
+function cloneCareerForSave(saveState){
+  if(typeof structuredClone==='function') return structuredClone(saveState);
+  return JSON.parse(JSON.stringify(saveState));
+}
+
+async function refreshSaveManifest(){
+  if(!storageWorks()||!saveStorageReady) return getSaveManifest();
   try{
-    const savedAt=new Date().toISOString();
-    window.localStorage.setItem(saveSlotKey(id),JSON.stringify(saveState));
+    setManifestCache(await FootballCEOSaveStore.listMetadata());
+  }catch(e){
+    console.error('Save index could not be refreshed',e);
+    lastSaveError=e;
+  }
+  return getSaveManifest();
+}
 
-    let manifest=getSaveManifest().filter(x=>x.id!==id);
-    const originalState=state;
-    if(saveState!==state) state=saveState;
-    const meta=saveMetadataFromState(id,savedAt);
-    if(saveState!==originalState) state=originalState;
+function legacyLocalStorageAvailable(){
+  try{
+    if(!window.localStorage) return false;
+    // Read-only probe: old localStorage can be completely full, which is the
+    // exact situation this migration is designed to recover from.
+    window.localStorage.getItem(SAVE_MANIFEST_KEY);
+    return true;
+  }catch(e){ return false; }
+}
 
-    manifest.unshift(meta);
-    if(!setSaveManifest(manifest)) throw new Error("Could not update save index");
+function oldSaveSlotKey(id){ return `${SAVE_SLOT_PREFIX}${id}`; }
 
-    activeSaveId=id;
-    lastSaveTimestamp=savedAt;
-    updateSaveStatus();
-    renderSaveManager();
+async function migrateLocalStorageCareersToIndexedDB(){
+  if(!saveStorageReady||!legacyLocalStorageAvailable()) return {migrated:0,failed:0};
+  let migrated=0, failed=0;
+  const migratedKeys=[];
+  try{
+    let manifest=[];
+    try{
+      const raw=window.localStorage.getItem(SAVE_MANIFEST_KEY);
+      const parsed=raw?JSON.parse(raw):[];
+      if(Array.isArray(parsed)) manifest=parsed;
+    }catch(e){ console.warn('Old save manifest could not be parsed',e); }
+
+    // Recover orphaned slot blobs too. A quota error could occur after the old
+    // game wrote a career but before it managed to update the manifest.
+    try{
+      const known=new Set(manifest.map(m=>m?.id).filter(Boolean));
+      for(let i=0;i<window.localStorage.length;i++){
+        const key=window.localStorage.key(i);
+        if(!key||!key.startsWith(SAVE_SLOT_PREFIX)) continue;
+        const id=key.slice(SAVE_SLOT_PREFIX.length);
+        if(!id||known.has(id)) continue;
+        try{
+          const raw=window.localStorage.getItem(key);
+          const orphan=raw?JSON.parse(raw):null;
+          if(!orphan?.club) continue;
+          manifest.push(saveMetadataFromState(id,new Date().toISOString(),orphan));
+          known.add(id);
+        }catch(e){}
+      }
+    }catch(e){}
+
+    for(const meta of manifest){
+      if(!meta?.id) continue;
+      try{
+        if(await FootballCEOSaveStore.hasCareer(meta.id)){
+          migratedKeys.push(oldSaveSlotKey(meta.id));
+          continue;
+        }
+        const raw=window.localStorage.getItem(oldSaveSlotKey(meta.id));
+        if(!raw) continue;
+        const oldState=JSON.parse(raw);
+        if(!oldState?.club) continue;
+        oldState.saveId=meta.id;
+        const savedAt=meta.savedAt||new Date().toISOString();
+        const cleanMeta={...meta,id:meta.id,savedAt,version:SAVE_FORMAT_VERSION,storage:'indexeddb'};
+        await FootballCEOSaveStore.putCareer(meta.id,oldState,cleanMeta);
+        // Verify before removing the large old localStorage blob.
+        if(!(await FootballCEOSaveStore.hasCareer(meta.id))) throw new Error('Migrated save could not be verified');
+        migrated++;
+        migratedKeys.push(oldSaveSlotKey(meta.id));
+      }catch(e){
+        failed++;
+        console.error(`Could not migrate local career ${meta?.id||''}`,e);
+      }
+    }
+
+    // Very old pre-slot single-career save.
+    try{
+      const legacyRaw=window.localStorage.getItem(LEGACY_STORAGE_KEY);
+      if(legacyRaw){
+        const legacy=JSON.parse(legacyRaw);
+        if(validateImportedState(legacy)){
+          const duplicate=(await FootballCEOSaveStore.listMetadata()).some(m=>m.club===legacy.club && m.gameDate===legacy.calendar?.date);
+          if(!duplicate){
+            const id=legacy.saveId||generateSaveId();
+            legacy.saveId=id;
+            const savedAt=new Date().toISOString();
+            await FootballCEOSaveStore.putCareer(id,legacy,saveMetadataFromState(id,savedAt,legacy));
+            migrated++;
+          }
+          if(failed===0) window.localStorage.removeItem(LEGACY_STORAGE_KEY);
+        }
+      }
+    }catch(e){
+      failed++;
+      console.error('Legacy single-career migration failed',e);
+    }
+
+    if(failed===0){
+      migratedKeys.forEach(key=>{ try{window.localStorage.removeItem(key);}catch(e){} });
+      try{window.localStorage.removeItem(SAVE_MANIFEST_KEY);}catch(e){}
+      try{window.localStorage.setItem('footballCEO_indexeddb_migrated_v1',JSON.stringify({at:new Date().toISOString(),count:migrated}));}catch(e){}
+    }
+  }catch(e){
+    failed++;
+    console.error('Career migration failed',e);
+  }
+  return {migrated,failed};
+}
+
+async function initialiseSaveStorage(){
+  if(!storageWorks()){
+    storageAvailable=false;
+    saveStorageReady=false;
+    return false;
+  }
+  try{
+    await FootballCEOSaveStore.init();
+    saveStorageReady=true;
+    storageAvailable=true;
+    const migration=await migrateLocalStorageCareersToIndexedDB();
+    await refreshSaveManifest();
+    if(migration.migrated>0) console.info(`Migrated ${migration.migrated} Football CEO career(s) to IndexedDB.`);
     return true;
   }catch(e){
-    console.error("Save failed",e);
+    console.error('Career database could not be initialised',e);
+    lastSaveError=e;
     storageAvailable=false;
-    updateSaveStatus("Save failed");
+    saveStorageReady=false;
     return false;
   }
 }
 
+async function writeSaveSlot(id,saveState=state,{showConfirmation=false}={}){
+  if(!id||!saveState||!storageAvailable||!saveStorageReady) return false;
+  const sequence=++saveWriteSequence;
+  pendingSaveWrites++;
+  updateSaveStatus('Saving…');
+  try{
+    const savedAt=new Date().toISOString();
+    const snapshot=cloneCareerForSave(saveState);
+    const meta=saveMetadataFromState(id,savedAt,snapshot);
+    const queuedWrite=saveWriteQueue.catch(()=>{}).then(()=>FootballCEOSaveStore.putCareer(id,snapshot,meta));
+    saveWriteQueue=queuedWrite;
+    await queuedWrite;
+
+    lastSaveError=null;
+    let manifest=getSaveManifest().filter(x=>x.id!==id);
+    manifest.unshift(meta);
+    setManifestCache(manifest);
+    if(activeSaveId===id) lastSaveTimestamp=savedAt;
+    renderSavedCareers();
+    renderSaveManager();
+    if(showConfirmation && state?.saveId===id) addNews('Career saved on this device.');
+    return true;
+  }catch(e){
+    console.error('Save failed',e);
+    lastSaveError=e;
+    storageAvailable=true; // IndexedDB can recover from transient transaction failures.
+    return false;
+  }finally{
+    pendingSaveWrites=Math.max(0,pendingSaveWrites-1);
+    updateSaveStatus();
+  }
+}
+
 function safeSetSave(){
-  if(!state) return false;
+  if(!state) return Promise.resolve(false);
   if(!activeSaveId){
-    activeSaveId=state.saveId || generateSaveId();
+    activeSaveId=state.saveId||generateSaveId();
     state.saveId=activeSaveId;
   }
   return writeSaveSlot(activeSaveId,state);
 }
 
-function safeGetSave(id=activeSaveId){
-  if(!id || !storageWorks()) return null;
+async function safeGetSave(id=activeSaveId){
+  if(!id||!storageAvailable||!saveStorageReady) return null;
   try{
-    return window.localStorage.getItem(saveSlotKey(id));
+    return await FootballCEOSaveStore.getCareer(id);
   }catch(e){
-    storageAvailable=false;
+    lastSaveError=e;
     return null;
   }
 }
 
 function saveGame(show=true){
-  const saved=safeSetSave();
-  if(saved){
-    if(show) addNews("Career saved locally on this device.");
-  }else if(show){
-    addNews("Save failed. Export this career as a backup before closing the browser.");
+  if(!state) return Promise.resolve(false);
+  if(!activeSaveId){
+    activeSaveId=state.saveId||generateSaveId();
+    state.saveId=activeSaveId;
   }
-  updateSaveStatus();
+  return writeSaveSlot(activeSaveId,state,{showConfirmation:show}).then(saved=>{
+    if(!saved && show && state) addNews('Save failed. Export this career as a backup before closing the app.');
+    return saved;
+  });
 }
 
-function loadSaveById(id){
+async function loadSaveById(id){
   try{
-    const raw=safeGetSave(id);
-    if(!raw) throw new Error("Save data is missing");
-    const loaded=JSON.parse(raw);
-    if(!loaded?.club) throw new Error("Invalid career data");
+    const loaded=await safeGetSave(id);
+    if(!loaded?.club) throw new Error('Save data is missing or invalid');
 
     activeSaveId=id;
     loaded.saveId=id;
@@ -2271,81 +2402,96 @@ function loadSaveById(id){
     updateSaveStatus();
   }catch(e){
     console.error(e);
-    alert("The save could not be loaded. If you exported a backup, you can import it from the start screen.");
+    alert('The save could not be loaded. If you exported a backup, you can import it from the start screen.');
   }
 }
 
-function loadGame(){
+async function loadGame(){
   const saves=getSaveManifest();
-  if(saves.length) loadSaveById(saves[0].id);
+  if(saves.length) await loadSaveById(saves[0].id);
 }
 
-function deleteSaveById(id){
+async function deleteSaveById(id){
   const meta=getSaveManifest().find(x=>x.id===id);
-  const label=meta?`${meta.club} • ${meta.season}`:"this career";
+  const label=meta?`${meta.club} • ${meta.season}`:'this career';
   if(!confirm(`Delete ${label}? This cannot be undone unless you exported a backup.`)) return;
 
   try{
-    window.localStorage?.removeItem(saveSlotKey(id));
-    setSaveManifest(getSaveManifest().filter(x=>x.id!==id));
-  }catch(e){}
+    await FootballCEOSaveStore.deleteCareer(id);
+    setManifestCache(getSaveManifest().filter(x=>x.id!==id));
+  }catch(e){
+    console.error('Could not delete save',e);
+    alert('The career could not be deleted from this device.');
+    return;
+  }
 
   if(activeSaveId===id){
     activeSaveId=null;
     state=null;
-    q("game")?.classList.add("hide");
-    q("startScreen")?.classList.remove("hide");
+    q('game')?.classList.add('hide');
+    q('startScreen')?.classList.remove('hide');
   }
   renderSavedCareers();
   renderSaveManager();
 }
 
 function newCareer(){
-  // Do not delete the current career. Autosave it, then return to club selection.
+  // Do not delete the current career. Queue an autosave, then return to club selection.
   if(state) saveGame(false);
   activeSaveId=null;
   state=null;
-  q("game").classList.add("hide");
-  q("startScreen").classList.remove("hide");
-  q("seasonSetup")?.classList.add("hide");
-  q("playerModal")?.classList.add("hide");
+  q('game').classList.add('hide');
+  q('startScreen').classList.remove('hide');
+  q('seasonSetup')?.classList.add('hide');
+  q('playerModal')?.classList.add('hide');
   renderSavedCareers();
 }
 
 function formatSavedAt(iso){
-  if(!iso) return "Not saved yet";
+  if(!iso) return 'Not saved yet';
   try{
-    return new Date(iso).toLocaleString("en-GB",{
-      day:"2-digit",month:"short",hour:"2-digit",minute:"2-digit"
+    return new Date(iso).toLocaleString('en-GB',{
+      day:'2-digit',month:'short',hour:'2-digit',minute:'2-digit'
     });
-  }catch(e){ return "Saved"; }
+  }catch(e){ return 'Saved'; }
 }
 
 function updateSaveStatus(forcedText=null){
-  const el=q("saveStatus");
+  const el=q('saveStatus');
   if(!el) return;
   if(forcedText){
     el.textContent=forcedText;
+    el.classList.toggle('bad',forcedText.toLowerCase().includes('failed'));
     return;
   }
-  if(!storageAvailable){
-    el.textContent="Browser storage unavailable • export a backup";
-    el.classList.add("bad");
+  if(!storageAvailable||!saveStorageReady){
+    el.textContent='Device save storage unavailable • export a backup';
+    el.classList.add('bad');
     return;
   }
-  el.classList.remove("bad");
+  if(pendingSaveWrites>0){
+    el.textContent='Saving…';
+    el.classList.remove('bad');
+    return;
+  }
+  if(lastSaveError){
+    el.textContent='Last save failed • export a backup';
+    el.classList.add('bad');
+    return;
+  }
+  el.classList.remove('bad');
   el.textContent=lastSaveTimestamp
-    ? `Autosaved • ${formatSavedAt(lastSaveTimestamp)}`
-    : "Autosave enabled";
+    ? `Autosaved on device • ${formatSavedAt(lastSaveTimestamp)}`
+    : 'Device autosave enabled';
 }
 
 function renderSavedCareers(){
-  const wrap=q("savedCareersList");
-  const section=q("savedCareersSection");
-  if(!wrap || !section) return;
+  const wrap=q('savedCareersList');
+  const section=q('savedCareersSection');
+  if(!wrap||!section) return;
 
   const saves=getSaveManifest();
-  section.classList.toggle("hide",saves.length===0);
+  section.classList.toggle('hide',saves.length===0);
 
   wrap.innerHTML=saves.map(meta=>`
     <div class="save-card">
@@ -2364,26 +2510,26 @@ function renderSavedCareers(){
         </div>
       </div>
     </div>
-  `).join("");
+  `).join('');
 
-  document.querySelectorAll(".load-save-btn").forEach(btn=>btn.addEventListener("click",()=>loadSaveById(btn.dataset.saveId)));
-  document.querySelectorAll(".export-slot-btn").forEach(btn=>btn.addEventListener("click",()=>exportSaveById(btn.dataset.saveId)));
-  document.querySelectorAll(".delete-slot-btn").forEach(btn=>btn.addEventListener("click",()=>deleteSaveById(btn.dataset.saveId)));
+  document.querySelectorAll('.load-save-btn').forEach(btn=>btn.addEventListener('click',()=>loadSaveById(btn.dataset.saveId)));
+  document.querySelectorAll('.export-slot-btn').forEach(btn=>btn.addEventListener('click',()=>exportSaveById(btn.dataset.saveId)));
+  document.querySelectorAll('.delete-slot-btn').forEach(btn=>btn.addEventListener('click',()=>deleteSaveById(btn.dataset.saveId)));
 
-  const count=q("saveSlotCount");
-  if(count) count.textContent=`${saves.length}/${MAX_LOCAL_SAVES} local saves`;
+  const count=q('saveSlotCount');
+  if(count) count.textContent=`${saves.length}/${MAX_LOCAL_SAVES} device saves`;
 }
 
 function renderSaveManager(){
-  const list=q("saveManagerList");
+  const list=q('saveManagerList');
   if(!list) return;
   const saves=getSaveManifest();
 
   list.innerHTML=saves.map(meta=>`
-    <div class="save-manager-row ${meta.id===activeSaveId?"active":""}">
+    <div class="save-manager-row ${meta.id===activeSaveId?'active':''}">
       <div>
         <b>${meta.club}</b>
-        <div class="muted small">${meta.season} • ${meta.gameDate?shortGameDate(meta.gameDate):"—"}</div>
+        <div class="muted small">${meta.season} • ${meta.gameDate?shortGameDate(meta.gameDate):'—'}</div>
         <div class="muted tiny">Saved ${formatSavedAt(meta.savedAt)}</div>
       </div>
       <div class="save-manager-actions">
@@ -2392,28 +2538,28 @@ function renderSaveManager(){
         <button class="btn danger delete-slot-btn" data-save-id="${meta.id}">Delete</button>
       </div>
     </div>
-  `).join("") || `<p class="muted">No local careers found.</p>`;
+  `).join('')||`<p class="muted">No device careers found.</p>`;
 
-  list.querySelectorAll(".load-save-btn").forEach(btn=>btn.addEventListener("click",()=>{closeSaveManager();loadSaveById(btn.dataset.saveId);}));
-  list.querySelectorAll(".export-slot-btn").forEach(btn=>btn.addEventListener("click",()=>exportSaveById(btn.dataset.saveId)));
-  list.querySelectorAll(".delete-slot-btn").forEach(btn=>btn.addEventListener("click",()=>deleteSaveById(btn.dataset.saveId)));
+  list.querySelectorAll('.load-save-btn').forEach(btn=>btn.addEventListener('click',()=>{closeSaveManager();loadSaveById(btn.dataset.saveId);}));
+  list.querySelectorAll('.export-slot-btn').forEach(btn=>btn.addEventListener('click',()=>exportSaveById(btn.dataset.saveId)));
+  list.querySelectorAll('.delete-slot-btn').forEach(btn=>btn.addEventListener('click',()=>deleteSaveById(btn.dataset.saveId)));
 }
 
 function openSaveManager(){
   if(state) saveGame(false);
   renderSaveManager();
-  q("saveManagerModal")?.classList.remove("hide");
+  q('saveManagerModal')?.classList.remove('hide');
   setModalScrollLock(true);
 }
 
 function closeSaveManager(){
-  q("saveManagerModal")?.classList.add("hide");
+  q('saveManagerModal')?.classList.add('hide');
   setModalScrollLock(false);
 }
 
 function exportedCareerPayload(saveState,id){
   return {
-    game:"Football CEO",
+    game:'Football CEO',
     formatVersion:SAVE_FORMAT_VERSION,
     exportedAt:new Date().toISOString(),
     metadata:{
@@ -2427,9 +2573,9 @@ function exportedCareerPayload(saveState,id){
 }
 
 function downloadJSON(data,filename){
-  const blob=new Blob([JSON.stringify(data,null,2)],{type:"application/json"});
+  const blob=new Blob([JSON.stringify(data,null,2)],{type:'application/json'});
   const url=URL.createObjectURL(blob);
-  const a=document.createElement("a");
+  const a=document.createElement('a');
   a.href=url;
   a.download=filename;
   document.body.appendChild(a);
@@ -2438,23 +2584,22 @@ function downloadJSON(data,filename){
   setTimeout(()=>URL.revokeObjectURL(url),1500);
 }
 
-function exportSaveById(id=activeSaveId){
+async function exportSaveById(id=activeSaveId){
   try{
     let saveState;
-    if(id===activeSaveId && state){
-      saveGame(false);
+    if(id===activeSaveId&&state){
+      await saveGame(false);
       saveState=state;
     }else{
-      const raw=safeGetSave(id);
-      if(!raw) throw new Error("Save data missing");
-      saveState=JSON.parse(raw);
+      saveState=await safeGetSave(id);
+      if(!saveState) throw new Error('Save data missing');
     }
-    const safeClub=String(saveState.club||"career").replace(/[^a-z0-9]+/gi,"-").replace(/^-|-$/g,"");
-    const safeDate=saveState.calendar?.date||"save";
+    const safeClub=String(saveState.club||'career').replace(/[^a-z0-9]+/gi,'-').replace(/^-|-$/g,'');
+    const safeDate=saveState.calendar?.date||'save';
     downloadJSON(exportedCareerPayload(saveState,id),`football-ceo-${safeClub}-${safeDate}.json`);
   }catch(e){
     console.error(e);
-    alert("The save could not be exported.");
+    alert('The save could not be exported.');
   }
 }
 
@@ -2464,12 +2609,12 @@ function exportCurrentSave(){
 }
 
 function triggerImportSave(){
-  q("importSaveInput")?.click();
+  q('importSaveInput')?.click();
 }
 
 function validateImportedState(candidate){
-  if(!candidate || typeof candidate!=="object") return false;
-  if(!candidate.club || !candidate.season) return false;
+  if(!candidate||typeof candidate!=='object') return false;
+  if(!candidate.club||!candidate.season) return false;
   if(!(typeof playableCareerClubs==='function'?playableCareerClubs():DB.clubs).some(c=>c.name===candidate.club)) return false;
   return true;
 }
@@ -2477,16 +2622,16 @@ function validateImportedState(candidate){
 function importSaveFile(file){
   if(!file) return;
   if(getSaveManifest().length>=MAX_LOCAL_SAVES){
-    alert(`You already have ${MAX_LOCAL_SAVES} local careers. Delete one before importing another.`);
+    alert(`You already have ${MAX_LOCAL_SAVES} device careers. Delete one before importing another.`);
     return;
   }
 
   const reader=new FileReader();
-  reader.onload=()=>{
+  reader.onload=async()=>{
     try{
-      const parsed=JSON.parse(String(reader.result||""));
+      const parsed=JSON.parse(String(reader.result||''));
       const imported=parsed?.state||parsed;
-      if(!validateImportedState(imported)) throw new Error("Invalid Football CEO save");
+      if(!validateImportedState(imported)) throw new Error('Invalid Football CEO save');
 
       const id=generateSaveId();
       imported.saveId=id;
@@ -2498,48 +2643,29 @@ function importSaveFile(file){
       activeSaveId=id;
       resetWorldDatabase();
       ensureCalendarState();
-      if(!writeSaveSlot(id,state)) throw new Error("Could not write imported save");
+      if(!(await writeSaveSlot(id,state))) throw new Error('Could not write imported save');
 
       state=previousState;
       activeSaveId=previousId;
 
+      await refreshSaveManifest();
       renderSavedCareers();
       renderSaveManager();
       alert(`${imported.club} career imported successfully.`);
     }catch(e){
       console.error(e);
-      alert("That file could not be imported as a Football CEO save.");
+      alert('That file could not be imported as a Football CEO save.');
     }finally{
-      if(q("importSaveInput")) q("importSaveInput").value="";
+      if(q('importSaveInput')) q('importSaveInput').value='';
     }
   };
   reader.readAsText(file);
 }
 
-function migrateLegacySave(){
-  if(!storageWorks()) return;
-  try{
-    if(getSaveManifest().length) return;
-    const raw=window.localStorage.getItem(LEGACY_STORAGE_KEY);
-    if(!raw) return;
-
-    const legacy=JSON.parse(raw);
-    if(!validateImportedState(legacy)) return;
-
-    const id=generateSaveId();
-    legacy.saveId=id;
-    const previousState=state;
-    const previousId=activeSaveId;
-    state=legacy;
-    activeSaveId=id;
-    writeSaveSlot(id,legacy);
-    state=previousState;
-    activeSaveId=previousId;
-
-    // Keep the legacy key as an emergency backup for now.
-  }catch(e){
-    console.error("Legacy save migration failed",e);
-  }
+// Kept as a compatibility alias for older test hooks. The real migration now
+// copies all old localStorage careers into IndexedDB during app initialisation.
+async function migrateLegacySave(){
+  return migrateLocalStorageCareersToIndexedDB();
 }
 
 function addNews(text){
@@ -3058,22 +3184,37 @@ function renderInbox(){
   if(!inboxEl) return;
   if(typeof ensureTransferMarketState==="function") ensureTransferMarketState();
   if(typeof ensureLoanState==="function") ensureLoanState();
+  let withdrewManagerRequest=false;
   inboxEl.innerHTML=state.news.map(n=>{
     let actions="";
+    let displayText=n.text;
     if(n.requestId){
       const req=state.managerRequests?.find(r=>r.id===n.requestId);
+      const reqPlayer=req?.playerId?DB.players.find(x=>String(x.id)===String(req.playerId)):null;
+      if(req && !req.resolved && req.type==="transfer" && reqPlayer && typeof playerRecentlyTransferred==="function" && playerRecentlyTransferred(reqPlayer,180)){
+        req.resolved=true;
+        req.withdrawn=true;
+        req.withdrawnReason="Recently joined";
+        withdrewManagerRequest=true;
+      }
+      if(req?.withdrawn && reqPlayer) displayText=`${req.manager} has withdrawn the recommendation to sell ${reqPlayer.name}. He only recently joined the club.`;
       if(req && !req.resolved){
         actions=req.type==="sign"
           ? `<div class="inbox-action">
               <button class="btn primary manager-request-btn" data-request-id="${req.id}" data-accept="1">Review suggestions</button>
               ${req.outgoingRecommendation&&state.playerListStatus?.[req.outgoingRecommendation.playerId]!=="Transfer"
-                ?`<button class="btn secondary manager-list-outgoing-btn" data-request-id="${req.id}">List recommended outgoing</button>`:""}
+                ?`<button class="btn secondary manager-player-profile-btn" data-player-id="${req.outgoingRecommendation.playerId}" type="button">View outgoing profile</button><button class="btn secondary manager-player-depth-btn" data-position="${req.outgoingRecommendation.position}" type="button">View squad depth</button><button class="btn secondary manager-list-outgoing-btn" data-request-id="${req.id}">List recommended outgoing</button>`:""}
               <button class="btn secondary manager-request-btn" data-request-id="${req.id}" data-accept="0">${req.reminder?"Decline again":"Decline for now"}</button>
               <button class="btn secondary manager-close-window-btn" data-request-id="${req.id}">Close until next window</button>
             </div>`
-          : `<div class="inbox-action">
-              <button class="btn primary manager-request-btn" data-request-id="${req.id}" data-accept="1">Approve</button>
-              <button class="btn secondary manager-request-btn" data-request-id="${req.id}" data-accept="0">Reject</button>
+          : `<div class="manager-request-decision">
+              ${req.type==="transfer"?`<div class="manager-request-reason"><span class="pill">${req.reasonLabel||"Manager recommendation"}</span><div>${req.reason||"The manager believes this player can be moved on without weakening his preferred team."}</div></div>`:""}
+              <div class="inbox-action">
+                ${reqPlayer?`<button class="btn secondary manager-player-profile-btn" data-player-id="${reqPlayer.id}" type="button">View profile</button>`:""}
+                ${reqPlayer&&req.position?`<button class="btn secondary manager-player-depth-btn" data-position="${req.position}" type="button">View squad depth</button>`:""}
+                <button class="btn primary manager-request-btn" data-request-id="${req.id}" data-accept="1">Approve</button>
+                <button class="btn secondary manager-request-btn" data-request-id="${req.id}" data-accept="0">Reject</button>
+              </div>
             </div>`;
       }
     }
@@ -3100,7 +3241,7 @@ function renderInbox(){
       }
     }
     const when=n.date?shortGameDate(n.date):`MW ${n.week}`;
-    return `<div class="news"><span class="pill">${when}</span> &nbsp; ${n.text}${actions}</div>`;
+    return `<div class="news"><span class="pill">${when}</span> &nbsp; ${displayText}${actions}</div>`;
   }).join("")||`<p class="muted">No messages.</p>`;
 
   document.querySelectorAll(".manager-request-btn").forEach(btn=>{
@@ -3112,6 +3253,8 @@ function renderInbox(){
   document.querySelectorAll(".manager-list-outgoing-btn").forEach(btn=>{
     btn.addEventListener("click",()=>approveManagerOutgoingRecommendation(btn.dataset.requestId));
   });
+  document.querySelectorAll(".manager-player-profile-btn").forEach(btn=>btn.addEventListener("click",()=>openPlayerProfile(btn.dataset.playerId)));
+  document.querySelectorAll(".manager-player-depth-btn").forEach(btn=>btn.addEventListener("click",()=>openSquadPlanningForPosition(btn.dataset.position)));
   document.querySelectorAll(".loan-offer-btn").forEach(btn=>btn.addEventListener("click",()=>openLoanOffer(btn.dataset.loanOfferId)));
   document.querySelectorAll(".loan-review-btn").forEach(btn=>btn.addEventListener("click",()=>openLoanReview(btn.dataset.loanReviewId)));
   document.querySelectorAll(".loan-report-btn").forEach(btn=>btn.addEventListener("click",()=>openLoanReport(btn.dataset.loanReportId)));
@@ -3119,6 +3262,7 @@ function renderInbox(){
   document.querySelectorAll(".manager-complaint-btn").forEach(btn=>{
     btn.addEventListener("click",()=>resolveManagerDepthComplaint(btn.dataset.complaintId,btn.dataset.response));
   });
+  if(withdrewManagerRequest) saveGame(false);
   renderDashboardInboxPreview();
 }
 
@@ -3141,87 +3285,189 @@ function squadPositionRank(p){
   return i===-1 ? SQUAD_POSITION_ORDER.length : i;
 }
 
-function renderSquad(){
-  ensurePlayerState();
-  const search=q("squadSearch");
-  const query=(search?.value||"").toLowerCase();
-  const fullSquad=squad(state.club);
-  const arr=fullSquad
-    .filter(p=>(p.name+" "+p.positions+" "+p.nationality).toLowerCase().includes(query))
+function squadPlanningGroupLabel(group){
+  return ({GK:"Goalkeepers",RB:"Right Backs",CB:"Centre Backs",LB:"Left Backs",DM:"Defensive Midfielders",CM:"Central Midfielders",AM:"Attacking Midfielders",RW:"Right Wingers",LW:"Left Wingers",ST:"Strikers"})[group]||group;
+}
+
+function squadPlanningPrimaryGroup(player){
+  const first=String(player?.positions||"").toUpperCase().split(/[^A-Z]+/).filter(Boolean)[0]||"";
+  return ({GK:"GK",RB:"RB",RWB:"RB",CB:"CB",LB:"LB",LWB:"LB",CDM:"DM",DM:"DM",CM:"CM",CAM:"AM",AM:"AM",RW:"RW",RM:"RW",LW:"LW",LM:"LW",ST:"ST",CF:"ST"})[first]||null;
+}
+
+function squadPlanningGroups(club=state.club){
+  const formation=typeof managerFormationForClub==="function"?managerFormationForClub(club):"4-2-3-1";
+  const slots=typeof MANAGER_FORMATIONS!=="undefined"?(MANAGER_FORMATIONS[formation]?.slots||[]):[];
+  const order=[];
+  slots.forEach(slot=>{
+    const group=typeof formationSlotToRecruitmentGroup==="function"?formationSlotToRecruitmentGroup(slot):slot;
+    if(!order.includes(group)) order.push(group);
+  });
+  return order.length?order:["GK","RB","CB","LB","DM","CM","AM","RW","LW","ST"];
+}
+
+function squadPlanningPreferredSelection(club=state.club){
+  if(typeof managerSelectXI!=="function") return {formation:"4-2-3-1",slots:[],xi:[]};
+  return managerSelectXI(club,{planning:true,includeInjured:true,importance:60});
+}
+
+function squadPlanningPlayerWage(player){
+  return Number(state.playerContracts?.[player.id]?.wage??player.wage??0);
+}
+
+function squadPlanningPositionData(group,club=state.club){
+  const selection=squadPlanningPreferredSelection(club);
+  const standards=typeof managerClubSquadStandards==="function"?managerClubSquadStandards(club):{starter:72,competition:69,backup:65};
+  const required=Math.max(1,selection.slots.filter(slot=>(typeof formationSlotToRecruitmentGroup==="function"?formationSlotToRecruitmentGroup(slot):slot)===group).length);
+  const healthy=typeof managerHealthyDepthForPosition==="function"?managerHealthyDepthForPosition(group,club):Math.max(2,required*2);
+  const starterIds=new Set(selection.xi.filter(x=>x.playerId && (typeof formationSlotToRecruitmentGroup==="function"?formationSlotToRecruitmentGroup(x.slot):x.slot)===group).map(x=>String(x.playerId)));
+  const allSquad=typeof clubSquadPlayers==="function"?clubSquadPlayers(club):squad(club);
+  const candidates=allSquad
+    .map(p=>({p,suitability:typeof positionSuitability==="function"?positionSuitability(p,group):(typeof playsPositionGroup==="function"&&playsPositionGroup(p,group)?100:0)}))
+    .filter(x=>x.suitability>=40)
     .sort((a,b)=>{
-      const posDiff=squadPositionRank(a)-squadPositionRank(b);
-      if(posDiff!==0) return posDiff;
-      const ratingDiff=(b.overall||0)-(a.overall||0);
-      if(ratingDiff!==0) return ratingDiff;
-      return String(a.name).localeCompare(String(b.name));
+      const aStarter=starterIds.has(String(a.p.id))?1:0,bStarter=starterIds.has(String(b.p.id))?1:0;
+      if(aStarter!==bStarter) return bStarter-aStarter;
+      const an=squadPlanningPrimaryGroup(a.p)===group?1:0,bn=squadPlanningPrimaryGroup(b.p)===group?1:0;
+      if(an!==bn) return bn-an;
+      return ((b.p.overall||0)*0.78+b.suitability*0.22)-((a.p.overall||0)*0.78+a.suitability*0.22);
     });
-
-  if(q("squadTitle")) q("squadTitle").textContent=state.club+" squad";
-  if(q("squadCount")) q("squadCount").textContent=fullSquad.length+" players";
-
-  // Whole-squad metrics use the full squad, not the current search results.
-  const squadValue=fullSquad.reduce((sum,p)=>sum+(p.value||0),0);
-  const avgWage=fullSquad.length
-    ? fullSquad.reduce((sum,p)=>sum+(state.playerContracts?.[p.id]?.wage??p.wage??0),0)/fullSquad.length
-    : 0;
-  const avgAge=fullSquad.length
-    ? fullSquad.reduce((sum,p)=>sum+(p.age||0),0)/fullSquad.length
-    : 0;
-
-  if(q("squadValueMetric")) q("squadValueMetric").textContent=money(squadValue);
-  if(q("squadAvgWageMetric")) q("squadAvgWageMetric").textContent=money(avgWage)+"/wk";
-  if(q("squadAvgAgeMetric")) q("squadAvgAgeMetric").textContent=avgAge.toFixed(1);
-
-  document.querySelectorAll(".squad-view-btn").forEach(btn=>{
-    btn.classList.toggle("active",btn.dataset.squadView===squadView);
+  const credible=candidates.filter(x=>x.suitability>=65 && ((typeof managerPlayerSeniorReady==="function"&&managerPlayerSeniorReady(x.p,club,standards)) || (x.p.overall||0)>=standards.backup-1));
+  const natural=candidates.filter(x=>squadPlanningPrimaryGroup(x.p)===group);
+  const selected=candidates.filter(x=>starterIds.has(String(x.p.id)));
+  const starterFloor=Math.max(65,standards.starter-3);
+  const startersGood=selected.length>=required && selected.slice(0,required).every(x=>(x.p.overall||0)>=starterFloor);
+  let status="Adequate";
+  if(selected.length<required || credible.length<required+1) status="Thin";
+  else if(credible.length>healthy) status="Surplus";
+  else if(credible.length>=healthy && startersGood) status="Strong";
+  let rotationUsed=0,backupUsed=0;
+  const rows=candidates.map(x=>{
+    let role="Emergency cover";
+    if(starterIds.has(String(x.p.id))) role="First choice";
+    else if(x.suitability>=72 && (x.p.overall||0)>=standards.competition-2 && rotationUsed<Math.max(1,required)) {role="Rotation";rotationUsed++;}
+    else if(x.suitability>=60 && (x.p.overall||0)>=standards.backup-2 && backupUsed<Math.max(1,required)) {role="Backup";backupUsed++;}
+    return {...x,role,natural:squadPlanningPrimaryGroup(x.p)===group,wage:squadPlanningPlayerWage(x.p)};
   });
+  const top=rows.slice(0,3);
+  const topNames=top.map(x=>`${x.p.name.split(" ").slice(-1)[0]} (${x.p.overall||0})`).join(" • ");
+  return {group,label:squadPlanningGroupLabel(group),required,healthy,status,rows,natural,credible,selection,standards,topNames};
+}
 
-  if(q("squadHead")){
-    q("squadHead").innerHTML=squadView==="stats"
-      ? `<tr><th>Player</th><th>Pos</th><th>OVR</th><th>Morale</th><th class="num">Apps</th><th class="num">Starts</th><th class="num">G</th><th class="num">A</th><th class="num">AVG</th></tr>`
-      : `<tr><th>Player</th><th>Age</th><th>Value</th><th>Wage</th><th>Contract</th><th>Status</th></tr>`;
-  }
+function squadPlanningStatusClass(status){return String(status||"").toLowerCase();}
+function squadPlanningStatusDescription(status){return ({Thin:"Needs strengthening",Adequate:"Sufficient options",Strong:"Well covered",Surplus:"More depth than needed"})[status]||"";}
 
-  if(q("squadRows")){
-    q("squadRows").innerHTML=arr.map(p=>{
-      const star=typeof isClubStarPlayer==="function" && isClubStarPlayer(p,state.club);
-      const playerCell=`<td class="squad-player-cell"><div class="squad-player-name-row"><button type="button" class="player-link" data-player-id="${p.id}">${p.name}</button>${star?`<span class="star-player-badge" title="Star player — selling may upset supporters">★ STAR</span>`:""}</div><div class="muted small">${p.nationality}</div></td>`;
-      if(squadView==="stats"){
-        return `<tr>
-          ${playerCell}
-          <td>${primarySquadPosition(p)==="OTHER"?p.positions:primarySquadPosition(p)}</td>
-          <td><span class="rating">${p.overall}</span></td>
-          <td class="${playerMoraleClass(state.playerMorale[p.id])}">${state.playerMorale[p.id]}</td>
-          <td class="num">${state.playerStats[p.id]?.appearances||0}</td>
-          <td class="num">${state.playerStats[p.id]?.starts||0}</td>
-          <td class="num">${state.playerStats[p.id]?.goals||0}</td>
-          <td class="num">${state.playerStats[p.id]?.assists||0}</td>
-          <td class="num">${playerAverageRating(p.id)?.toFixed(2)||"—"}</td>
-        </tr>`;
-      }
+const SQUAD_PLANNING_COORDS={
+  "4-2-3-1":[[50,89],[84,72],[61,72],[39,72],[16,72],[62,53],[38,53],[84,33],[50,33],[16,33],[50,12]],
+  "4-3-3":[[50,89],[84,72],[61,72],[39,72],[16,72],[50,55],[65,46],[35,46],[83,24],[17,24],[50,13]],
+  "4-4-2":[[50,89],[84,72],[61,72],[39,72],[16,72],[84,48],[62,48],[38,48],[16,48],[62,18],[38,18]],
+  "4-2-2-2":[[50,89],[84,72],[61,72],[39,72],[16,72],[62,52],[38,52],[68,33],[32,33],[62,16],[38,16]],
+  "3-4-2-1":[[50,89],[72,70],[50,72],[28,70],[84,51],[62,51],[38,51],[16,51],[67,31],[33,31],[50,12]],
+  "3-4-3":[[50,89],[72,70],[50,72],[28,70],[84,51],[62,51],[38,51],[16,51],[82,23],[18,23],[50,12]],
+  "3-5-2":[[50,89],[72,70],[50,72],[28,70],[84,50],[66,47],[50,54],[34,47],[16,50],[62,16],[38,16]]
+};
 
-      const status=state.playerListStatus[p.id]==="Transfer"
-        ? `<span class="listed-badge listed-transfer">Transfer</span>`
-        : state.playerListStatus[p.id]==="Loan"
-          ? `<span class="listed-badge listed-loan">Loan</span>`
-          : state.injuries?.[p.id]
-            ? `<span class="injury-chip">${state.injuries[p.id].weeksLeft}w</span>`
-            : `<span class="status-fit ${playerConditionClass(p)}">${Math.round(playerCondition(p))}% • ${playerConditionLabel(p)}</span>`;
+function renderSquadDepthPitch(){
+  const selection=squadPlanningPreferredSelection(state.club);
+  const coords=SQUAD_PLANNING_COORDS[selection.formation]||SQUAD_PLANNING_COORDS["4-2-3-1"];
+  return `<div class="squad-depth-pitch" aria-label="${selection.formation} squad depth map">${selection.slots.map((slot,i)=>{
+    const group=typeof formationSlotToRecruitmentGroup==="function"?formationSlotToRecruitmentGroup(slot):slot;
+    const data=squadPlanningPositionData(group,state.club);
+    const xy=coords[i]||[50,50];
+    return `<button type="button" class="depth-pitch-node ${squadPlanningStatusClass(data.status)} squad-position-open" data-position-group="${group}" style="left:${xy[0]}%;top:${xy[1]}%" aria-label="${data.label}: ${data.status}">${slot}</button>`;
+  }).join("")}</div>`;
+}
 
-      return `<tr>
-        ${playerCell}
-        <td>${p.age}</td>
-        <td>${money(p.value)}</td>
-        <td>${money(state.playerContracts[p.id]?.wage??p.wage)}/wk</td>
-        <td>${state.playerContracts[p.id]?.endYear??p.contract}</td>
-        <td>${status}</td>
-      </tr>`;
-    }).join("");
-  }
+function renderSquadDepthPlanning(){
+  const el=q("squadDepthPlanning"); if(!el) return;
+  const formation=typeof managerFormationForClub==="function"?managerFormationForClub(state.club):"4-2-3-1";
+  const groups=squadPlanningGroups(state.club);
+  const data=groups.map(g=>squadPlanningPositionData(g,state.club));
+  const fullSquad=squad(state.club);
+  const avgAge=fullSquad.length?fullSquad.reduce((a,p)=>a+(p.age||0),0)/fullSquad.length:0;
+  const totalWage=fullSquad.reduce((a,p)=>a+squadPlanningPlayerWage(p),0);
+  el.innerHTML=`
+    <div class="planning-intro-card">
+      <div class="sectiontitle"><div><div class="eyebrow">MANAGER'S SHAPE</div><h3 style="margin:3px 0 0">Squad Depth</h3></div><span class="pill">${formation}</span></div>
+      <div class="muted small">Based on the manager's preferred formation. Secondary positions count as cover, but natural players and first-team quality carry more weight.</div>
+      <div class="depth-pitch-wrap">${renderSquadDepthPitch()}<div class="depth-legend"><span><i class="thin"></i>Thin</span><span><i class="adequate"></i>Adequate</span><span><i class="strong"></i>Strong</span><span><i class="surplus"></i>Surplus</span></div></div>
+    </div>
+    <div class="squad-depth-list">${data.map(d=>`<button type="button" class="squad-depth-row squad-position-open" data-position-group="${d.group}"><span class="depth-position-code">${d.group}</span><span class="depth-position-copy"><b>${d.label}</b><small>${d.topNames||`${d.rows.length} available option${d.rows.length===1?'':'s'}`}</small></span><span class="depth-status ${squadPlanningStatusClass(d.status)}">${d.status}</span><span class="depth-chevron">›</span></button>`).join("")}</div>
+    <div class="squad-planning-summary"><div><span>Total players</span><b>${fullSquad.length}</b></div><div><span>Average age</span><b>${avgAge.toFixed(1)}</b></div><div><span>Total wages</span><b>${money(totalWage)}/wk</b></div></div>
+    <div class="notice squad-planning-note"><b>What does this mean?</b><br><span class="muted small">Tap any position to see natural options, secondary cover, ratings, wages and the manager's assessment before making a transfer decision.</span></div>`;
+  wireSquadPlanningPositionButtons();
+}
 
-  document.querySelectorAll(".player-link").forEach(btn=>{
-    btn.addEventListener("click",()=>openPlayerProfile(btn.dataset.playerId));
-  });
+function managerPlanningBench(selection){
+  const used=new Set(selection.xi.filter(x=>x.playerId).map(x=>String(x.playerId)));
+  return clubSquadPlayers(state.club).filter(p=>!used.has(String(p.id))).map(p=>{
+    let best=0;
+    selection.slots.forEach(slot=>{best=Math.max(best,positionSuitability(p,slot));});
+    return {p,best,score:(p.overall||0)*0.78+best*0.22};
+  }).filter(x=>x.best>=40).sort((a,b)=>b.score-a.score).slice(0,7).map(x=>x.p);
+}
+
+function renderManagerXIPlanning(){
+  const el=q("managerXIPlanning"); if(!el) return;
+  const selection=squadPlanningPreferredSelection(state.club);
+  const coords=SQUAD_PLANNING_COORDS[selection.formation]||SQUAD_PLANNING_COORDS["4-2-3-1"];
+  const bench=managerPlanningBench(selection);
+  const statuses=squadPlanningGroups(state.club).map(g=>squadPlanningPositionData(g,state.club));
+  const thin=statuses.filter(x=>x.status==="Thin"), strong=statuses.filter(x=>x.status==="Strong"||x.status==="Surplus"), surplus=statuses.filter(x=>x.status==="Surplus");
+  const starters=new Set(selection.xi.filter(x=>x.playerId).map(x=>String(x.playerId))),benchIds=new Set(bench.map(p=>String(p.id)));
+  const fringe=clubSquadPlayers(state.club).filter(p=>!starters.has(String(p.id))&&!benchIds.has(String(p.id))).sort((a,b)=>(b.overall||0)-(a.overall||0)).slice(0,5);
+  const insights=[];
+  if(strong.length) insights.push({cls:"good",text:`Strong depth in ${strong.slice(0,2).map(x=>x.label.toLowerCase()).join(" and ")}.`});
+  if(thin.length) insights.push({cls:"warn",text:`Would like more depth/quality at ${thin.slice(0,2).map(x=>x.label.toLowerCase()).join(" and ")}.`});
+  if(surplus.length) insights.push({cls:"info",text:`Potential surplus at ${surplus.slice(0,2).map(x=>x.label.toLowerCase()).join(" and ")}.`});
+  if(!thin.length) insights.push({cls:"good",text:"No immediate structural holes in the preferred shape."});
+  el.innerHTML=`
+    <div class="manager-xi-card"><div class="sectiontitle"><div><div class="eyebrow">MANAGER'S PREFERRED TEAM</div><h3 style="margin:3px 0 0">${selection.formation}</h3></div><span class="pill">When fit</span></div><div class="muted small">This is the manager's stable first-choice hierarchy, ignoring short-term fatigue and injuries.</div>
+      <div class="manager-xi-pitch">${selection.xi.map((x,i)=>{const xy=coords[i]||[50,50],p=x.player;return `<button type="button" class="xi-player-node ${p?'':'vacant'}" ${p?`data-player-id="${p.id}"`:''} style="left:${xy[0]}%;top:${xy[1]}%"><span>${x.slot}</span><b>${p?p.name.split(" ").slice(-1)[0]:"Vacant"}</b><strong>${p?p.overall:"—"}</strong></button>`;}).join("")}</div></div>
+    <div class="manager-insights-card"><div class="sectiontitle"><h3 style="margin:0">Manager's insights</h3></div>${insights.slice(0,4).map(i=>`<div class="manager-insight ${i.cls}"><span>${i.cls==='good'?'✓':i.cls==='warn'?'!':'i'}</span><div>${i.text}</div></div>`).join("")}</div>
+    <div class="manager-bench-card"><div class="sectiontitle"><h3 style="margin:0">Bench / next options</h3><span class="pill">Pecking order</span></div>${bench.map(p=>`<button type="button" class="manager-bench-row" data-player-id="${p.id}"><span><b>${p.name}</b><small>${p.positions}</small></span><span class="rating">${p.overall}</span><span>${money(squadPlanningPlayerWage(p))}/wk</span><strong>›</strong></button>`).join("")||`<div class="muted small">No additional senior options.</div>`}</div>
+    ${fringe.length?`<div class="manager-fringe-card"><div class="sectiontitle"><h3 style="margin:0">Outside the current matchday group</h3><span class="pill">Fringe</span></div><div class="muted small" style="margin-bottom:8px">These players are outside the manager's preferred XI and next seven options. That does not automatically mean they should be sold.</div>${fringe.map(p=>`<button type="button" class="manager-bench-row" data-player-id="${p.id}"><span><b>${p.name}</b><small>${p.positions}</small></span><span class="rating">${p.overall}</span><span>${money(squadPlanningPlayerWage(p))}/wk</span><strong>›</strong></button>`).join("")}</div>`:""}`;
+  el.querySelectorAll("[data-player-id]").forEach(btn=>btn.addEventListener("click",()=>openPlayerProfile(btn.dataset.playerId)));
+}
+
+function renderSquadPlanning(){
+  document.querySelectorAll(".squad-planning-btn").forEach(btn=>btn.classList.toggle("active",btn.dataset.planningView===squadPlanningView));
+  q("squadDepthPlanning")?.classList.toggle("hide",squadPlanningView!=="depth");
+  q("managerXIPlanning")?.classList.toggle("hide",squadPlanningView!=="xi");
+  if(squadPlanningView==="depth") renderSquadDepthPlanning(); else renderManagerXIPlanning();
+}
+
+function squadPlanningAssessment(data){
+  const first=data.rows.find(r=>r.role==="First choice"),second=data.rows.find(r=>r.role==="Rotation")||data.rows.find(r=>r.role==="Backup"),cover=data.rows.filter(r=>r.role==="Emergency cover").slice(0,2);
+  if(data.status==="Thin") return `The manager sees this position as thin. ${first?`${first.p.name} is the leading option, but`:"There is no established first choice and"} the squad does not currently have enough credible cover for the ${data.required} starting role${data.required===1?'':'s'}.`;
+  if(data.status==="Surplus") return `The manager believes there is more senior depth here than the ${data.selection.formation} normally requires. ${first?`${first.p.name} leads the pecking order.`:""} One fringe option could be moved on if the club wants to free wages or funds.`;
+  if(data.status==="Strong") return `The manager considers this a well-covered area. ${first?`${first.p.name} is among the first-choice options.`:""}${second?` ${second.p.name} provides credible rotation.`:""}`;
+  return `The manager considers the position adequately covered for the season.${first?` ${first.p.name} is a first-choice option.`:""}${second?` ${second.p.name} provides ${second.role.toLowerCase()}.`:""}${cover.length?` ${cover.map(x=>x.p.name).join(" and ")} can also cover the role if needed.`:""}`;
+}
+
+function openSquadDepthPosition(group){
+  const data=squadPlanningPositionData(group,state.club),modal=q("squadDepthModal"); if(!modal) return;
+  q("squadDepthModalTitle").textContent=data.label;q("squadDepthModalMeta").textContent=`${data.rows.length} option${data.rows.length===1?'':'s'} • ${data.natural.length} natural • Manager: ${data.status}`;
+  const body=q("squadDepthModalBody"),natural=data.rows.filter(r=>r.natural),cover=data.rows.filter(r=>!r.natural);
+  const rowHtml=r=>`<button type="button" class="depth-player-row" data-player-id="${r.p.id}"><span class="depth-player-main"><b>${r.p.name}</b><small>${r.p.positions} • ${r.role}${state.injuries?.[r.p.id]?` • Injured ${state.injuries[r.p.id].weeksLeft}w`:''}</small></span><span><small>OVR</small><b class="depth-ovr">${r.p.overall||0}</b></span><span><small>Age</small><b>${r.p.age||'—'}</b></span><span><small>Wage</small><b>${money(r.wage)}/wk</b></span><strong class="depth-chevron">›</strong></button>`;
+  body.innerHTML=`<div class="depth-detail-status ${squadPlanningStatusClass(data.status)}"><span class="depth-status ${squadPlanningStatusClass(data.status)}">${data.status}</span><div><b>${squadPlanningStatusDescription(data.status)}</b><small>${data.credible.length} credible senior option${data.credible.length===1?'':'s'} for ${data.required} starting role${data.required===1?'':'s'}.</small></div></div><div class="depth-detail-section"><div class="eyebrow">NATURAL OPTIONS</div>${natural.map(rowHtml).join("")||`<div class="notice small">No natural senior option currently in the squad.</div>`}</div>${cover.length?`<div class="depth-detail-section"><div class="eyebrow">ADDITIONAL COVER</div>${cover.map(rowHtml).join("")}</div>`:""}<div class="manager-position-assessment"><div class="eyebrow">MANAGER'S ASSESSMENT</div><p>${squadPlanningAssessment(data)}</p></div>`;
+  body.querySelectorAll("[data-player-id]").forEach(btn=>btn.addEventListener("click",()=>openPlayerProfile(btn.dataset.playerId)));
+  modal.classList.remove("hide");document.documentElement.classList.add("modal-open");document.body.classList.add("modal-open");
+}
+function closeSquadDepthPosition(){q("squadDepthModal")?.classList.add("hide");if(q("playerModal")?.classList.contains("hide")){document.documentElement.classList.remove("modal-open");document.body.classList.remove("modal-open");}}
+function wireSquadPlanningPositionButtons(){document.querySelectorAll(".squad-position-open").forEach(btn=>btn.addEventListener("click",()=>openSquadDepthPosition(btn.dataset.positionGroup)));}
+function openSquadPlanningForPosition(group){squadSection="planning";squadPlanningView="depth";showTab("squad");requestAnimationFrame(()=>openSquadDepthPosition(group));}
+
+function renderSquad(){
+  ensurePlayerState();const fullSquad=squad(state.club);
+  if(q("squadTitle")) q("squadTitle").textContent=state.club+" squad";if(q("squadCount")) q("squadCount").textContent=fullSquad.length+" players";
+  document.querySelectorAll(".squad-section-btn").forEach(btn=>btn.classList.toggle("active",btn.dataset.squadSection===squadSection));q("squadPlayersView")?.classList.toggle("hide",squadSection!=="players");q("squadPlanningView")?.classList.toggle("hide",squadSection!=="planning");if(squadSection==="planning"){renderSquadPlanning();return;}
+  const search=q("squadSearch"),query=(search?.value||"").toLowerCase();
+  const arr=fullSquad.filter(p=>(p.name+" "+p.positions+" "+p.nationality).toLowerCase().includes(query)).sort((a,b)=>{const posDiff=squadPositionRank(a)-squadPositionRank(b);if(posDiff!==0)return posDiff;const ratingDiff=(b.overall||0)-(a.overall||0);if(ratingDiff!==0)return ratingDiff;return String(a.name).localeCompare(String(b.name));});
+  const squadValue=fullSquad.reduce((sum,p)=>sum+(p.value||0),0),avgWage=fullSquad.length?fullSquad.reduce((sum,p)=>sum+(state.playerContracts?.[p.id]?.wage??p.wage??0),0)/fullSquad.length:0,avgAge=fullSquad.length?fullSquad.reduce((sum,p)=>sum+(p.age||0),0)/fullSquad.length:0;
+  if(q("squadValueMetric"))q("squadValueMetric").textContent=money(squadValue);if(q("squadAvgWageMetric"))q("squadAvgWageMetric").textContent=money(avgWage)+"/wk";if(q("squadAvgAgeMetric"))q("squadAvgAgeMetric").textContent=avgAge.toFixed(1);
+  document.querySelectorAll(".squad-view-btn").forEach(btn=>btn.classList.toggle("active",btn.dataset.squadView===squadView));if(q("squadHead"))q("squadHead").innerHTML=squadView==="stats"?`<tr><th>Player</th><th>Pos</th><th>OVR</th><th>Morale</th><th class="num">Apps</th><th class="num">Starts</th><th class="num">G</th><th class="num">A</th><th class="num">AVG</th></tr>`:`<tr><th>Player</th><th>Age</th><th>Value</th><th>Wage</th><th>Contract</th><th>Status</th></tr>`;
+  if(q("squadRows"))q("squadRows").innerHTML=arr.map(p=>{const star=typeof isClubStarPlayer==="function"&&isClubStarPlayer(p,state.club),playerCell=`<td class="squad-player-cell"><div class="squad-player-name-row"><button type="button" class="player-link" data-player-id="${p.id}">${p.name}</button>${star?`<span class="star-player-badge" title="Star player — selling may upset supporters">★ STAR</span>`:""}</div><div class="muted small">${p.nationality}</div></td>`;if(squadView==="stats")return `<tr>${playerCell}<td>${primarySquadPosition(p)==="OTHER"?p.positions:primarySquadPosition(p)}</td><td><span class="rating">${p.overall}</span></td><td class="${playerMoraleClass(state.playerMorale[p.id])}">${state.playerMorale[p.id]}</td><td class="num">${state.playerStats[p.id]?.appearances||0}</td><td class="num">${state.playerStats[p.id]?.starts||0}</td><td class="num">${state.playerStats[p.id]?.goals||0}</td><td class="num">${state.playerStats[p.id]?.assists||0}</td><td class="num">${playerAverageRating(p.id)?.toFixed(2)||"—"}</td></tr>`;const status=state.playerListStatus[p.id]==="Transfer"?`<span class="listed-badge listed-transfer">Transfer</span>`:state.playerListStatus[p.id]==="Loan"?`<span class="listed-badge listed-loan">Loan</span>`:state.injuries?.[p.id]?`<span class="injury-chip">${state.injuries[p.id].weeksLeft}w</span>`:`<span class="status-fit ${playerConditionClass(p)}">${Math.round(playerCondition(p))}% • ${playerConditionLabel(p)}</span>`;return `<tr>${playerCell}<td>${p.age}</td><td>${money(p.value)}</td><td>${money(state.playerContracts[p.id]?.wage??p.wage)}/wk</td><td>${state.playerContracts[p.id]?.endYear??p.contract}</td><td>${status}</td></tr>`;}).join("");
+  document.querySelectorAll(".player-link").forEach(btn=>btn.addEventListener("click",()=>openPlayerProfile(btn.dataset.playerId)));
 }
 
 let DATABASE_VISIBLE_LIMIT=50;
@@ -5923,7 +6169,10 @@ function renderPlayableClubSelection(leagueId='premier-league'){
   document.querySelectorAll('[data-club-league]').forEach(btn=>btn.classList.toggle('active',btn.dataset.clubLeague===leagueId));
 }
 
-function init(){
+async function init(){
+  await initialiseSaveStorage();
+  renderSavedCareers();
+  updateSaveStatus();
   renderPlayableClubSelection('premier-league');
   document.querySelectorAll('[data-club-league]').forEach(btn=>btn.addEventListener('click',()=>renderPlayableClubSelection(btn.dataset.clubLeague)));
   document.querySelectorAll("#tabs button").forEach(btn=>{
@@ -5962,6 +6211,15 @@ function init(){
     if(tutorialIsFirstRun) skipTutorial();
     else closeTutorial();
   });
+
+  document.querySelectorAll(".squad-section-btn").forEach(btn=>{
+    btn.addEventListener("click",()=>{squadSection=btn.dataset.squadSection||"players";renderSquad();});
+  });
+  document.querySelectorAll(".squad-planning-btn").forEach(btn=>{
+    btn.addEventListener("click",()=>{squadPlanningView=btn.dataset.planningView||"depth";renderSquad();});
+  });
+  q("closeSquadDepthModal")?.addEventListener("click",closeSquadDepthPosition);
+  q("squadDepthModal")?.addEventListener("click",e=>{if(e.target===q("squadDepthModal"))closeSquadDepthPosition();});
 
   document.querySelectorAll(".squad-view-btn").forEach(btn=>{
     btn.addEventListener("click",()=>{
@@ -6059,9 +6317,6 @@ function init(){
   q("cancelContractBtn")?.addEventListener("click",()=>q("contractNegotiation")?.classList.add("hide"));
   q("transferListBtn")?.addEventListener("click",e=>toggleTransferList(e.currentTarget.dataset.playerId));
   q("loanListBtn")?.addEventListener("click",e=>toggleLoanList(e.currentTarget.dataset.playerId));
-  migrateLegacySave();
-  renderSavedCareers();
-  updateSaveStatus();
   if(typeof stadiumDevMode==="function" && stadiumDevMode()){
     const params=new URLSearchParams(window.location.search);
     if(params.get("stadiumSelfTest")==="1"){

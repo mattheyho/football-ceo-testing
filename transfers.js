@@ -1041,6 +1041,40 @@ function managerHealthyDepthForPosition(position,club=state.club){
   return Math.max(2,required*2);
 }
 
+function managerTransferRecommendationContext(player,club=state.club){
+  if(!player || club!==state.club) return null;
+  if(typeof playerRecentlyTransferred==="function" && playerRecentlyTransferred(player,180)) return null;
+  const selection=typeof managerSelectXI==="function"?managerSelectXI(club,{planning:true,includeInjured:true}):null;
+  const starterIds=new Set((selection?.xi||[]).filter(x=>x.playerId).map(x=>String(x.playerId)));
+  if(starterIds.has(String(player.id))) return null;
+  const group=typeof primaryRecruitmentGroup==="function"?primaryRecruitmentGroup(player):null;
+  const squadPlayers=clubSquadPlayers(club);
+  const wages=squadPlayers.map(p=>state.playerContracts?.[p.id]?.wage??p.wage??0).filter(Number.isFinite).sort((a,b)=>a-b);
+  const median=wages.length?wages[Math.floor(wages.length/2)]:0;
+  const wage=state.playerContracts?.[player.id]?.wage??player.wage??0;
+  const groupPlayers=group?squadPlayers.filter(p=>playsPositionGroup(p,group)):[];
+  const healthy=group&&typeof managerHealthyDepthForPosition==="function"?managerHealthyDepthForPosition(group,club):2;
+  const stats=state.playerStats?.[player.id]||{};
+  const week=Math.max(1,state.week||1);
+  const usage=(stats.appearances||0)/week;
+  let label="Not in preferred XI";
+  let reason=`${player.name} is outside the manager's preferred XI and is not expected to be a regular starter.`;
+  if(group && groupPlayers.length>healthy){
+    label="Unnecessary depth";
+    reason=`The manager sees ${groupPlayers.length} ${positionLabel(group)} options for a squad shape that normally needs around ${healthy}. ${player.name} is outside the preferred XI, so moving him on would reduce congestion.`;
+  }else if(median>0 && wage>=median*1.35){
+    label="Wage reduction";
+    reason=`${player.name} is outside the preferred XI and earns ${money(wage)}/week, above the squad's typical wage. The manager believes those wages could be used more effectively elsewhere.`;
+  }else if((player.age||0)>=31){
+    label="Squad refresh";
+    reason=`${player.name} is outside the preferred XI and the manager sees an opportunity to refresh the squad before his value and role decline further.`;
+  }else if(usage<0.30 && state.week>=5){
+    label="Low expected minutes";
+    reason=`${player.name} has been on the fringes of the team and the manager expects limited minutes in the current ${managerFormationForClub(club)}.`;
+  }
+  return {label,reason,position:group,wage,medianWage:median};
+}
+
 function managerOutgoingRecommendation(position,context={}){
   ensureContractState();
   const club=context.club||state.club;
@@ -1117,6 +1151,7 @@ function managerOutgoingRecommendation(position,context={}){
     position,
     healthyDepth,
     currentSeniorDepth:senior.length,
+    reasonLabel:senior.length>=healthyDepth?"Unnecessary depth":"Fund incoming signing",
     reason:`The squad already has ${senior.length} senior ${positionLabel(position)} options for ${required} starting slot${required===1?"":"s"}. If another player arrives, the manager recommends moving one fringe option on to protect minutes, wages and SCR.`
   };
 }
@@ -1449,7 +1484,8 @@ function maybeGenerateManagerSquadRequest(){
     }
 
     if(p.age>=29 && p.overall<=74 && state.playerListStatus?.[p.id]!=="Transfer"){
-      options.push({type:"transfer",playerId:p.id,priority:2});
+      const transferContext=managerTransferRecommendationContext(p,state.club);
+      if(transferContext) options.push({type:"transfer",playerId:p.id,priority:2,reasonLabel:transferContext.label,reason:transferContext.reason,position:transferContext.position});
     }
   });
 
@@ -1584,13 +1620,11 @@ function maybeGenerateManagerSquadRequest(){
       id,
       type:pick.type,
       playerId:p.id,
-      position:pick.position||null,
       squadRole:pick.squadRole||null,
       alternatives:pick.alternatives||[],
       shortlist:pick.shortlist||[],
       urgency:pick.urgency||null,
       needType:pick.needType||null,
-      reason:pick.reason||null,
       vacancy:Boolean(pick.vacancy),
       replacementOverall:pick.replacementOverall||0,
       replacementAge:pick.replacementAge||0,
@@ -1599,6 +1633,9 @@ function maybeGenerateManagerSquadRequest(){
       replacementFee:pick.replacementFee||0,
       outgoingRecommendation:pick.outgoingRecommendation||null,
       recruitmentPlan:pick.recruitmentPlan||null,
+      reasonLabel:pick.reasonLabel||null,
+      reason:pick.reason||null,
+      position:pick.position||(pick.type!=="sign"&&p?primaryRecruitmentGroup(p):null),
       reminder:Boolean(reminderMemory?.count),
       resolved:false,
       manager:manager.name
@@ -1625,7 +1662,7 @@ function maybeGenerateManagerSquadRequest(){
     }else if(pick.type==="renew"){
       wording=`${manager.name} wants the club to open contract talks with ${p.name}.`;
     }else if(pick.type==="transfer"){
-      wording=`${manager.name} recommends placing ${p.name} on the transfer list.`;
+      wording=`${manager.name} recommends placing ${p.name} on the transfer list${pick.reasonLabel?` — ${pick.reasonLabel.toLowerCase()}`:""}.`;
     }else{
       wording=`${manager.name} recommends making ${p.name} available for loan.`;
     }
@@ -3296,18 +3333,18 @@ function managerFixtureImportance(club,opponent=null){
 function managerSelectXI(club,context={}){
   const formation=managerFormationForClub(club);
   const shape=MANAGER_FORMATIONS[formation]||MANAGER_FORMATIONS["4-2-3-1"];
-  const available=clubSquadPlayers(club).filter(p=>!state.injuries?.[p.id]);
+  const available=clubSquadPlayers(club).filter(p=>context.includeInjured || !state.injuries?.[p.id]);
   const slots=shape.slots;
 
   const playerSlotScore=(p,slot)=>{
     const suitability=positionSuitability(p,slot);
     if(suitability<=0) return -1e6;
     const stats=club===state.club ? state.playerStats?.[p.id] : null;
-    const formBonus=stats?.lastRating ? (stats.lastRating-6.5)*0.8 : 0;
-    const conditionAdj=managerConditionSelectionAdjustment(p,club,context);
-    const workloadAdj=typeof workloadMinutes==="function" && workloadMinutes(p,14)>=320
-      ? -(managerRotationTendency(club)/100)*2.4 : 0;
-    const usageAdj=managerUsageSelectionAdjustment(p,club,context);
+    const formBonus=context.planning?0:(stats?.lastRating ? (stats.lastRating-6.5)*0.8 : 0);
+    const conditionAdj=context.planning?0:managerConditionSelectionAdjustment(p,club,context);
+    const workloadAdj=context.planning?0:(typeof workloadMinutes==="function" && workloadMinutes(p,14)>=320
+      ? -(managerRotationTendency(club)/100)*2.4 : 0);
+    const usageAdj=context.planning?0:managerUsageSelectionAdjustment(p,club,context);
     // Suitability is deliberately stronger than in v0.24.2: the whole-XI solver
     // should preserve natural strikers/keepers/centre-backs for scarce roles.
     return (p.overall||0)*0.68+suitability*0.32+formBonus+conditionAdj+workloadAdj+usageAdj;

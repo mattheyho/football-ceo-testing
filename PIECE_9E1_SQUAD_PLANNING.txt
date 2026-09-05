@@ -1,0 +1,57 @@
+Football CEO v0.24.36 — Squad Planning & Manager Transparency
+
+BASE
+- Built directly on v0.24.35 Save System Hardening.
+- Includes the IndexedDB app-style local save system and all prior gameplay work.
+
+SQUAD NAVIGATION
+- Existing Squad bottom-nav item remains unchanged.
+- Squad now has two top-level views: Players | Squad Planning.
+- Squad Planning has: Squad Depth | Manager's XI.
+
+SQUAD DEPTH
+- Linked to the current manager's preferred formation.
+- Positions are rated Thin / Adequate / Strong / Surplus.
+- Depth weighting considers starting slots, natural positions, secondary-position suitability, player quality and senior-readiness rather than raw body count alone.
+- Formation depth map and position list both open position detail.
+- Position detail separates natural options from additional cover and shows:
+  * manager role (First choice / Rotation / Backup / Emergency cover)
+  * OVR
+  * age
+  * weekly wage
+  * injury context
+  * manager assessment
+- Every player row opens the existing player profile.
+
+MANAGER'S XI
+- Shows the manager's preferred formation and stable first-choice XI.
+- Planning XI ignores short-term fatigue, workload, form noise and injuries so it represents the manager's normal when-fit hierarchy rather than today's match selection.
+- Shows bench / next options with OVR and wage.
+- Shows fringe players outside the preferred XI + next seven.
+- Adds concise manager insights based on positional depth.
+
+TRANSFER-LIST TRANSPARENCY
+- Manager transfer-list recommendations now carry a reason label and explanation.
+- Current reason types include:
+  * Unnecessary depth
+  * Wage reduction
+  * Squad refresh
+  * Low expected minutes
+  * Not in preferred XI
+- Decision UI provides View profile and View squad depth before Approve / Reject.
+- Recruitment-linked outgoing recommendations also expose the outgoing player's profile and positional depth before listing.
+
+RECENT SIGNING GUARD
+- A player signed by the user within the last 180 career days is protected from normal manager sell recommendations.
+- Existing open transfer-list requests from an older save are automatically withdrawn if the player falls inside that recent-signing window.
+- This specifically prevents cases such as a manager immediately asking the CEO to sell a player the club has just signed.
+
+SAVE SYSTEM
+- v0.24.35 IndexedDB save hardening is included in full.
+- No return to localStorage career blobs.
+- Export/import remains available as backup.
+
+OUT OF SCOPE
+- No League One playability yet.
+- No tactical control for the CEO; the formation shown belongs to the manager.
+- No player photos added.

@@ -1,0 +1,30 @@
+Football CEO v0.24.35 — Save System Hardening
+
+Scope
+- Replaces full-career localStorage saves with IndexedDB-backed device saves.
+- Keeps the existing five career slots, autosave/manual save, export and import UX.
+- Existing localStorage careers migrate automatically on first launch after updating.
+
+Storage architecture
+- IndexedDB database: football-ceo-careers
+- Separate object stores for full career state and lightweight save metadata.
+- Full career state is stored as structured app data rather than one giant JSON localStorage string.
+- Save writes are asynchronous and serialized so rapid autosaves cannot overwrite each other out of order.
+- Save status now reports Saving…, Autosaved on device, or a clear failure state.
+- The PWA requests persistent browser storage where the platform supports it.
+
+Migration safety
+- Reads old slot manifests even when localStorage is completely full.
+- Scans for orphaned footballCEO_save_* blobs in case an old quota failure occurred after the career blob was written but before the manifest updated.
+- Copies each career to IndexedDB and verifies the new record exists before deleting the old large localStorage blob.
+- Very old footballCEO2526 single-save format is also migrated.
+- Partial migration failures leave the old localStorage copies intact for recovery.
+
+Compatibility
+- Export/import JSON remains supported as a portable backup and device-transfer format.
+- No gameplay, finance, competition, player-development, promotion/relegation or parachute-payment state is intentionally discarded or recalculated by the storage change.
+- IndexedDB data remains local to the current browser/PWA installation; this is not cloud saving.
+
+PWA
+- save-storage.js is part of the offline app shell.
+- Cache/version tag updated to 0.24.35.
